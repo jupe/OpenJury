@@ -12,22 +12,24 @@ remote events use deadlines.
 
 ## Current status
 
-This repository is **scaffolding, not a working voting service**. Pages contain
-placeholder UI; no authentication, database queries, media uploads, voting,
-moderation, or lifecycle automation is implemented.
+The first implementation slice supports **magic-link sign-in, sign-out, group
+listing, and atomic group creation** with membership-scoped database access.
+It is **not yet a working voting service**: competitions, media uploads, voting,
+moderation, invitations, and lifecycle automation remain unimplemented.
 
 It includes shared UI components, an initial database schema, and CI/CD and
-infrastructure tooling. Database access is deny-by-default; real features need
-the [security prerequisites](docs/security.md) implemented first.
+infrastructure tooling. Competition data remains deny-by-default; further
+features need the [security prerequisites](docs/security.md) implemented first.
 
 ## Tech stack
 
 - **Next.js App Router**, React, and TypeScript for pages and application structure.
 - **Tailwind CSS** for styling shared UI components.
-- **Supabase**: PostgreSQL database, Auth (planned magic links / OAuth), Storage
+- **Supabase**: PostgreSQL database, Auth (magic links; OAuth planned), Storage
   (planned entry media), and Realtime (planned state updates).
 - **Deployment**: Docker images with optional GitHub Actions deployments to
-  self-hosted Docker hosts; Supabase Cloud for the persistent backend.
+  self-hosted Docker hosts, plus optional Vercel hosting; Supabase Cloud for the
+  persistent backend.
 
 ## Documentation
 

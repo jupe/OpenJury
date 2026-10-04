@@ -19,8 +19,9 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Open <http://localhost:3000>. All placeholder routes work without Supabase
-configuration. Restart the dev server after changing environment variables.
+Open <http://localhost:3000>. Without Supabase configuration, the app shows setup
+guidance and safe previews; authenticated group features require configuration.
+Restart the dev server after changing environment variables.
 If you do not use nvm, install the same Node.js version directly.
 
 Tooling uses the latest compatible stable releases. ESLint stays on 9.39.5
@@ -43,8 +44,8 @@ Available commands:
 For local browser tests, run `npx playwright install --with-deps chromium` first.
 Playwright builds and starts the production server automatically.
 Set `PLAYWRIGHT_BASE_URL` to test an already running container or deployment.
-Tests cover the implemented placeholder UI, navigation, and health checks—not
-authentication or voting features that do not exist yet.
+Tests cover navigation, health checks, and mocked authentication/group journeys.
+They do not replace database policy tests or a real Supabase magic-link check.
 
 ## 2. Configure Supabase
 
@@ -59,17 +60,27 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-public-anon-key
 These values are exposed to the browser. Never use a service-role key or secret
 key in a `NEXT_PUBLIC_*` variable, and never commit `.env.local`.
 
-`lib/supabase.ts` exports `getSupabase()`, a lazily initialized client for future
-browser-side integration. Calling it without configuration produces a clear
-error; simply rendering the starter does not require credentials. Server-side
-cookie/session handling should be added separately when implementing Auth.
+`lib/supabase.ts` exports `getSupabase()`, a lazily initialized browser client.
+Calling it without configuration produces a clear error; rendering public
+shells does not require credentials. Authentication is browser-session based;
+no private server-rendered data or server-side cookie session is implemented.
+
+Enable the email provider in Supabase Auth. Set the Site URL to the deployed
+origin and add exact allowed redirect URLs for each trusted environment, such
+as `http://localhost:3000/dashboard` locally and your production
+`https://<host>/dashboard`. The sign-in form sends a magic link returning to
+`/dashboard`; Supabase's browser client processes the returned session.
+Configure production email delivery and rate limits in Supabase. Do not allow
+untrusted preview origins against a production Auth project.
 
 ## 3. Apply the schema
 
-In the Supabase dashboard SQL Editor, run the contents of
-`supabase/migrations/01_initial_schema.sql` once against a fresh project. The
-migration expects Supabase's `auth.users` table and is not intended for a plain
-PostgreSQL database without that table.
+In the Supabase dashboard SQL Editor, run
+`supabase/migrations/01_initial_schema.sql` and then
+`supabase/migrations/02_group_access.sql`, once each, in that order. The
+migrations expect Supabase's `auth.users` table and API roles and are not intended
+for a plain PostgreSQL database without that infrastructure. Existing projects
+with the initial schema need only the second migration.
 
 Alternatively, with the Supabase CLI installed and Docker running, initialize a
 local Supabase workspace with `supabase init`, then run `supabase start` and

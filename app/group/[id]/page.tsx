@@ -1,5 +1,7 @@
 import Link from "next/link";
 import Card from "@/components/Card";
+import AuthBoundary from "@/components/AuthBoundary";
+import { GroupDetails } from "@/components/Groups";
 
 export default async function GroupPage({
   params,
@@ -11,11 +13,15 @@ export default async function GroupPage({
   return (
     <>
       <h1 className="text-3xl font-bold">Group lobby</h1>
-      <p className="break-all text-slate-600">Group: {id}</p>
-      <Card title="Competitions">
-        <p>Active and past competitions for this group will appear here.</p>
-        <Link href="/competition/demo" className="underline">Preview a competition</Link>
-      </Card>
+      <AuthBoundary demo={
+        <Card title="Demo group">
+          <p className="break-all">Group: {id}</p>
+          <p>Group competitions are not available yet. This is a public preview.</p>
+          <Link href="/competition/demo" className="underline">Preview a competition</Link>
+        </Card>
+      }>
+        <GroupDetails id={id} />
+      </AuthBoundary>
     </>
   );
 }

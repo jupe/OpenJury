@@ -1,18 +1,20 @@
 import Link from "next/link";
-import Button from "@/components/Button";
 import Card from "@/components/Card";
+import AuthBoundary from "@/components/AuthBoundary";
+import { GroupList } from "@/components/Groups";
 
 export default function DashboardPage() {
   return (
     <>
       <h1 className="text-3xl font-bold">Your groups</h1>
-      <Card title="Build your community">
-        <p>Your groups will appear here after authentication is connected.</p>
-        <Button disabled>Create group (coming soon)</Button>
-        <p>
+      <AuthBoundary demo={
+        <Card title="Build your community">
+          <p>Configure Supabase to sign in and create groups.</p>
           <Link href="/group/demo" className="underline">Preview a group</Link>
-        </p>
-      </Card>
+        </Card>
+      }>
+        <GroupList />
+      </AuthBoundary>
     </>
   );
 }

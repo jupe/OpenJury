@@ -20,14 +20,38 @@ disabled. Never supply a service-role key. This allows staging and production
 to use different Supabase projects without rebuilding the image. The original
 `NEXT_PUBLIC_*` variables remain available for local development.
 
-The app is currently stateless scaffolding. **Dev previews deliberately have no
+The frontend uses browser sessions and group data in Supabase. **Dev previews deliberately have no
 Supabase credentials or persistent backend**, so every preview starts empty.
-There is no working database-backed user journey to reset or test yet. Before
-adding those features, extend preview provisioning/teardown with an isolated
-disposable Supabase project or stack per PR, and add database/RLS tests. Never
+To exercise authenticated group journeys in previews, first extend preview
+provisioning/teardown with an isolated disposable Supabase project or stack per
+PR, and run database/RLS tests. Never
 point dev at staging or production. Persistent Supabase projects, backups, and
 schema migrations are managed separately; this frontend deployment does not
-reset or migrate them. Preserve the existing deny-by-default RLS boundary.
+reset or migrate them. Preserve deny-by-default access for competition data.
+
+## Supplemental Vercel hosting
+
+Vercel is an optional additional frontend host; it does not replace the existing
+Docker image promotion or self-hosted deployment workflows.
+
+Import this repository into Vercel with the Next.js preset. Use the repository
+root and the existing `npm run build` command. Ensure the Vercel build/runtime
+supports the Node.js and npm versions required by `package.json`; if it does
+not, retain Docker hosting until supported rather than silently changing the
+project's toolchain.
+
+Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` for each trusted Vercel environment.
+These are public client values delivered through the uncached
+`/runtime-config.js` endpoint; never set a service-role key. Apply both database
+migrations separately and configure Supabase Auth Site URL and exact
+`https://<host>/dashboard` redirect allowlist entries for each trusted domain.
+See [local development](development.md#2-configure-supabase).
+
+Keep untrusted previews unconfigured, or give each an isolated disposable
+Supabase backend. Do not share production data or production Auth redirect
+permissions with PR previews. Vercel deployments build independently and do
+not inherit Docker's tested-image promotion guarantee; protect production
+deployment with the repository's CI checks and Vercel deployment controls.
 
 ## Prepare self-hosted infrastructure
 
