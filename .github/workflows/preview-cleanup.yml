@@ -48,13 +48,16 @@ jobs:
             });
             if (context.eventName === 'workflow_dispatch' || pr.state === 'closed') {
               await exec.exec('bash', ['deploy/stack.sh', 'destroy']);
-              const deployments = await github.paginate(github.rest.repos.listDeployments, {
-                ...context.repo, environment: `dev-pr-${process.env.PR_NUMBER}`, per_page: 100,
-              });
-              for (const deployment of deployments) {
-                await github.rest.repos.createDeploymentStatus({
-                  ...context.repo, deployment_id: deployment.id, state: 'inactive',
+              for (const environment of ['dev', `dev-pr-${process.env.PR_NUMBER}`]) {
+                const deployments = await github.paginate(github.rest.repos.listDeployments, {
+                  ...context.repo, environment, per_page: 100,
                 });
+                for (const deployment of deployments) {
+                  if (deployment.description !== `PR #${process.env.PR_NUMBER} preview`) continue;
+                  await github.rest.repos.createDeploymentStatus({
+                    ...context.repo, deployment_id: deployment.id, state: 'inactive',
+                  });
+                }
               }
             }
 
