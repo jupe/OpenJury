@@ -19,6 +19,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      actions: read
     outputs:
       pr: ${{ steps.identify.outputs.pr }}
       sha: ${{ steps.identify.outputs.sha }}
@@ -29,6 +30,13 @@ jobs:
           script: |
             const run = context.payload.workflow_run;
             if (run.event !== 'pull_request' || run.conclusion !== 'success') return;
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              ...context.repo, run_id: run.id, per_page: 100
+            });
+            if (!artifacts.some(artifact => artifact.name === `image-${run.id}` && !artifact.expired)) {
+              core.info('No tested image was produced; skipping preview.');
+              return;
+            }
             // Fork runs may not populate workflow_run.pull_requests.
             const pulls = await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit, {
               ...context.repo, commit_sha: run.head_sha, per_page: 100

@@ -14,8 +14,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  checks:
-    name: checks
+  changes:
+    name: Detect relevant changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.changes.outputs.build }}
+    steps:
+      - name: Check out comparison history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Determine whether CI is needed
+        id: changes
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.sha }}
+        with:
+          script: |
+            const { shouldRunChecks } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/ci-changes.mjs`);
+            const build = shouldRunChecks({
+              eventName: context.eventName,
+              baseSha: process.env.BASE_SHA,
+              headSha: process.env.HEAD_SHA,
+            });
+            core.setOutput('build', build);
+            if (!build) core.info('Only documentation changed; skipping build and tests.');
+
+  build:
+    name: Build and test
+    needs: changes
+    if: needs.changes.outputs.build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -130,3 +161,24 @@ jobs:
       - name: Remove container
         if: always()
         run: docker rm --force openjury-ci || true
+
+  checks:
+    name: checks
+    needs: [changes, build]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require successful checks or a documentation-only skip
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          BUILD_REQUIRED: ${{ needs.changes.outputs.build }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          test "$CHANGES_RESULT" = success
+          if [ "$BUILD_REQUIRED" = true ]; then
+            test "$BUILD_RESULT" = success
+          else
+            test "$BUILD_REQUIRED" = false
+            test "$BUILD_RESULT" = skipped
+          fi
