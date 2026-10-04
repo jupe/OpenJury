@@ -252,13 +252,14 @@ test("magic link permits signup and redirects to dashboard with accessible statu
   await expect(page.getByRole("status")).toContainText("Check your email");
 });
 
-test("password sign-in appears only when enabled for previews", async ({ page }) => {
+test("password sign-in is hidden unless enabled", async ({ page }) => {
   await configure(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Sign in to OpenJury" })).toBeVisible();
   await expect(page.getByLabel("Password")).toHaveCount(0);
+});
 
-  await page.unrouteAll();
+test("preview password sign-in uses the seeded account", async ({ page }) => {
   await configure(page, false, true);
   await page.goto("/");
   const form = page.locator("form").filter({ has: page.getByLabel("Password") });
