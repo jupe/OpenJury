@@ -319,7 +319,7 @@ expires; rerun CI instead.
 - PR closure (merged **or unmerged**) triggers trusted cleanup without a dev
   approval. Deployment and cleanup share a per-PR lock; other PRs are independent.
   Reopening a PR triggers CI and a fresh preview.
-- If a runner is offline or an event was missed, run **PR preview → Run workflow**
+- If a runner is offline or an event was missed, run **PR preview cleanup → Run workflow**
   on `main`, supplying `pr_number`, to destroy that preview. This cleanup-only
   dispatch also works when `PREVIEW_CD_ENABLED` is disabled. Clean up existing
   previews before disabling the flag; disabling it is not a mass teardown.
