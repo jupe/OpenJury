@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Card from "@/components/Card";
 import AuthBoundary from "@/components/AuthBoundary";
 import { DemoHome } from "@/components/DemoViews";
 

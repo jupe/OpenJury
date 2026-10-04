@@ -35,8 +35,8 @@ test("landing and preview navigation @smoke", async ({ page }) => {
     await expect(page.getByRole("link", { name: "Preview a group" })).toHaveCount(0);
     await page.goto("/group/demo");
   } else {
-    await expect(page.getByRole("link", { name: "Northside Makers" })).toBeVisible();
-    await page.getByRole("link", { name: "Northside Makers" }).click();
+    await expect(page.getByRole("link", { name: "Northside Makers", exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Northside Makers", exact: true }).click();
   }
   await expect(page).toHaveURL(/\/group\/demo$/);
   if (configured) {
@@ -85,14 +85,14 @@ test("dynamic identifiers are displayed and preserved by admin links", async ({ 
   await page.goto(`/group/${encodeURIComponent(id)}`);
   await expect(page.getByText(`Group: ${id}`, { exact: true })).toBeVisible();
   await page.goto(`/competition/${encodeURIComponent(id)}`);
-  await expect(page.getByText(`Competition: ${id}`, { exact: true })).toBeVisible();
+  await expect(page.getByText(`Competition: ${id}`, { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("link", { name: "Admin review" }).first()).toHaveAttribute(
     "href",
     `/competition/${encodeURIComponent(id)}/admin`,
   );
   await page.getByRole("link", { name: "Admin review" }).first().click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Competition admin");
-  await expect(page.getByText(`Competition: ${id}`, { exact: true })).toBeVisible();
+  await expect(page.getByText(`Competition: ${id}`, { exact: true }).first()).toBeVisible();
 });
 
 test("mobile layout and main navigation", async ({ page }) => {

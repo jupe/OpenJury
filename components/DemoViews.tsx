@@ -77,7 +77,7 @@ export function DemoCompetition({ id }: { id: string }) {
         <p>Scoring categories: Presentation, Creativity, and Taste.</p>
         <div className="flex flex-wrap gap-4">
           <Link className="underline" href={demoGroup}>Back to Northside Makers</Link>
-          <Link className="underline" href={`${demoCompetition}/admin`}>Admin review</Link>
+          <Link className="underline" href={`/competition/${encodeURIComponent(id)}/admin`}>Admin review</Link>
         </div>
         <nav aria-label="Demo competition sections" className="flex flex-wrap gap-4">
           <a className="underline" href="#submission">Submission example</a>
@@ -145,7 +145,7 @@ export function DemoAdmin({ id }: { id: string }) {
         <p>Competition: {id}</p>
         <p>Example admin views: submission review, preliminary rankings, and publication.</p>
         <div className="flex flex-wrap gap-4">
-          <Link className="underline" href={demoCompetition}>Participant view</Link>
+          <Link className="underline" href={`/competition/${encodeURIComponent(id)}`}>Participant view</Link>
           <Link className="underline" href={demoGroup}>Back to Northside Makers</Link>
         </div>
       </Card>
