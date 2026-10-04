@@ -131,23 +131,23 @@ export function GroupDetails({ id }: { id: string }) {
     void (async () => {
       try {
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return;
-      const [groupResult, membershipResult] = await Promise.all([
-        client.from("groups").select("id,name").eq("id", id).abortSignal(controller.signal).maybeSingle(),
-        client.from("group_members").select("role").eq("group_id", id).eq("user_id", session.user.id).abortSignal(controller.signal).maybeSingle(),
-      ]);
-      if (!active) return;
-      if (groupResult.error) setError(`Unable to load group: ${groupResult.error.message}`);
-      else if (membershipResult.error) setError(`Unable to check group access: ${membershipResult.error.message}`);
-      else {
-        setGroup(groupResult.data);
-        setName(groupResult.data?.name ?? "");
-        setIsAdmin(membershipResult.data?.role === "admin");
+        const [groupResult, membershipResult] = await Promise.all([
+          client.from("groups").select("id,name").eq("id", id).abortSignal(controller.signal).maybeSingle(),
+          client.from("group_members").select("role").eq("group_id", id).eq("user_id", session.user.id).abortSignal(controller.signal).maybeSingle(),
+        ]);
+        if (!active) return;
+        if (groupResult.error) setError(`Unable to load group: ${groupResult.error.message}`);
+        else if (membershipResult.error) setError(`Unable to check group access: ${membershipResult.error.message}`);
+        else {
+          setGroup(groupResult.data);
+          setName(groupResult.data?.name ?? "");
+          setIsAdmin(membershipResult.data?.role === "admin");
+        }
+      } catch {
+        if (active) setError("Unable to load group. Please try again.");
+      } finally {
+        if (active) setLoading(false);
       }
-    } catch {
-      if (active) setError("Unable to load group. Please try again.");
-    } finally {
-      if (active) setLoading(false);
-    }
     })();
     return () => { active = false; controller.abort(); };
   }, [client, id, session.user.id, attempt]);
@@ -215,7 +215,7 @@ export function GroupDetails({ id }: { id: string }) {
             <Button className="bg-red-700 hover:bg-red-800 active:bg-red-900" disabled={saving} onClick={deleteGroup}>
               {saving ? "Working…" : "Remove group"}
             </Button>
-            <p className="mt-2 text-sm">Removing a group permanently deletes its competitions and other group data.</p>
+            <p className="mt-2 text-sm">Removing a group permanently deletes its competitions and other group data. Groups with disqualification audit records cannot be removed.</p>
           </div>
           {saveError && <p role="alert" className="mt-4">{saveError}</p>}
           {saveMessage && <p role="status" className="mt-4">{saveMessage}</p>}
