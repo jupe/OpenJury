@@ -82,7 +82,7 @@ test("dynamic identifiers are displayed and preserved by admin links", async ({ 
 
 test("mobile layout and main navigation", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
-  for (const path of ["/", "/dashboard", `/group/${"a".repeat(100)}`, `/competition/${"b".repeat(100)}/admin`]) {
+  for (const path of ["/", "/dashboard", `/group/${"a".repeat(100)}`, `/competition/${"b".repeat(100)}`, `/competition/${"b".repeat(100)}/admin`]) {
     await page.goto(path);
     await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

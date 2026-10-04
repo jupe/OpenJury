@@ -38,10 +38,10 @@ Available commands:
 | `npm run typecheck` | Check TypeScript without building |
 | `npm run build` | Type-check and create a production build |
 | `npm start` | Serve the production build |
-| `npm run test:e2e` | Run Chromium desktop/mobile browser tests |
+| `npm run test:e2e` | Run desktop Chromium, Android Chromium, and iPhone WebKit tests |
 | `npm run test:smoke` | Run the deployment smoke subset |
 
-For local browser tests, run `npx playwright install --with-deps chromium` first.
+For local browser tests, run `npx playwright install --with-deps chromium webkit` first.
 Playwright builds and starts the production server automatically.
 Set `PLAYWRIGHT_BASE_URL` to test an already running container or deployment.
 Tests cover navigation, health checks, and mocked authentication/group journeys.

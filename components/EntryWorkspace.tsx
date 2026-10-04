@@ -59,27 +59,47 @@ function MediaGallery({
 }) {
   const [images, setImages] = useState<Array<{ key: string; url: string }>>([]);
   const [error, setError] = useState("");
+  const [visible, setVisible] = useState(false);
+  const gallery = useRef<HTMLDivElement>(null);
   const keyList = mediaKeys.join("\n");
 
   useEffect(() => {
+    const element = gallery.current;
+    if (!element) return;
+    if (!("IntersectionObserver" in window)) {
+      void Promise.resolve().then(() => setVisible(true));
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setVisible(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: "200px" });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!visible) return;
     let active = true;
     const urls: string[] = [];
     void (async () => {
       try {
         await Promise.resolve();
-        if (active) setError("");
-        const downloaded = await Promise.all(
-          keyList ? keyList.split("\n").map(async (key) => {
-            const { data, error: downloadError } = await client.storage
-              .from("competition-submissions")
-              .download(key);
-            if (downloadError) throw downloadError;
-            const url = URL.createObjectURL(data);
-            urls.push(url);
-            return { key, url };
-          }) : [],
-        );
-        if (active) setImages(downloaded);
+        if (!active) return;
+        setError("");
+        setImages([]);
+        for (const key of keyList ? keyList.split("\n") : []) {
+          const { data, error: downloadError } = await client.storage
+            .from("competition-submissions")
+            .download(key);
+          if (!active) return;
+          if (downloadError) throw downloadError;
+          const url = URL.createObjectURL(data);
+          urls.push(url);
+          setImages((current) => [...current, { key, url }]);
+        }
       } catch {
         if (active) setError("Some private media could not be loaded.");
       }
@@ -88,27 +108,40 @@ function MediaGallery({
       active = false;
       for (const url of urls) URL.revokeObjectURL(url);
     };
-  }, [client, keyList]);
+  }, [client, keyList, visible]);
 
   return (
-    <>
+    <div ref={gallery} className={mediaKeys.length ? "min-h-32" : ""}>
       {error && mediaKeys.length > 0 && <p role="alert">{error}</p>}
       {images.some(({ key }) => mediaKeys.includes(key)) && (
-        <div className="flex flex-wrap gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {images.filter(({ key }) => mediaKeys.includes(key)).map(({ key, url }, index) => (
-            <Image
-              key={key}
-              src={url}
-              alt={`${label} ${index + 1}`}
-              width={128}
-              height={128}
-              unoptimized
-              className="h-32 w-32 rounded object-cover"
-            />
+            <details key={key} className="min-w-0 rounded-xl border border-slate-200 p-2 open:col-span-full">
+              <summary className="cursor-pointer text-sm font-medium text-indigo-700">
+                View image {index + 1}
+                <Image
+                  src={url}
+                  alt={`${label} ${index + 1}`}
+                  width={128}
+                  height={128}
+                  unoptimized
+                  className="mt-2 aspect-square w-full rounded-lg object-cover"
+                />
+              </summary>
+              <Image
+                src={url}
+                alt={`${label} ${index + 1}, full view`}
+                width={1024}
+                height={1024}
+                unoptimized
+                className="mt-3 h-auto max-h-[70dvh] w-full rounded-lg object-contain"
+              />
+              <p className="mt-2 text-sm">Tap “View image {index + 1}” again to close.</p>
+            </details>
           ))}
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -676,7 +709,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
                   </p>
                 ) : (
                   <div className="mt-3 flex flex-wrap items-end gap-3">
-                    <label className="min-w-56 flex-1">Disqualification reason
+                    <label className="min-w-0 basis-full sm:basis-56 sm:flex-1">Disqualification reason
                       <input
                         maxLength={500}
                         value={reasons[entry.entry_id] || ""}

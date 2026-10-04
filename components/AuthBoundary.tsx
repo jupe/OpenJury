@@ -177,7 +177,7 @@ export default function AuthBoundary({ children, demo }: { children: ReactNode; 
           <p>Sign in with your email to view your groups. New accounts are welcome.</p>
           <form onSubmit={requestLink} className="space-y-4" aria-busy={pending}>
             <label className="block">Email address
-              <input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+              <input type="email" autoComplete="email" autoCapitalize="none" spellCheck={false} enterKeyHint="send" required value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
             <Button type="submit" disabled={pending}>{pending ? "Sending link…" : "Send sign-in link"}</Button>
           </form>
