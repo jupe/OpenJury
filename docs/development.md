@@ -81,9 +81,9 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/03_competition_setup.sql`,
 `supabase/migrations/04_secure_submissions.sql`,
 `supabase/migrations/05_transactional_lifecycle.sql`, and
-`supabase/migrations/06_secure_ballots.sql`, and
-`supabase/migrations/07_admin_review_and_publication.sql`, once each, in that order. The
-migrations expect Supabase's `auth.users` table and API roles and are not intended
+`supabase/migrations/06_secure_ballots.sql` and
+`supabase/migrations/07_admin_review_and_publication.sql`, once each, in that order.
+They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
 projects, apply only migrations not already applied, in sequence. Apply
 migrations as the database owner, as in the SQL Editor: security-definer

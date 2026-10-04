@@ -63,9 +63,10 @@ deleted through Storage and failed cleanup can be retried.
 
 Run `supabase/tests/group_access.sql`,
 `supabase/tests/competition_setup.sql`,
-`supabase/tests/secure_submissions.sql`, and
-`supabase/tests/transactional_lifecycle.sql` as the database owner on a disposable
-Supabase database after applying all migrations. The assertions cover tenant
+`supabase/tests/secure_submissions.sql`,
+`supabase/tests/transactional_lifecycle.sql`, and
+`supabase/tests/admin_review_and_publication.sql` as the database owner on a
+disposable Supabase database after applying all migrations. The assertions cover tenant
 isolation, admin-only draft setup, deadline and score constraints, frozen
 criteria after submission opens, submission ownership and deadline enforcement,
 media validation, separate admin/blind projections, and continued denial of
