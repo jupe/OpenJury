@@ -55,11 +55,16 @@ jobs:
             const pulls = await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit, {
               ...context.repo, commit_sha: run.head_sha, per_page: 100
             });
-            const pr = pulls.find(pr =>
+            const runNumbers = new Set((run.pull_requests || []).map(pr => pr.number));
+            const candidates = pulls.filter(pr =>
               pr.state === 'open' &&
               pr.head.sha === run.head_sha &&
+              pr.head.ref === run.head_branch &&
+              (runNumbers.size === 0 || runNumbers.has(pr.number)) &&
               pr.base.repo.full_name === `${context.repo.owner}/${context.repo.repo}`
             );
+            if (candidates.length > 1) throw new Error('Ambiguous PR association; refusing to deploy');
+            const [pr] = candidates;
             if (!pr) return;
             core.setOutput('pr', pr.number);
             core.setOutput('action', 'deploy');
@@ -130,6 +135,8 @@ jobs:
           docker load --input "$RUNNER_TEMP/preview-image/image.tar"
           export IMAGE="$image_id"
           bash deploy/stack.sh deploy
+          curl --fail --silent --show-error --retry 12 --retry-all-errors \
+            --retry-delay 5 --max-time 10 "https://$APP_HOST/api/health"
           echo "url=https://$APP_HOST" >> "$GITHUB_OUTPUT"
           printf '### PR preview\nhttps://%s\n\nRecreated from scratch; no data is preserved.\n' "$APP_HOST" >> "$GITHUB_STEP_SUMMARY"
       - name: Remove failed, closed, or superseded deployments

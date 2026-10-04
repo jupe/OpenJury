@@ -2,6 +2,7 @@ services:
   web:
     image: ${IMAGE:?IMAGE is required}
     pull_policy: ${PULL_POLICY:-always}
+    user: "1001:1001"
     restart: unless-stopped
     init: true
     read_only: true

@@ -46,8 +46,8 @@ Available commands:
 | `npm run test:e2e` | Run Chromium desktop/mobile browser tests |
 | `npm run test:smoke` | Run the deployment smoke subset |
 
-For local browser tests, run `npx playwright install --with-deps chromium` and
-`npm run build` first. Playwright starts the production server automatically.
+For local browser tests, run `npx playwright install --with-deps chromium` first.
+Playwright builds and starts the production server automatically.
 Set `PLAYWRIGHT_BASE_URL` to test an already running container or deployment.
 Tests cover the implemented placeholder UI, navigation, and health checks—not
 authentication or voting features that do not exist yet.
@@ -241,7 +241,7 @@ Provision separate Linux x64 Docker hosts/runners with these custom labels:
 | Production | `openjury-production` | `openjury-production` |
 
 Each also needs the standard `self-hosted`, `linux`, `x64` labels, a current
-GitHub Actions runner supporting Node 24 actions, Git, Bash, and Docker Engine
+GitHub Actions runner supporting Node 24 actions, Git, Bash, curl, and Docker Engine
 with Compose v2 supporting `up --wait`. Use one deployment host per label:
 jobs with that label must reach the **same Docker daemon**, including cleanup.
 Never register multiple unrelated Docker hosts under one environment's label.
@@ -265,11 +265,15 @@ Use a dedicated, disposable dev security boundary with no production/staging
 network access, credentials, cloud metadata access, or shared Docker daemon.
 Restrict egress and isolate previews from sensitive services. Container
 hardening is defense in depth, not a VM security boundary. Never run this dev
-runner on a persistent trusted machine; restrict runner groups to these trusted
-deployment workflows where supported. For public repositories, assess GitHub's
-self-hosted-runner risks before enabling previews, and use isolated disposable
-VMs/hosts. GitHub's fork-workflow approval is separate from dev deployment
-approval.
+runner on a persistent trusted machine. Restrict **all deployment runner groups**
+to the trusted deployment workflow paths on `refs/heads/main`; labels alone are
+not an access control. Otherwise a PR can change its own workflow to request a
+production runner without using these deployment gates. If your GitHub plan or
+repository cannot enforce that restriction, do not attach trusted self-hosted
+runners to the PR repository: use a policy-enforced deployment controller or
+separate trusted deployment repository first. For public repositories, assess
+GitHub's self-hosted-runner risks and use isolated disposable dev VMs/hosts.
+GitHub's fork-workflow approval is separate from dev deployment approval.
 
 Preview orchestration always checks out trusted `main` scripts, never PR
 scripts, and loads only the image artifact from that PR's successful CI run.
