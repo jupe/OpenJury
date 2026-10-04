@@ -30,6 +30,11 @@ update their own existing vote. Remote deadlines are processed by a
 security-definer function executable by `service_role` only; invoke it from a
 trusted scheduled process. Its status checks and row locks make repeated or
 concurrent processing safe.
+Migration `06_secure_ballots.sql` exposes complete category ballots only through
+a row-locked RPC and an own-ballot-only projection. PostgreSQL rejects self-votes,
+checks every category and score, excludes each voter's own entry from the blind
+projection, and permits revisions only before the voting deadline. Members have
+no RPC to read other ballots or preliminary results.
 The browser session gates protect the UI experience, not the database: all
 private reads and writes must remain authorized by PostgreSQL. Pages are public
 shells and do not render private data on the server.
@@ -58,7 +63,8 @@ isolation, admin-only draft setup, deadline and score constraints, frozen
 criteria after submission opens, submission ownership and deadline enforcement,
 media validation, separate admin/blind projections, and continued denial of
 direct entry and vote access, lifecycle authorization, vote limits, stable entry
-numbers, and idempotent deadline processing. Fixtures roll back.
+numbers, ballot revisions and self-vote protection, and idempotent deadline
+processing. Fixtures roll back.
 
 Operational safeguards are covered alongside the procedures they protect:
 [public client configuration](development.md#2-configure-supabase),

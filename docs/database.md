@@ -43,11 +43,16 @@ scheduled caller or service-role process should invoke
 competitions, skips rows already being processed, and is safe to call repeatedly.
 The final transition to completed remains an admin action.
 
-Members submit or update votes through `cast_vote`. It locks the same competition
-row as submissions and transitions, checks membership, phase, deadline, entry,
-category, and category score limit, then inserts or updates that member's vote.
-This serializes votes with phase changes, so votes cannot cross the voting
-boundary. Direct entry and vote table access remains revoked.
+Members submit or revise complete category ballots through `save_ballot`. It
+locks the same competition row as submissions and transitions, verifies the
+member, voting phase, deadline, anonymous entry, every category, and each category
+score limit, then inserts or updates that member's votes atomically. Voters may
+not score their own entries; their own entries are omitted from the blind voting
+projection. Revisions are allowed until the voting deadline, and the unique
+entry/voter/category constraint protects against duplicate votes. `get_my_ballot`
+returns only the caller's own scores; there is no member-facing ballot or
+preliminary-results projection. Direct entry and vote table access remains
+revoked.
 
 Moderation, result aggregation, and Realtime subscriptions remain future work.
 
@@ -76,6 +81,9 @@ signed URLs, and media removal is followed by Storage cleanup.
 
 Migration `05_transactional_lifecycle.sql` adds admin-only lifecycle transitions,
 voting, stable entry numbering, and service-role-only remote deadline processing.
+Migration `06_secure_ballots.sql` adds atomic category ballots and a private
+own-ballot projection, excludes the voter's own entry, and applies the same
+self-voting prohibition to the single-score `cast_vote` RPC.
 
 The `02_group_access.sql` migration grants authenticated
 users membership-scoped group reads and reads of their own membership rows,
@@ -98,5 +106,5 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/transactional_lifecycl
 Use an owner connection (not an API client). The test creates fixed-ID users
 and test data inside a transaction and rolls everything back; do not run it
 against a production database. The lifecycle test covers role authorization,
-legal transitions, serialized vote updates, stable numbering, and idempotent
-remote deadline processing.
+legal transitions, ballot creation and revision, self-voting and membership
+denial, stable numbering, and idempotent remote deadline processing.
