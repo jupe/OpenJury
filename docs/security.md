@@ -47,11 +47,20 @@ The browser session gates protect the UI experience, not the database: all
 private reads and writes must remain authorized by PostgreSQL. Pages are public
 shells and do not render private data on the server.
 
+Migration `08_realtime_notifications.sql` sends private, payload-minimal
+notifications on group and per-user topics. Realtime message reads are
+authorized against current group membership; a per-user membership notification
+lets a revoked member refetch and lose access without exposing membership
+details. Triggers notify after changes to user-visible data, but broadcast only
+a fixed version marker. Entries, votes, audit events, and result rows are not
+added to the Realtime publication. Clients refetch their existing RLS/RPC
+projections on notifications, reconnection, network recovery, tab visibility,
+and local deadlines; token refresh/sign-out remains managed by Supabase Auth.
+
 Remaining security work:
 
 1. Implement invitations and authorized membership management, including admin
    authorization. An initial admin role alone does not grant competition access.
-2. Implement Realtime updates with equivalent database authorization.
 
 The `competition-submissions` Storage bucket is private, limits uploads to
 JPEG/PNG/WebP images up to 10 MiB, and uses random UUID filenames without user
@@ -65,14 +74,18 @@ Run `supabase/tests/group_access.sql`,
 `supabase/tests/competition_setup.sql`,
 `supabase/tests/secure_submissions.sql`,
 `supabase/tests/transactional_lifecycle.sql`, and
-`supabase/tests/admin_review_and_publication.sql` as the database owner on a
+`supabase/tests/admin_review_and_publication.sql`, and
+`supabase/tests/realtime_notifications.sql` as the database owner on a
 disposable Supabase database after applying all migrations. The assertions cover tenant
 isolation, admin-only draft setup, deadline and score constraints, frozen
 criteria after submission opens, submission ownership and deadline enforcement,
 media validation, separate admin/blind projections, and continued denial of
 direct entry and vote access, lifecycle authorization, vote limits, stable entry
 numbers, ballot revisions and self-vote protection, and idempotent deadline
-processing. The admin review/publication test covers role-gated preliminary
+processing. The lifecycle test also guards the shared row locks and skip-locked
+deadline worker used to serialize concurrent operations. The realtime test covers private topic membership, tenant isolation,
+revocation, message-forgery denial, safe payloads, and publication exclusions.
+The admin review/publication test covers role-gated preliminary
 results, disqualification audit retention, ballot aggregation/ties/minimums, and
 post-publication identity access. Fixtures roll back.
 

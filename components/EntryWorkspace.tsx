@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "@/components/AuthBoundary";
+import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
 
@@ -114,6 +115,7 @@ function MediaGallery({
 export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   const { client, session } = useAuth();
   const [competition, setCompetition] = useState<Competition | null>(null);
+  const [groupId, setGroupId] = useState<string | null>(null);
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [blindEntries, setBlindEntries] = useState<BlindEntry[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -135,15 +137,23 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
+    setCompetition(null);
+    setSubmission(null);
+    setBlindEntries([]);
+    setCategories([]);
+    setBallotScores({});
+    setPublishedResults([]);
     try {
       const result = await client.from("competitions")
-        .select("id,name,status,submission_deadline,voting_deadline")
+        .select("id,group_id,name,status,submission_deadline,voting_deadline")
         .eq("id", competitionId)
         .maybeSingle();
       if (result.error || !result.data) {
+        setGroupId(null);
         setError(result.error?.message || "Competition not found or access denied.");
         return;
       }
+      setGroupId(result.data.group_id);
       setCompetition(result.data);
       setSubmissionOpen(result.data.status === "submission"
         && (!result.data.submission_deadline
@@ -211,9 +221,22 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     }
   }, [client, competitionId]);
 
+  useRealtimeUpdates(client, session.user.id, groupId, load);
+
   useEffect(() => {
     void Promise.resolve().then(load);
   }, [load, session.user.id]);
+
+  useEffect(() => {
+    const deadline = competition?.status === "submission"
+      ? competition.submission_deadline
+      : competition?.status === "voting" ? competition.voting_deadline : null;
+    if (!deadline) return;
+    const delay = Date.parse(deadline) - Date.now();
+    if (delay <= 0) return;
+    const timer = window.setTimeout(() => void load(), delay + 1);
+    return () => window.clearTimeout(timer);
+  }, [competition, load]);
 
   const editable = competition?.status === "submission" && submissionOpen;
   const activeMedia = (submission?.media_keys || []).filter((key) => !removedKeys.includes(key));
@@ -503,7 +526,9 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
 }
 
 export function AdminSubmissions({ competitionId }: { competitionId: string }) {
-  const { client } = useAuth();
+  const { client, session } = useAuth();
+  const [groupId, setGroupId] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [entries, setEntries] = useState<AdminEntry[]>([]);
   const [reviewResults, setReviewResults] = useState<AdminReviewResult[] | null>(null);
   const [competitionStatus, setCompetitionStatus] = useState("");
@@ -513,6 +538,14 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
+  const refresh = useCallback(() => {
+    setLoading(true);
+    setError("");
+    setEntries([]);
+    setReviewResults(null);
+    setCompetitionStatus("");
+    setAttempt((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -520,7 +553,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
       try {
         const [submissionResult, competitionResult] = await Promise.all([
           client.rpc("get_admin_submissions", { p_competition_id: competitionId }),
-          client.from("competitions").select("status").eq("id", competitionId).maybeSingle(),
+          client.from("competitions").select("group_id,status").eq("id", competitionId).maybeSingle(),
         ]);
         if (!active) return;
         if (submissionResult.error) {
@@ -531,6 +564,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
           setError(`Unable to load competition status: ${competitionResult.error?.message || "Competition not found."}`);
           return;
         }
+        setGroupId(competitionResult.data.group_id);
         setEntries((submissionResult.data || []) as AdminEntry[]);
         setCompetitionStatus(competitionResult.data.status);
         if (competitionResult.data.status === "review_pending") {
@@ -548,7 +582,9 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
       }
     })();
     return () => { active = false; };
-  }, [client, competitionId]);
+  }, [client, competitionId, attempt]);
+
+  useRealtimeUpdates(client, session.user.id, groupId, refresh);
 
   async function refreshReviewResults() {
     const { data, error: refreshError } = await client.rpc("get_admin_review_results", {

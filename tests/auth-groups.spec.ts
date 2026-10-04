@@ -42,6 +42,36 @@ async function configure(page: Page, signedIn = false) {
   }
 }
 
+async function mockRealtime(page: Page) {
+  const channels = new Map<string, { socket: import("@playwright/test").WebSocketRoute; joinRef: string }>();
+  await page.routeWebSocket("wss://foundation.supabase.co/realtime/v1/websocket**", (socket) => {
+    socket.onMessage((message) => {
+      if (typeof message !== "string") return;
+      const [joinRef, ref, topic, event] = JSON.parse(message) as [string, string, string, string];
+      if (event === "phx_join") {
+        channels.set(topic, { socket, joinRef });
+        socket.send(JSON.stringify([joinRef, ref, topic, "phx_reply", { status: "ok", response: {} }]));
+      } else if (event === "heartbeat") {
+        socket.send(JSON.stringify([null, ref, "phoenix", "phx_reply", { status: "ok", response: {} }]));
+      }
+    });
+  });
+  return {
+    hasChannel: (topic: string) => channels.has(`realtime:${topic}`),
+    broadcast(topic: string, event: string) {
+      const channel = channels.get(`realtime:${topic}`);
+      if (!channel) throw new Error(`Realtime channel not joined: ${topic}`);
+      channel.socket.send(JSON.stringify([
+        channel.joinRef,
+        null,
+        `realtime:${topic}`,
+        "broadcast",
+        { event, payload: { version: 1 } },
+      ]));
+    },
+  };
+}
+
 test("unconfigured pages offer setup and only public demo content", async ({ page }) => {
   await page.route("**/runtime-config.js", (route) => route.fulfill({
     contentType: "application/javascript",
@@ -200,6 +230,90 @@ test("ordinary group members can view competitions but cannot create drafts", as
   await expect(page.getByRole("button", { name: "Edit draft" })).toHaveCount(0);
 });
 
+test("participants refetch authorized competition data after reconnect", async ({ page }) => {
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  const tasteId = "44444444-4444-4444-8444-444444444444";
+  let status = "submission";
+  const realtime = await mockRealtime(page);
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{
+      id: competitionId,
+      group_id: groupId,
+      name: "Reconnect bake-off",
+      status,
+      submission_deadline: null,
+      voting_deadline: null,
+    }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) =>
+    route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/categories**`, (route) =>
+    route.fulfill({ json: [{ id: tasteId, name: "Taste", max_score: 5 }] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_blind_voting_entries`, (route) =>
+    route.fulfill({ json: [{ entry_number: 7, media_keys: [] }] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_ballot`, (route) =>
+    route.fulfill({ json: [] }));
+
+  await page.goto(`/competition/${competitionId}`);
+  await expect.poll(() => realtime.hasChannel(`group:${groupId}`)).toBe(true);
+  await expect(page.getByText("Status: submission")).toBeVisible();
+  status = "voting";
+  const refetch = page.waitForRequest((request) =>
+    request.url().includes("/rest/v1/competitions"));
+  realtime.broadcast(`group:${groupId}`, "data_changed");
+  await refetch;
+  await expect(page.getByRole("heading", { name: "Entry 7" })).toBeVisible();
+  await expect(page.getByText("Status: voting")).toBeVisible();
+
+  status = "completed";
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_published_competition_results`, (route) =>
+    route.fulfill({ json: [] }));
+  const reconnect = page.waitForRequest((request) =>
+    request.url().includes("/rest/v1/competitions"));
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await reconnect;
+  await expect(page.getByRole("heading", { name: "Published results" })).toBeVisible();
+});
+
+test("admins discard private review data after membership is revoked", async ({ page }) => {
+  const competitionId = "66666666-6666-4666-8666-666666666666";
+  let accessible = true;
+  const realtime = await mockRealtime(page);
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: accessible ? [{
+      id: competitionId,
+      group_id: groupId,
+      name: "Revoked review",
+      status: "review_pending",
+      submission_deadline: null,
+      voting_deadline: null,
+    }] : [],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) => route.fulfill({
+    json: accessible ? [{
+      id: "77777777-7777-4777-8777-777777777777",
+      creator_id: userId,
+      title: "Private admin entry",
+      media_keys: [],
+    }] : [],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_review_results`, (route) =>
+    route.fulfill({ json: [] }));
+
+  await page.goto(`/competition/${competitionId}/admin`);
+  await expect.poll(() => realtime.hasChannel(`user:${userId}`)).toBe(true);
+  await expect(page.getByText("Private admin entry")).toBeVisible();
+  accessible = false;
+  const refetch = page.waitForRequest((request) =>
+    request.url().includes("/rest/v1/competitions"));
+  realtime.broadcast(`user:${userId}`, "membership_changed");
+  await refetch;
+  await expect(page.getByText(/Unable to load competition status/)).toBeVisible();
+  await expect(page.getByText("Private admin entry")).toHaveCount(0);
+});
+
 test("empty memberships and failed group creation provide clear feedback", async ({ page }) => {
   await configure(page, true);
   await page.route(`${supabaseURL}/rest/v1/groups**`, (route) => route.fulfill({ json: [] }));
@@ -264,6 +378,19 @@ test("logout succeeds and clears browser session and private groups", async ({ p
   await expect(page.getByRole("heading", { name: "Sign in to OpenJury" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Baking club" })).toHaveCount(0);
   expect(await page.evaluate(() => localStorage.getItem("sb-foundation-auth-token"))).toBeNull();
+});
+
+test("expired sessions remove private views on sign out", async ({ page }) => {
+  await configure(page, true);
+  await page.goto("/dashboard");
+  await expect(page.getByRole("link", { name: "Baking club" })).toBeVisible();
+  await page.evaluate(() => {
+    const channel = new BroadcastChannel("sb-foundation-auth-token");
+    channel.postMessage({ event: "SIGNED_OUT", session: null });
+    channel.close();
+  });
+  await expect(page.getByRole("heading", { name: "Sign in to OpenJury" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Baking club" })).toHaveCount(0);
 });
 
 test("auth changes discard in-flight data from the previous user", async ({ page }) => {

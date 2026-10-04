@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "@/components/AuthBoundary";
+import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
 
@@ -60,6 +61,15 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
   const [loadingEdit, setLoadingEdit] = useState(false);
   const [draft, setDraft] = useState<CompetitionDraft>(emptyDraft);
   const [attempt, setAttempt] = useState(0);
+  const refresh = useCallback(() => {
+    setLoading(true);
+    setError("");
+    setCompetitions([]);
+    setIsAdmin(false);
+    setAttempt((value) => value + 1);
+  }, []);
+
+  useRealtimeUpdates(client, session.user.id, groupId, refresh);
 
   useEffect(() => {
     const controller = new AbortController();
