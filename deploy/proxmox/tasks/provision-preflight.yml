@@ -3,7 +3,7 @@
   ansible.builtin.assert:
     that:
       - openjury_operator_confirmed is boolean and openjury_operator_confirmed
-      - openjury_template_confirmed_ubuntu_2404_amd64 is boolean and openjury_template_confirmed_ubuntu_2404_amd64
+      - openjury_template_confirmed_ubuntu_2604_amd64 is boolean and openjury_template_confirmed_ubuntu_2604_amd64
       - openjury_backup_confirmed_offhost is boolean and openjury_backup_confirmed_offhost
       - groups['proxmox'] | length == 1
       - groups['openjury_guests'] | sort == openjury_guest_names | sort
@@ -41,6 +41,7 @@
       - |
         import ipaddress, json, sys
         c = json.load(sys.stdin)
+        vlans_enabled = c["vlans_enabled"]
         guests = c["guests"]
         nets, ips = [], []
         for g in guests:
@@ -51,7 +52,8 @@
             assert ip in net and gw in net and ip != gw, "Invalid address/gateway"
             assert ip not in (net.network_address, net.broadcast_address)
             assert gw not in (net.network_address, net.broadcast_address)
-            assert not any(net.overlaps(other) for other in nets), "Guest VLAN subnets overlap"
+            if vlans_enabled:
+                assert not any(net.overlaps(other) for other in nets), "Guest VLAN subnets overlap"
             nets.append(net)
             ips.append(ip)
         for key in ("vmid", "vlan"):
@@ -61,7 +63,8 @@
         assert management and any(admin.subnet_of(n) for n in management)
         host = ipaddress.IPv4Address(c["host"])
         assert any(host in n for n in management), "Management CIDRs must include Proxmox"
-        assert not any(n.overlaps(m) for n in nets for m in management)
+        if vlans_enabled:
+            assert not any(n.overlaps(m) for n in nets for m in management)
         forbidden = [ipaddress.IPv4Network(n) for n in
                      ("0.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8",
                       "169.254.0.0/16",
@@ -98,7 +101,8 @@
         'dns': openjury_dns_servers,
         'ntp': openjury_ntp_server,
         'host': ansible_host,
-        'backup': openjury_backup_server
+        'backup': openjury_backup_server,
+        'vlans_enabled': openjury_vlans_enabled | default(true)
       } | to_json }}
   delegate_to: localhost
   become: false
@@ -208,7 +212,8 @@
 - name: Validate every guest bridge and hardware capacity
   ansible.builtin.assert:
     that:
-      - openjury_networks | selectattr('iface', 'equalto', hostvars[item].openjury_bridge) | selectattr('type', 'equalto', 'bridge') | selectattr('active', 'defined') | selectattr('active', 'equalto', 1) | selectattr('bridge_vlan_aware', 'defined') | selectattr('bridge_vlan_aware', 'equalto', 1) | list | length == 1
+      - openjury_networks | selectattr('iface', 'equalto', hostvars[item].openjury_bridge) | selectattr('type', 'equalto', 'bridge') | selectattr('active', 'defined') | selectattr('active', 'equalto', 1) | list | length == 1
+      - not (openjury_vlans_enabled | default(true)) or (openjury_networks | selectattr('iface', 'equalto', hostvars[item].openjury_bridge) | selectattr('bridge_vlan_aware', 'defined') | selectattr('bridge_vlan_aware', 'equalto', 1) | list | length == 1)
       - hostvars[item].openjury_cores <= openjury_host_status.cpuinfo.cpus
       - hostvars[item].openjury_memory_mb * 1024 * 1024 < openjury_host_status.memory.total
     fail_msg: Each bridge must already be active and VLAN-aware; requested resources must fit the host.
