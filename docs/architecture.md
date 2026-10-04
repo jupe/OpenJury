@@ -35,14 +35,17 @@ supabase/
 .env.example                    Public client configuration template
 ```
 
-The landing, dashboard, and group routes render public shells with client-side
-session gates. Authenticated clients fetch membership-authorized groups directly
-from Supabase, or create a group through an atomic database RPC. No private
-server-rendered data is exposed. Without configuration, safe demo navigation
-remains available; no groups are queried.
+The landing, dashboard, group, competition, and admin routes render public shells
+with client-side session gates. Authenticated clients fetch membership-authorized
+groups directly from Supabase, or create a group through an atomic database RPC.
+No private server-rendered data is exposed. Without configuration, each route
+shows fictional, read-only sample content with links across the demo views; no
+groups, submissions, or votes are queried or saved.
 
-Competition and admin routes require an authenticated session for private
+Competition and admin routes require an authenticated session for real private
 content. Members can submit and edit entries while the submission phase is open;
 voting shows an anonymous projection. Admin submission review is authorized by
-the database. Use `/competition/demo` and `/competition/demo/admin` for public
-previews; they contain no private data and their actions remain disabled.
+the database. When Supabase is not configured, `/dashboard`, `/group/demo`,
+`/competition/demo`, and `/competition/demo/admin` show linked, read-only demo
+views with fictional data. Demo interactions are disabled and never reach
+Supabase.

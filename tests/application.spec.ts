@@ -25,7 +25,8 @@ test("landing and preview navigation @smoke", async ({ page }) => {
     await expect(page.getByRole("textbox", { name: "Email address" })).toBeVisible();
     await page.getByRole("navigation").getByRole("link", { name: "Dashboard", exact: true }).click();
   } else {
-    await page.getByRole("link", { name: "Explore your dashboard" }).click();
+    await expect(page.getByText(/Demo mode · fictional sample content/)).toBeVisible();
+    await page.getByRole("link", { name: "Open demo dashboard" }).click();
   }
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your groups");
@@ -34,8 +35,8 @@ test("landing and preview navigation @smoke", async ({ page }) => {
     await expect(page.getByRole("link", { name: "Preview a group" })).toHaveCount(0);
     await page.goto("/group/demo");
   } else {
-    await expect(page.getByText("Configure Supabase to sign in and create groups.")).toBeVisible();
-    await page.getByRole("link", { name: "Preview a group" }).click();
+    await expect(page.getByRole("link", { name: "Northside Makers", exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Northside Makers", exact: true }).click();
   }
   await expect(page).toHaveURL(/\/group\/demo$/);
   if (configured) {
@@ -44,25 +45,39 @@ test("landing and preview navigation @smoke", async ({ page }) => {
     await page.goto("/competition/demo");
   } else {
     await expect(page.getByText("Group: demo", { exact: true })).toBeVisible();
-    await page.getByRole("link", { name: "Preview a competition" }).click();
+    await page.getByRole("link", { name: "Spring Bake-off" }).click();
   }
   await expect(page).toHaveURL(/\/competition\/demo$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Competition");
-  await page.getByRole("link", { name: "Preview admin view" }).click();
+  if (configured) {
+    await expect(signIn).toBeVisible();
+    await page.goto("/competition/demo/admin");
+    await expect(signIn).toBeVisible();
+    expect(privateRequests).toEqual([]);
+    return;
+  }
+  await expect(page.getByRole("heading", { name: "Anonymous voting view example" })).toBeVisible();
+  await page.getByRole("link", { name: "Admin review" }).first().click();
   await expect(page).toHaveURL(/\/competition\/demo\/admin$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Competition admin");
+  await expect(page.getByRole("heading", { name: "Preliminary rankings example" })).toBeVisible();
   expect(privateRequests).toEqual([]);
 });
 
-test("competition and admin actions remain unavailable", async ({ page }) => {
+test("demo views show fictional, read-only examples", async ({ page }) => {
   await page.goto("/competition/demo");
-  await expect(page.getByRole("button", { name: "Submit entry (coming soon)" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Vote (coming soon)", exact: true })).toBeDisabled();
-  await page.getByRole("link", { name: "Preview admin view" }).click();
-  await expect(page.getByText(/This public placeholder contains no private data/)).toBeVisible();
-  for (const action of ["Start voting", "Stop voting", "Publish results"]) {
-    await expect(page.getByRole("button", { name: `${action} (coming soon)` })).toBeDisabled();
-  }
+  await expect(page.getByText(/Demo mode · fictional sample content/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Submission view example" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Anonymous voting view example" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Published results view example" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save submission" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save ballot" }).first()).toBeDisabled();
+  await expect(page.getByLabel("Presentation").first()).toBeDisabled();
+  await page.getByRole("link", { name: "Admin review" }).first().click();
+  await expect(page.getByRole("heading", { name: "Private submission review example" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Preliminary rankings example" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Disqualify" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Publish final results" })).toBeDisabled();
 });
 
 test("dynamic identifiers are displayed and preserved by admin links", async ({ page }) => {
@@ -70,14 +85,14 @@ test("dynamic identifiers are displayed and preserved by admin links", async ({ 
   await page.goto(`/group/${encodeURIComponent(id)}`);
   await expect(page.getByText(`Group: ${id}`, { exact: true })).toBeVisible();
   await page.goto(`/competition/${encodeURIComponent(id)}`);
-  await expect(page.getByText(`Competition: ${id}`, { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Preview admin view" })).toHaveAttribute(
+  await expect(page.getByText(`Competition: ${id}`, { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "Admin review" }).first()).toHaveAttribute(
     "href",
     `/competition/${encodeURIComponent(id)}/admin`,
   );
-  await page.getByRole("link", { name: "Preview admin view" }).click();
+  await page.getByRole("link", { name: "Admin review" }).first().click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Competition admin");
-  await expect(page.getByText(`Competition: ${id}`, { exact: true })).toBeVisible();
+  await expect(page.getByText(`Competition: ${id}`, { exact: true }).first()).toBeVisible();
 });
 
 test("mobile layout and main navigation", async ({ page }) => {

@@ -225,7 +225,7 @@ test("unconfigured pages offer setup and only public demo content", async ({ pag
     await expect(page.getByRole("heading", { name: "Setup required" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Send sign-in link" })).toHaveCount(0);
   }
-  await expect(page.getByRole("link", { name: "Preview a competition" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Spring Bake-off" })).toBeVisible();
 });
 
 test("configured signed-out routes prompt login without group queries", async ({ page }) => {
