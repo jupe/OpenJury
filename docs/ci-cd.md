@@ -7,7 +7,7 @@
 ```text
 PR / merge queue      → detect relevant changes
                       → lint + typecheck + Docker build + browser E2E if needed
-                       → optional clean dev preview after successful CI
+                       → optional clean dev preview in the same CI run
 PR closed or merged   → delete its dev preview, including volumes
 
 main → same CI checks → publish the tested image to GHCR (no rebuild)
@@ -43,6 +43,16 @@ and their versions are deleted when the PR closes. Release verifies the source
 revision and skips superseded main builds; deployment checks main again after
 any approval wait. Releases are serialized across staging and production.
 A failed staging deployment **or smoke test blocks production**.
+
+The optional `PR preview` job is part of the PR's `CI` workflow, so deployment
+progress and approval appear alongside its checks. It calls trusted preview
+orchestration pinned to an immutable commit, downloads the tested image from that same run, and
+records a `dev-pr-<number>` deployment against the PR head SHA (not the synthetic
+merge commit), with the preview URL. The required `checks` job remains independent
+of preview approval. Fork PRs still build and test, but skip deployment because
+their read-only token cannot register deployments and they cannot access dev
+secrets. A maintainer can move reviewed changes to a same-repository branch to
+preview them.
 
 ## Enable merge protection first
 

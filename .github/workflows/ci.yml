@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  # Preview approval must neither block newer checks nor interrupt deployment.
+  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'pull_request' && vars.PREVIEW_CD_ENABLED == 'true' && github.run_id || 'latest' }}
   cancel-in-progress: true
 
 jobs:
@@ -49,6 +50,8 @@ jobs:
     if: needs.changes.outputs.build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    outputs:
+      preview-artifact: ${{ steps.preview-image.outcome == 'success' && format('image-ref-{0}', github.run_id) || format('image-{0}', github.run_id) }}
     permissions:
       contents: read
       # Only used to publish same-repository PR images for dev previews.
@@ -227,3 +230,23 @@ jobs:
             test "$BUILD_REQUIRED" = false
             test "$BUILD_RESULT" = skipped
           fi
+
+  preview:
+    name: PR preview
+    needs: [build, checks]
+    if: >-
+      github.event_name == 'pull_request' &&
+      vars.PREVIEW_CD_ENABLED == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    # Pin existing reusable orchestration; main may still have only workflow_run.
+    uses: jupe/OpenJury/.github/workflows/preview.yml@25646215ded255adb6c02aa80c161dd56b14557b
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      packages: read
+      deployments: write
+    with:
+      pr: ${{ github.event.pull_request.number }}
+      sha: ${{ github.event.pull_request.head.sha }}
+      artifact: ${{ needs.build.outputs.preview-artifact }}

@@ -101,7 +101,8 @@ network access, credentials, cloud metadata access, or shared Docker daemon.
 Restrict egress and isolate previews from sensitive services. Container
 hardening is defense in depth, not a VM security boundary. Never run this dev
 runner on a persistent trusted machine. Restrict **all deployment runner groups**
-to the trusted deployment workflow paths on `refs/heads/main`; labels alone are
+to the trusted deployment workflow paths on `refs/heads/main` (or the exact
+approved preview workflow commit described below); labels alone are
 not an access control. Otherwise a PR can change its own workflow to request a
 production runner without using these deployment gates. If your GitHub plan or
 repository cannot enforce that restriction, do not attach trusted self-hosted
@@ -110,10 +111,20 @@ separate trusted deployment repository first. For public repositories, assess
 GitHub's self-hosted-runner risks and use isolated disposable dev VMs/hosts.
 GitHub's fork-workflow approval is separate from dev deployment approval.
 
-Preview orchestration always checks out trusted `main` scripts, never PR
-scripts, and runs only the image from that PR's successful CI run: pulled by
-digest from `ghcr.io/jupe/openjury-preview` for same-repository PRs, or loaded
-from the run's image artifact for forks.
+The PR's `CI` workflow calls `.github/workflows/preview.yml` at the immutable
+commit `25646215ded255adb6c02aa80c161dd56b14557b` as a reusable workflow; it has
+no separate `workflow_run` trigger. This revision already has `workflow_call`,
+so CI can resolve it even before this change reaches `main`. Keep the dev runner
+group restricted to
+`jupe/OpenJury/.github/workflows/preview.yml@25646215ded255adb6c02aa80c161dd56b14557b`,
+not the PR-controlled caller. Keep staging/production runner policies restricted
+to their trusted workflows on `main`. Preview orchestration always checks out
+trusted `main` scripts, never PR
+scripts, and pulls the tested image by digest from
+`ghcr.io/jupe/openjury-preview` using the artifact from the same CI run.
+Fork PRs build and test but do not deploy: their read-only token cannot create
+deployment records and dev secrets are unavailable. To preview reviewed fork
+changes, a maintainer must put them on a same-repository branch.
 Dev should contain **no secrets**. Protect the `dev` environment with required
 maintainer reviewers and prevent self-review before enabling preview CD.
 Do not approve images from unreviewed/untrusted contributors. Fully automatic
@@ -123,9 +134,14 @@ previews require infrastructure capable of safely containing hostile workloads.
 
 Create the `dev`, `staging`, and `production` environments **before** enabling CD.
 Restrict staging/production deployment branches to `main`; require production
-reviewers if desired. Permit the trusted preview workflow's refs in `dev`.
-The preview deployment URL appears in the environment deployment and workflow
-summary as `https://pr-<number>.<DEV_BASE_DOMAIN>`.
+reviewers if desired. Permit PR merge refs (`refs/pull/<number>/merge`) in `dev`;
+the reusable workflow retains the caller's event ref. `dev` supplies approval,
+variables, and secrets with `deployment: false`; do not configure custom
+deployment protection rules, which are incompatible with this setting.
+The preview job appears in the PR's CI checks. It explicitly records a
+`dev-pr-<number>` deployment for the PR head commit, with the URL
+`https://pr-<number>.<DEV_BASE_DOMAIN>` in the PR deployment and workflow summary.
+These per-PR deployment records do not supply secrets or replace `dev` approval.
 
 | Scope | Variable/secret | Value |
 | --- | --- | --- |
@@ -147,18 +163,42 @@ exists, grant this repository Actions access in its package settings.
 
 Enable the flags independently after infrastructure and environment protections
 are ready. Push a new PR revision/main commit (or rerun its CI) to start delivery.
-`workflow_run` workflows must exist on the default branch (`main`) before they
-can trigger. Do not approve an old deployment after its three-day image artifact
-expires; rerun CI instead.
+The pinned reusable preview workflow must exist at its referenced commit; the
+Release `workflow_run` workflow must exist on the default branch (`main`).
+Do not approve an old
+deployment after its three-day image artifact expires; rerun CI instead.
+
+### Migrating from the separate PR preview workflow
+
+GitHub resolves reusable workflows before evaluating job conditions; disabling
+`PREVIEW_CD_ENABLED` cannot fix a call to a workflow without `workflow_call`.
+The immutable pin avoids that bootstrap failure without loading orchestration
+from the PR's current revision. Review and allow the exact pinned workflow in
+the dev runner policy before enabling preview CD. Until this change is merged,
+disable preview CD to avoid also triggering the legacy `workflow_run` preview
+on `main`. After merging, update open PR branches from `main`, re-enable the flag,
+and rerun CI on a reviewed same-repository PR to verify approval, the preview
+check, and the deployment URL on its head commit.
+
+When changing preview orchestration later, update the caller's pin and the dev
+runner allowlist to an existing reviewed commit with `workflow_call`; changes
+to the working copy alone do not change the pinned workflow. Do not use a local
+PR-controlled reusable workflow or a moving PR branch as a shortcut.
 
 ## Cleanup, failures, and recovery
 
 - Each successful PR revision destroys its previous container and project
   volumes before starting the tested image. There are no persistent dev mounts.
   Failed, stale, or closed-during-deployment previews are also removed.
+  CI runs with preview CD enabled are not interrupted by newer PR commits;
+  newer checks run independently of older preview approvals, and outdated heads
+  are skipped after approval. Replacing a preview marks its previous deployment
+  records inactive, even if the replacement fails. Each PR's deployment statuses
+  are independent, so a successful preview does not deactivate another PR's URL.
 - PR closure (merged **or unmerged**) triggers trusted cleanup without a dev
   approval. Deployment and cleanup share a per-PR lock; other PRs are independent.
   Reopening a PR triggers CI and a fresh preview.
+  Cleanup also marks that PR's deployment records inactive.
 - If a runner is offline or an event was missed, run **PR preview cleanup → Run workflow**
   on `main`, supplying `pr_number`, to destroy that preview. This cleanup-only
   dispatch also works when `PREVIEW_CD_ENABLED` is disabled. Clean up existing

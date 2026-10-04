@@ -1,85 +1,46 @@
 name: PR preview
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  workflow_call:
+    inputs:
+      pr:
+        required: true
+        type: number
+      sha:
+        required: true
+        type: string
+      artifact:
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  identify:
-    if: >-
-      vars.PREVIEW_CD_ENABLED == 'true' &&
-      github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
-      actions: read
-    outputs:
-      pr: ${{ steps.identify.outputs.pr }}
-      sha: ${{ steps.identify.outputs.sha }}
-      artifact: ${{ steps.identify.outputs.artifact }}
-    steps:
-      - id: identify
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        with:
-          script: |
-            const run = context.payload.workflow_run;
-            if (run.event !== 'pull_request' || run.conclusion !== 'success') return;
-            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
-              ...context.repo, run_id: run.id, per_page: 100
-            });
-            // Same-repository PRs publish a GHCR reference; forks upload the image archive.
-            const artifact = [`image-ref-${run.id}`, `image-${run.id}`]
-              .find(name => artifacts.some(a => a.name === name && !a.expired));
-            if (!artifact) {
-              core.info('No tested image was produced; skipping preview.');
-              return;
-            }
-            // Fork runs may not populate workflow_run.pull_requests.
-            const pulls = await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit, {
-              ...context.repo, commit_sha: run.head_sha, per_page: 100
-            });
-            const runNumbers = new Set((run.pull_requests || []).map(pr => pr.number));
-            const candidates = pulls.filter(pr =>
-              pr.state === 'open' &&
-              pr.head.sha === run.head_sha &&
-              pr.head.ref === run.head_branch &&
-              (runNumbers.size === 0 || runNumbers.has(pr.number)) &&
-              pr.base.repo.full_name === `${context.repo.owner}/${context.repo.repo}`
-            );
-            if (candidates.length > 1) throw new Error('Ambiguous PR association; refusing to deploy');
-            const [pr] = candidates;
-            if (!pr) return;
-            core.setOutput('pr', pr.number);
-            core.setOutput('sha', run.head_sha);
-            core.setOutput('artifact', artifact);
-
   preview:
-    needs: identify
-    if: needs.identify.outputs.pr != ''
+    if: >-
+      github.event_name == 'pull_request' &&
+      vars.PREVIEW_CD_ENABLED == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64, openjury-dev]
     timeout-minutes: 20
-    # Approval is required before ANY PR image (including fork images) is loaded.
+    # Approval is required before any PR image is loaded.
     environment:
       name: dev
-      url: ${{ steps.deploy.outputs.url }}
+      # Register the PR head below, not Actions' synthetic merge commit.
+      deployment: false
     concurrency:
-      group: openjury-preview-${{ needs.identify.outputs.pr }}
+      group: openjury-preview-${{ inputs.pr }}
       cancel-in-progress: false
     permissions:
       contents: read
       actions: read
       pull-requests: read
       packages: read
+      deployments: write
     env:
-      COMPOSE_PROJECT_NAME: openjury-pr-${{ needs.identify.outputs.pr }}
-      APP_HOST: pr-${{ needs.identify.outputs.pr }}.${{ vars.DEV_BASE_DOMAIN }}
+      COMPOSE_PROJECT_NAME: openjury-pr-${{ inputs.pr }}
+      APP_HOST: pr-${{ inputs.pr }}.${{ vars.DEV_BASE_DOMAIN }}
       # `http` only for a LAN-only dev VM without TLS (see docs/proxmox.md).
       APP_SCHEME: ${{ vars.APP_SCHEME || 'https' }}
       PROXY_NETWORK: ${{ vars.PROXY_NETWORK }}
@@ -100,26 +61,70 @@ jobs:
         id: current
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          PR_NUMBER: ${{ needs.identify.outputs.pr }}
-          EXPECTED_SHA: ${{ needs.identify.outputs.sha }}
+          PR_NUMBER: ${{ inputs.pr }}
+          EXPECTED_SHA: ${{ inputs.sha }}
+          ARTIFACT: ${{ inputs.artifact }}
         with:
           script: |
+            if (Number(process.env.PR_NUMBER) !== context.payload.pull_request.number ||
+                process.env.EXPECTED_SHA !== context.payload.pull_request.head.sha ||
+                ![`image-ref-${context.runId}`, `image-${context.runId}`].includes(process.env.ARTIFACT)) {
+              throw new Error('Preview inputs do not match this PR workflow run');
+            }
             const { data: pr } = await github.rest.pulls.get({
               ...context.repo, pull_number: Number(process.env.PR_NUMBER)
             });
             const current = pr.state === 'open' && pr.head.sha === process.env.EXPECTED_SHA;
             core.setOutput('current', current);
+      - name: Register deployment for the PR head commit
+        id: deployment
+        if: steps.current.outputs.current == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          EXPECTED_SHA: ${{ inputs.sha }}
+        with:
+          script: |
+            const { data: deployment } = await github.rest.repos.createDeployment({
+              ...context.repo,
+              ref: process.env.EXPECTED_SHA,
+              environment: `dev-pr-${context.payload.pull_request.number}`,
+              auto_merge: false,
+              required_contexts: [],
+              transient_environment: true,
+              production_environment: false,
+              description: `PR #${context.payload.pull_request.number} preview`,
+            });
+            core.setOutput('id', deployment.id);
+            await github.rest.repos.createDeploymentStatus({
+              ...context.repo, deployment_id: deployment.id, state: 'in_progress',
+              log_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
       - name: Destroy old preview and all its data
         if: steps.current.outputs.current == 'true'
-        run: bash deploy/stack.sh destroy
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.id }}
+        with:
+          script: |
+            await exec.exec('bash', ['deploy/stack.sh', 'destroy']);
+            const deployments = await github.paginate(github.rest.repos.listDeployments, {
+              ...context.repo, environment: `dev-pr-${process.env.PR_NUMBER}`, per_page: 100,
+            });
+            for (const deployment of deployments) {
+              if (deployment.id === Number(process.env.DEPLOYMENT_ID)) continue;
+              await github.rest.repos.createDeploymentStatus({
+                ...context.repo, deployment_id: deployment.id, state: 'inactive',
+              });
+            }
       - name: Download tested PR image or its reference, never PR scripts
         if: steps.current.outputs.current == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: ${{ needs.identify.outputs.artifact }}
+          name: ${{ inputs.artifact }}
           path: ${{ runner.temp }}/preview-image
           github-token: ${{ github.token }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ github.run_id }}
       - name: Start clean preview
         id: deploy
         if: steps.current.outputs.current == 'true'
@@ -155,17 +160,30 @@ jobs:
         if: always() && steps.current.outputs.current == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          PR_NUMBER: ${{ needs.identify.outputs.pr }}
-          EXPECTED_SHA: ${{ needs.identify.outputs.sha }}
+          PR_NUMBER: ${{ inputs.pr }}
+          EXPECTED_SHA: ${{ inputs.sha }}
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.id }}
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+          JOB_STATUS: ${{ job.status }}
         with:
           script: |
             const { data: pr } = await github.rest.pulls.get({
               ...context.repo, pull_number: Number(process.env.PR_NUMBER)
             });
-            if (process.env.DEPLOY_OUTCOME !== 'success' ||
-                pr.state !== 'open' || pr.head.sha !== process.env.EXPECTED_SHA) {
+            const current = pr.state === 'open' && pr.head.sha === process.env.EXPECTED_SHA;
+            const success = process.env.DEPLOY_OUTCOME === 'success' && process.env.JOB_STATUS === 'success';
+            if (!success || !current) {
               await exec.exec('bash', ['deploy/stack.sh', 'destroy']);
+            }
+            if (process.env.DEPLOYMENT_ID) {
+              await github.rest.repos.createDeploymentStatus({
+                ...context.repo, deployment_id: Number(process.env.DEPLOYMENT_ID),
+                state: !current ? 'inactive' : success ? 'success' : 'failure',
+                environment_url: success && current ? process.env.DEPLOYMENT_URL : undefined,
+                log_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                auto_inactive: true,
+              });
             }
       - name: Remove downloaded image archive
         if: always()
