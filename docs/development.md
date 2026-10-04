@@ -77,7 +77,8 @@ untrusted preview origins against a production Auth project.
 
 In the Supabase dashboard SQL Editor, run
 `supabase/migrations/01_initial_schema.sql` and then
-`supabase/migrations/02_group_access.sql`, once each, in that order. The
+`supabase/migrations/02_group_access.sql` and
+`supabase/migrations/03_competition_setup.sql`, once each, in that order. The
 migrations expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. Existing projects
 with the initial schema need only the second migration. Apply migrations as

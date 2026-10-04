@@ -30,6 +30,9 @@ async function configure(page: Page, signedIn = false) {
       const id = new URL(route.request().url()).searchParams.get("id");
       return route.fulfill({ json: id === `eq.${secondId}` ? [] : [{ id: groupId, name: "Baking club" }] });
     }
+    if (path === "/rest/v1/group_members") return route.fulfill({ json: [{ role: "admin" }] });
+    if (path === "/rest/v1/competitions") return route.fulfill({ json: [] });
+    if (path === "/rest/v1/categories") return route.fulfill({ json: [] });
     return route.fulfill({ status: 400, json: { message: `Unexpected endpoint: ${path}` } });
   });
   if (signedIn) {
@@ -129,7 +132,71 @@ test("signed-in dashboard lists RLS groups and creates a group via RPC", async (
   await page.getByRole("button", { name: "Create group", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/group/${secondId}$`));
   await expect(page.getByRole("heading", { name: "New community" })).toBeVisible();
-  await expect(page.getByText(/Submission, voting, and administration remain closed/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Competitions" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Create a draft competition" })).toBeVisible();
+});
+
+test("group admins create and edit draft competitions with scoring criteria", async ({ page }) => {
+  await configure(page, true);
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  const competitions: Array<Record<string, unknown>> = [];
+  const saves: Array<Record<string, unknown>> = [];
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({ json: competitions }));
+  await page.route(`${supabaseURL}/rest/v1/categories**`, (route) => route.fulfill({
+    json: [{ name: "Taste", max_score: 5 }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/save_draft_competition`, (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    saves.push(body);
+    const categories = body.p_categories as Array<{ name: string; max_score: number }>;
+    if (!body.p_competition_id) {
+      competitions.splice(0, competitions.length, {
+        id: competitionId,
+        name: body.p_name,
+        event_type: body.p_event_type,
+        status: "draft",
+        submission_deadline: body.p_submission_deadline,
+        voting_deadline: body.p_voting_deadline,
+      });
+    } else {
+      Object.assign(competitions[0], { name: body.p_name });
+    }
+    expect(categories).toHaveLength(1);
+    return route.fulfill({ json: competitionId });
+  });
+
+  await page.goto(`/group/${groupId}`);
+  await page.getByRole("textbox", { name: "Competition name" }).fill("Autumn bake-off");
+  await page.getByRole("textbox", { name: "Category name" }).fill("Taste");
+  await page.getByRole("button", { name: "Create competition" }).click();
+  await expect(page.getByRole("link", { name: "Autumn bake-off" })).toHaveAttribute("href", `/competition/${competitionId}`);
+  expect(saves[0]).toMatchObject({
+    p_competition_id: null,
+    p_group_id: groupId,
+    p_name: "Autumn bake-off",
+    p_event_type: "remote",
+    p_categories: [{ name: "Taste", max_score: 5 }],
+  });
+
+  await page.getByRole("button", { name: "Edit draft" }).click();
+  await page.getByRole("textbox", { name: "Category name" }).fill("Creativity");
+  await page.getByRole("button", { name: "Save draft" }).click();
+  expect(saves[1]).toMatchObject({
+    p_competition_id: competitionId,
+    p_group_id: groupId,
+    p_categories: [{ name: "Creativity", max_score: 5 }],
+  });
+});
+
+test("ordinary group members can view competitions but cannot create drafts", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/group_members**`, (route) => route.fulfill({
+    json: [{ role: "member" }],
+  }));
+  await page.goto(`/group/${groupId}`);
+  await expect(page.getByRole("heading", { name: "Competitions" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Create a draft competition" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Edit draft" })).toHaveCount(0);
 });
 
 test("empty memberships and failed group creation provide clear feedback", async ({ page }) => {

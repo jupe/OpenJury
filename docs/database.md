@@ -12,7 +12,7 @@ stored in user metadata or a separate profile table.
 | `groups` | Tenant name, creator, and creation time |
 | `group_members` | Group/user membership with `admin` or `member` role |
 | `competitions` | Group event, live/remote type, status, and optional deadlines |
-| `categories` | Competition grading criteria with a default maximum score of 5 |
+| `categories` | Competition grading criteria with maximum scores from 1 to 5 |
 | `entries` | Submission creator, title, media URLs, anonymous number, and disqualification flag |
 | `votes` | Entry/category/user score, unique per entry, voter, and category |
 
@@ -21,7 +21,8 @@ group-owned data are defined in the migration. Votes accept scores from 1–5.
 Anonymous entry numbers are nullable until voting starts and unique within a
 competition; assigning them is deferred. Category-specific score limits and
 ensuring an entry and category belong to the same competition must be enforced
-when implementing voting.
+when implementing voting. Category maxima cannot exceed the existing fixed
+1–5 vote scale.
 
 ## Planned lifecycle
 
@@ -37,18 +38,30 @@ and Realtime subscriptions are intentionally left for future implementation.
 
 ## Implemented group access
 
-Apply `02_group_access.sql` after the initial migration. It grants authenticated
+Apply `02_group_access.sql` after the initial migration, then
+`03_competition_setup.sql`. The latter grants authenticated group members read
+access to their competitions and categories; an admin-only RPC creates or edits
+draft competitions and replaces their scoring categories atomically. Competition
+and category names are trimmed and limited to 100 characters, category names are
+unique within a competition, and voting deadlines must follow submission
+deadlines when both are set. Category maxima are constrained to 1–5. Draft
+updates lock the competition row and are rejected after it leaves the draft
+status, so lifecycle transitions must use the same row lock.
+
+The `02_group_access.sql` migration grants authenticated
 users membership-scoped group reads and reads of their own membership rows,
 without recursive policies. The `create_group(group_name)` RPC validates and
 trims a 1–100 character name, takes the creator from `auth.uid()`, and returns
 the new UUID after atomically creating the group and its admin membership.
 Direct client writes to groups and memberships are not allowed. Invitations,
-roster visibility, membership management, and competition access are deferred.
+roster visibility, and membership management are deferred. Entry and vote access
+remain deny-by-default.
 
-On a disposable Supabase database with both migrations applied, run:
+On a disposable Supabase database with all three migrations applied, run:
 
 ```sh
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_access.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_setup.sql
 ```
 
 Use an owner connection (not an API client). The test creates fixed-ID users

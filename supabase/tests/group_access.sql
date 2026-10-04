@@ -1,4 +1,4 @@
--- Run with psql as the database owner after applying both migrations.
+-- Run with psql as the database owner after applying all migrations.
 -- All fixtures and RPC-created groups are rolled back.
 begin;
 
@@ -92,11 +92,14 @@ begin
      or (select role from public.group_members) <> 'member' then
     raise exception 'Membership-scoped reads are incorrect';
   end if;
-  if exists (select 1 from public.competitions)
-     or exists (select 1 from public.categories)
-     or exists (select 1 from public.entries)
+  if (select count(*) from public.competitions) <> 1
+     or (select name from public.competitions) <> 'Private competition'
+     or (select count(*) from public.categories) <> 1 then
+    raise exception 'Group members must read competition setup';
+  end if;
+  if exists (select 1 from public.entries)
      or exists (select 1 from public.votes) then
-    raise exception 'Competition data must remain closed';
+    raise exception 'Entry and vote data must remain closed';
   end if;
   begin
     insert into public.group_members (group_id, user_id, role)
