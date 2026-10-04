@@ -1,0 +1,46 @@
+services:
+  traefik:
+    image: {{ openjury_traefik_image | to_json }}
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    command:
+      - --api.dashboard=false
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=openjury-proxy
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.email={{ openjury_acme_email }}
+      - --certificatesresolvers.letsencrypt.acme.storage=/acme/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --ping=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # A read-only socket mount does not restrict Docker API methods.
+      # This privileged infrastructure container must never run PR-supplied images.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - acme:/acme
+    tmpfs:
+      - /tmp
+    networks: [proxy]
+    healthcheck:
+      test: [CMD, traefik, healthcheck, --ping]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+volumes:
+  acme:
+
+networks:
+  proxy:
+    external: true
+    name: openjury-proxy

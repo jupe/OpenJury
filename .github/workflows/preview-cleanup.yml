@@ -1,0 +1,47 @@
+name: PR preview cleanup
+
+on:
+  # Privileged cleanup never downloads artifacts or executes PR-controlled code.
+  pull_request_target:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR preview to destroy (also works while preview CD is disabled)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  cleanup:
+    if: >-
+      (vars.PREVIEW_CD_ENABLED == 'true' || github.event_name == 'workflow_dispatch') &&
+      (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on: [self-hosted, linux, x64, openjury-dev]
+    timeout-minutes: 10
+    # No environment approval: closing a PR must not leave its resources running.
+    concurrency:
+      group: openjury-preview-${{ github.event.pull_request.number || inputs.pr_number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Clean up unless the PR has since reopened
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          COMPOSE_PROJECT_NAME: openjury-pr-${{ github.event.pull_request.number || inputs.pr_number }}
+        with:
+          script: |
+            if (!/^[1-9][0-9]*$/.test(process.env.PR_NUMBER)) throw new Error('Invalid PR number');
+            const { data: pr } = await github.rest.pulls.get({
+              ...context.repo, pull_number: Number(process.env.PR_NUMBER)
+            });
+            if (context.eventName === 'workflow_dispatch' || pr.state === 'closed') {
+              await exec.exec('bash', ['deploy/stack.sh', 'destroy']);
+            }

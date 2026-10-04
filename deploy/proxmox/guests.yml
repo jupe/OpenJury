@@ -1,0 +1,214 @@
+---
+- name: Prepare isolated OpenJury QEMU guests
+  hosts: openjury_guests
+  become: true
+  gather_facts: true
+  serial: 1
+  vars:
+    openjury_runner_version: "2.337.0"
+    openjury_runner_sha256: "70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613"
+    openjury_runner_user: openjury-runner
+    openjury_runner_dir: /opt/actions-runner
+    openjury_traefik_image: traefik:v3.7.13
+  pre_tasks:
+    - name: Refuse unconfirmed or unsupported guest targets
+      ansible.builtin.assert:
+        that:
+          - openjury_operator_confirmed | default(false) | bool
+          - groups['proxmox'] | length == 1
+          - openjury_environment in ['dev', 'staging', 'production']
+          - inventory_hostname == 'openjury-' ~ openjury_environment
+          - ansible_facts['distribution'] == 'Ubuntu'
+          - ansible_facts['distribution_version'] == '24.04'
+          - ansible_facts['architecture'] == 'x86_64'
+          - ansible_facts['virtualization_role'] == 'guest'
+          - ansible_facts['virtualization_type'] == 'kvm'
+          - openjury_acme_email | default('') is match('^[^@\s]+@[^@\s]+\.[^@\s]+$')
+        fail_msg: Configure the inventory and use only the provisioned Ubuntu 24.04 QEMU guests.
+
+    - name: Detect Proxmox management filesystem
+      ansible.builtin.stat:
+        path: /etc/pve
+      register: openjury_pve_path
+
+    - name: Never install application services on a Proxmox host
+      ansible.builtin.assert:
+        that: not openjury_pve_path.stat.exists
+        fail_msg: Refusing to install Docker or a runner on a Proxmox host.
+
+    - name: Wait for cloud-init to finish
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+
+  tasks:
+    - name: Install administration and runner runtime dependencies
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - git
+          - python3-apt
+          - python3-debian
+          - qemu-guest-agent
+          - libicu74
+          - libssl3t64
+          - libkrb5-3
+          - zlib1g
+          - liblttng-ust1t64
+          - systemd-timesyncd
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create time synchronization configuration directory
+      ansible.builtin.file:
+        path: /etc/systemd/timesyncd.conf.d
+        state: directory
+        mode: "0755"
+
+    - name: Use only the NTP endpoint allowed by the VM firewall
+      ansible.builtin.copy:
+        dest: /etc/systemd/timesyncd.conf.d/openjury.conf
+        mode: "0644"
+        content: |
+          [Time]
+          NTP={{ hostvars[groups['proxmox'][0]].openjury_ntp_server }}
+          FallbackNTP=
+      register: openjury_timesync_config
+
+    - name: Enable time synchronization
+      ansible.builtin.systemd_service:
+        name: systemd-timesyncd
+        enabled: true
+        state: "{{ 'restarted' if openjury_timesync_config.changed else 'started' }}"
+
+    - name: Enable guest agent
+      ansible.builtin.systemd_service:
+        name: qemu-guest-agent
+        state: started
+        enabled: true
+
+    - name: Create apt key directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Fetch Docker repository signing key over TLS
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+
+    - name: Configure signed Docker stable repository
+      ansible.builtin.deb822_repository:
+        name: docker
+        types: [deb]
+        uris: https://download.docker.com/linux/ubuntu
+        suites: [noble]
+        components: [stable]
+        architectures: [amd64]
+        signed_by: /etc/apt/keyrings/docker.asc
+        state: present
+
+    - name: Install Docker and Compose
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Enable Docker
+      ansible.builtin.systemd_service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Create environment-local runner account
+      ansible.builtin.user:
+        name: "{{ openjury_runner_user }}"
+        shell: /bin/bash
+        create_home: true
+        password_lock: true
+        groups: docker
+        append: true
+
+    - name: Create runner installation directory
+      ansible.builtin.file:
+        path: "{{ openjury_runner_dir }}"
+        state: directory
+        owner: "{{ openjury_runner_user }}"
+        group: "{{ openjury_runner_user }}"
+        mode: "0750"
+
+    - name: Detect existing runner installation
+      ansible.builtin.stat:
+        path: "{{ openjury_runner_dir }}/config.sh"
+      register: openjury_runner_installed
+
+    # Registered runners update themselves; never unpack over a running service.
+    - name: Bootstrap unregistered runner from verified release
+      when: not openjury_runner_installed.stat.exists
+      block:
+        - name: Download checksum-pinned runner
+          ansible.builtin.get_url:
+            url: "https://github.com/actions/runner/releases/download/v{{ openjury_runner_version }}/actions-runner-linux-x64-{{ openjury_runner_version }}.tar.gz"
+            dest: /var/cache/openjury-actions-runner.tar.gz
+            checksum: "sha256:{{ openjury_runner_sha256 }}"
+            mode: "0644"
+
+        - name: Extract runner without registering credentials
+          ansible.builtin.unarchive:
+            src: /var/cache/openjury-actions-runner.tar.gz
+            dest: "{{ openjury_runner_dir }}"
+            remote_src: true
+            owner: "{{ openjury_runner_user }}"
+            group: "{{ openjury_runner_user }}"
+            creates: "{{ openjury_runner_dir }}/config.sh"
+
+    - name: Inspect application proxy network
+      ansible.builtin.command:
+        argv: [docker, network, inspect, openjury-proxy]
+      register: openjury_proxy_network
+      changed_when: false
+      failed_when: openjury_proxy_network.rc != 0 and 'No such network' not in openjury_proxy_network.stderr
+
+    - name: Create application proxy network
+      ansible.builtin.command:
+        argv: [docker, network, create, openjury-proxy]
+      when: openjury_proxy_network.rc != 0
+      changed_when: true
+
+    - name: Create private ingress configuration directory
+      ansible.builtin.file:
+        path: /opt/openjury-ingress
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Configure HTTPS ingress
+      ansible.builtin.template:
+        src: templates/ingress.compose.yml.j2
+        dest: /opt/openjury-ingress/compose.yml
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Start HTTPS ingress
+      ansible.builtin.command:
+        argv: [docker, compose, --project-name, openjury-ingress, --file, /opt/openjury-ingress/compose.yml, up, --detach, --wait, --wait-timeout, "120"]
+      register: openjury_ingress_up
+      changed_when: "'Started' in openjury_ingress_up.stderr or 'Created' in openjury_ingress_up.stderr or 'Recreated' in openjury_ingress_up.stderr"
+
+    - name: Explain pending runner registration
+      ansible.builtin.debug:
+        msg: >-
+          Host ready. Register /opt/actions-runner as openjury-runner with the
+          openjury-{{ openjury_environment }} label ONLY after trusted-workflow
+          runner-group restrictions are configured. No runner is registered or
+          CD enabled by this playbook.

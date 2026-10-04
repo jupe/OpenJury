@@ -1,0 +1,82 @@
+all:
+  vars:
+    # Shared by provisioning and guest configuration; replace placeholders first.
+    openjury_operator_confirmed: false
+    openjury_acme_email: ""
+  children:
+    proxmox:
+      hosts:
+        pve1:
+          ansible_host: 192.0.2.10
+          ansible_user: root
+          openjury_node: pve1
+      vars:
+        # Replace every documentation address and review routing before confirming.
+        # Use trusted administrator SSH; no Proxmox API tokens or storage secrets.
+        openjury_template_vmid: 9000
+        # Existing stopped Ubuntu 24.04 amd64 cloud-init template: scsi0 OS disk,
+        # ide2 cloud-init drive, net0, and installed/enabled qemu-guest-agent.
+        # onboot=0; no passwords, hooks, custom cloud-init, passthrough, or extra
+        # NICs. No secrets or reusable private keys may be baked into the image.
+        openjury_template_confirmed_ubuntu_2404_amd64: false
+        openjury_storage: local-lvm
+        openjury_admin_ssh_public_key: "ssh-ed25519 REPLACE_WITH_YOUR_PUBLIC_KEY"
+        openjury_management_admin_cidr: 192.0.2.128/25
+        # Include ALL management networks, including publicly addressed management.
+        openjury_management_cidrs:
+          - 192.0.2.0/24
+        openjury_dns_servers:
+          - 198.51.100.53
+        openjury_ntp_server: 198.51.100.123
+        # Existing off-host Proxmox Backup Server storage, with credentials already
+        # configured on Proxmox (never put those credentials in this inventory).
+        openjury_backup_storage: offsite-pbs
+        openjury_backup_server: 198.51.100.40
+        # Operator attests this PBS is a DIFFERENT PHYSICAL MACHINE. Address checks
+        # cannot prove physical separation (NAT, aliases, or virtual machines).
+        openjury_backup_confirmed_offhost: false
+        openjury_backup_schedule: "02:30"
+        openjury_backup_retention: "keep-last=7,keep-weekly=4,keep-monthly=6"
+        # Existing managed VM configuration drift fails closed: reconcile manually.
+        # Existing stopped VMs remain stopped. Failed partial clones are NOT deleted,
+        # restarted, or repaired automatically; investigate before retrying.
+    openjury_guests:
+      vars:
+        openjury_admin_user: ubuntu
+        ansible_user: "{{ openjury_admin_user }}"
+        openjury_bridge: vmbr0
+        openjury_prefix_length: 28
+        openjury_cores: 2
+        openjury_memory_mb: 4096
+        openjury_disk_gb: 32
+        # The EXTERNAL router must already provide these distinct tagged VLANs,
+        # static-address routing, and ingress routing/NAT for TCP 80/443 plus
+        # administrator SSH. This playbook does NOT configure routers, DNS, NAT,
+        # switches, TLS, or upstream ACLs. Gateways must not bridge the VLANs.
+        # Approved DNS/NTP may be private IPv4 endpoints, but must not be within
+        # management/guest subnets or link-local space. Only their exact DNS/NTP
+        # ports are exceptions to the private-destination block.
+        # Use routed guest addresses or preserve management source CIDRs through
+        # NAT; these addresses must also be reachable from the Ansible controller.
+      hosts:
+        openjury-dev:
+          ansible_host: 203.0.113.2
+          openjury_environment: dev
+          openjury_vmid: 201
+          openjury_vlan: 201
+          openjury_gateway: 203.0.113.1
+        openjury-staging:
+          ansible_host: 203.0.113.18
+          openjury_environment: staging
+          openjury_vmid: 202
+          openjury_vlan: 202
+          openjury_gateway: 203.0.113.17
+        openjury-production:
+          ansible_host: 203.0.113.34
+          openjury_environment: production
+          openjury_vmid: 203
+          openjury_vlan: 203
+          openjury_gateway: 203.0.113.33
+          openjury_cores: 4
+          openjury_memory_mb: 8192
+          openjury_disk_gb: 64

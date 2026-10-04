@@ -1,0 +1,35 @@
+services:
+  web:
+    image: ${IMAGE:?IMAGE is required}
+    pull_policy: ${PULL_POLICY:-always}
+    user: "1001:1001"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 1
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /app/.next/cache:size=64m,uid=1001,gid=1001
+    environment:
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+    networks: [proxy]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${PROXY_NETWORK:-openjury-proxy}
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}.rule=Host(`${APP_HOST:?APP_HOST is required}`)
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}.entrypoints=websecure
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}.tls=true
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}.tls.certresolver=${TLS_RESOLVER:-letsencrypt}
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}.service=${COMPOSE_PROJECT_NAME}
+      - traefik.http.services.${COMPOSE_PROJECT_NAME}.loadbalancer.server.port=3000
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-openjury-proxy}

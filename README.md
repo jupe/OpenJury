@@ -16,15 +16,20 @@ moderation, or lifecycle automation is implemented.
 - **Tailwind CSS** for styling shared UI components.
 - **Supabase**: PostgreSQL database, Auth (planned magic links / OAuth), Storage
   (planned entry media), and Realtime (planned state updates).
-- **Deployment target**: Vercel for the frontend and Supabase Cloud for the backend.
+- **Deployment**: Docker images with optional GitHub Actions deployments to
+  self-hosted Docker hosts; Supabase Cloud for the persistent backend.
 
 ## Local setup
 
 ### 1. Install and run
 
-Use Node.js 22 or newer and npm.
+Use Node.js 26.10.0 (pinned in `.nvmrc`) and npm 12.2.0, matching Docker and CI.
+Node.js 26 is currently the Current release, not LTS.
 
 ```sh
+nvm install
+nvm use
+npm install --global npm@12.2.0
 npm ci
 cp .env.example .env.local
 npm run dev
@@ -32,6 +37,12 @@ npm run dev
 
 Open <http://localhost:3000>. All placeholder routes work without Supabase
 configuration. Restart the dev server after changing environment variables.
+If you do not use nvm, install the same Node.js version directly.
+
+Tooling uses the latest compatible stable releases. ESLint stays on 9.39.5
+because Next.js's React/import/accessibility plugins do not yet support ESLint
+10; TypeScript stays on 6.0.3 because typescript-eslint does not yet support
+TypeScript 7. Upgrade these together once upstream support is available.
 
 Available commands:
 
@@ -39,10 +50,17 @@ Available commands:
 | --- | --- |
 | `npm run dev` | Start the local development server |
 | `npm run lint` | Run ESLint |
+| `npm run typecheck` | Check TypeScript without building |
 | `npm run build` | Type-check and create a production build |
 | `npm start` | Serve the production build |
+| `npm run test:e2e` | Run Chromium desktop/mobile browser tests |
+| `npm run test:smoke` | Run the deployment smoke subset |
 
-There is no test runner configured yet.
+For local browser tests, run `npx playwright install --with-deps chromium` first.
+Playwright builds and starts the production server automatically.
+Set `PLAYWRIGHT_BASE_URL` to test an already running container or deployment.
+Tests cover the implemented placeholder UI, navigation, and health checks—not
+authentication or voting features that do not exist yet.
 
 ### 2. Configure Supabase
 
@@ -154,6 +172,342 @@ Before enabling real functionality:
 6. Implement lifecycle transitions, results publishing, and Realtime updates
    only after the access model is secured.
 
-For Vercel deployment, configure the same public environment variables in the
-project settings and deploy this Next.js repository. Apply database migrations
-separately to Supabase; deploying the frontend does not apply them.
+## CI/CD
+
+### Delivery flow
+
+```text
+Every PR / merge queue → lint + typecheck + Docker build + browser E2E
+                       → optional clean dev preview after successful CI
+PR closed or merged   → delete its dev preview, including volumes
+
+main → same CI checks → publish the tested image to GHCR (no rebuild)
+                     → optional staging deployment by image digest
+                     → staging browser smoke tests through HTTPS ingress
+                     → production approval (if configured)
+                     → production deployment of the SAME digest + smoke tests
+```
+
+CI runs on GitHub-hosted runners, including fork PRs. It exercises the production
+Docker image, not the Next.js development server. The stable required check is
+`checks` in the `CI` workflow. Image artifacts expire after three days; browser
+reports after seven. Actions are commit-pinned and Dependabot proposes updates.
+
+Main images are published as `ghcr.io/jupe/openjury:sha-<commit>`. Deployments use
+the immutable `ghcr.io/jupe/openjury@sha256:...` reference recorded in the Release
+summary. No PR has registry write credentials. Release verifies the source
+revision and skips superseded main builds; deployment checks main again after
+any approval wait. Releases are serialized across staging and production.
+A failed staging deployment **or smoke test blocks production**.
+
+### Enable merge protection first
+
+In GitHub's ruleset/branch protection settings for `main`:
+
+- Require a pull request, reviews, and the `checks` status check.
+- Require branches to be up to date, or enable the merge queue (CI handles
+  `merge_group` events).
+- Prevent bypasses/direct pushes, and require review of workflow, Docker,
+  deployment, and dependency changes by trusted maintainers.
+
+Workflow files alone cannot enforce merge protection; these repository settings
+must be applied by an administrator. No path filters skip CI.
+
+### Docker and runtime configuration
+
+```sh
+docker build -t openjury:local .
+docker run --rm -p 3000:3000 openjury:local
+```
+
+The image runs as non-root and includes `/api/health`. `.env` files and build
+credentials are excluded from the Docker context. Configure **runtime**
+`SUPABASE_URL` and `SUPABASE_ANON_KEY` when starting a persistent deployment.
+Only these public client values are served by `/runtime-config.js`, with caching
+disabled. Never supply a service-role key. This allows staging and production
+to use different Supabase projects without rebuilding the image. The original
+`NEXT_PUBLIC_*` variables remain available for local development.
+
+The app is currently stateless scaffolding. **Dev previews deliberately have no
+Supabase credentials or persistent backend**, so every preview starts empty.
+There is no working database-backed user journey to reset or test yet. Before
+adding those features, extend preview provisioning/teardown with an isolated
+disposable Supabase project or stack per PR, and add database/RLS tests. Never
+point dev at staging or production. Persistent Supabase projects, backups, and
+schema migrations are managed separately; this frontend deployment does not
+reset or migrate them. Preserve the existing deny-by-default RLS boundary.
+
+### Prepare self-hosted infrastructure
+
+For Proxmox VE, use the provisioning and guest playbooks described in
+[Proxmox VM setup](#proxmox-vm-setup) below.
+
+CD is **off by default**: unset flags skip self-hosted jobs rather than queueing
+them while runners are absent. Image publication from main stays enabled.
+
+Provision separate Linux x64 Docker hosts/runners with these custom labels:
+
+| Environment | Runner label | Compose project |
+| --- | --- | --- |
+| Dev previews | `openjury-dev` | `openjury-pr-<number>` |
+| Staging | `openjury-staging` | `openjury-staging` |
+| Production | `openjury-production` | `openjury-production` |
+
+Each also needs the standard `self-hosted`, `linux`, `x64` labels, a current
+GitHub Actions runner supporting Node 24 actions, Git, Bash, curl, and Docker Engine
+with Compose v2 supporting `up --wait`. Use one deployment host per label:
+jobs with that label must reach the **same Docker daemon**, including cleanup.
+Never register multiple unrelated Docker hosts under one environment's label.
+
+On each host, provision:
+
+- A Traefik HTTPS reverse proxy with Docker discovery, a `websecure` entrypoint,
+  and a certificate resolver (default `letsencrypt`). Set
+  `exposedByDefault=false`; do not expose its dashboard publicly.
+- An external Docker network named `openjury-proxy` (or override
+  `PROXY_NETWORK`), with Traefik attached. The app has no published host ports
+  and no Docker socket/host mounts; the deployment runner needs Docker access.
+- DNS and valid TLS for staging/production and wildcard dev hostnames such as
+  `*.dev.example.com`. Configure DNS-01/wildcard certificates or an appropriate
+  certificate strategy to avoid per-PR ACME rate limits.
+- Public HTTPS reachability from GitHub-hosted runners for smoke tests, and
+  outbound access to GitHub artifacts/GHCR from deployment hosts.
+
+**Treat every PR image as arbitrary, untrusted code, including fork PRs.**
+Use a dedicated, disposable dev security boundary with no production/staging
+network access, credentials, cloud metadata access, or shared Docker daemon.
+Restrict egress and isolate previews from sensitive services. Container
+hardening is defense in depth, not a VM security boundary. Never run this dev
+runner on a persistent trusted machine. Restrict **all deployment runner groups**
+to the trusted deployment workflow paths on `refs/heads/main`; labels alone are
+not an access control. Otherwise a PR can change its own workflow to request a
+production runner without using these deployment gates. If your GitHub plan or
+repository cannot enforce that restriction, do not attach trusted self-hosted
+runners to the PR repository: use a policy-enforced deployment controller or
+separate trusted deployment repository first. For public repositories, assess
+GitHub's self-hosted-runner risks and use isolated disposable dev VMs/hosts.
+GitHub's fork-workflow approval is separate from dev deployment approval.
+
+Preview orchestration always checks out trusted `main` scripts, never PR
+scripts, and loads only the image artifact from that PR's successful CI run.
+Dev should contain **no secrets**. Protect the `dev` environment with required
+maintainer reviewers and prevent self-review before enabling preview CD.
+Do not approve images from unreviewed/untrusted contributors. Fully automatic
+previews require infrastructure capable of safely containing hostile workloads.
+
+### Configure GitHub environments and flags
+
+Create the `dev`, `staging`, and `production` environments **before** enabling CD.
+Restrict staging/production deployment branches to `main`; require production
+reviewers if desired. Permit the trusted preview workflow's refs in `dev`.
+The preview deployment URL appears in the environment deployment and workflow
+summary as `https://pr-<number>.<DEV_BASE_DOMAIN>`.
+
+| Scope | Variable/secret | Value |
+| --- | --- | --- |
+| Repository variable | `PREVIEW_CD_ENABLED` | `true` to deploy PR previews |
+| Repository variable | `CD_ENABLED` | `true` to deploy staging then production |
+| `dev` variable | `DEV_BASE_DOMAIN` | e.g. `dev.example.com`, without a scheme |
+| `staging` / `production` variable | `APP_HOST` | Environment hostname, without a scheme |
+| Each environment variable | `PROXY_NETWORK` | Optional; defaults to `openjury-proxy` |
+| Each environment variable | `TLS_RESOLVER` | Optional; defaults to `letsencrypt` |
+| `staging` / `production` variable | `SUPABASE_URL` | That environment's public Supabase URL |
+| `staging` / `production` secret | `SUPABASE_ANON_KEY` | That environment's **public anon** key only |
+
+Allow Actions to publish/read this repository's GHCR package. The workflows use
+short-lived `GITHUB_TOKEN` credentials; no PAT is required. If the package already
+exists, grant this repository Actions access in its package settings.
+
+Enable the flags independently after infrastructure and environment protections
+are ready. Push a new PR revision/main commit (or rerun its CI) to start delivery.
+`workflow_run` workflows must exist on the default branch (`main`) before they
+can trigger. Do not approve an old deployment after its three-day image artifact
+expires; rerun CI instead.
+
+### Cleanup, failures, and recovery
+
+- Each successful PR revision destroys its previous container and project
+  volumes before starting the tested image. There are no persistent dev mounts.
+  Failed, stale, or closed-during-deployment previews are also removed.
+- PR closure (merged **or unmerged**) triggers trusted cleanup without a dev
+  approval. Deployment and cleanup share a per-PR lock; other PRs are independent.
+  Reopening a PR triggers CI and a fresh preview.
+- If a runner is offline or an event was missed, run **PR preview cleanup → Run workflow**
+  on `main`, supplying `pr_number`, to destroy that preview. This cleanup-only
+  dispatch also works when `PREVIEW_CD_ENABLED` is disabled. Clean up existing
+  previews before disabling the flag; disabling it is not a mass teardown.
+- Failed smoke reports are attached to the Release run. Production is untouched
+  if staging fails. A production smoke failure marks the release failed but
+  does not automatically revert traffic; there is no blue/green or zero-downtime
+  guarantee with this single-container Compose setup.
+- To roll back, take a previously successful digest from a Release summary,
+  authenticate the relevant host to GHCR, set the same environment variables
+  and `COMPOSE_PROJECT_NAME`, then run `bash deploy/stack.sh deploy` with `IMAGE`
+  set to that digest. Run `PLAYWRIGHT_BASE_URL=https://<host> npm run test:smoke`
+  afterward. Do not reset persistent data or rebuild an old source tree.
+- Monitor host disk use and retain enough prior GHCR digests for rollback.
+  Cleanup removes the preview's old image when it is not shared; it never runs
+  a global Docker prune or deletes the shared proxy/network.
+
+## Proxmox VM setup
+
+`deploy/proxmox/` provisions **three full QEMU/KVM VMs**, not LXC containers:
+
+| VM | Purpose | Deployment runner label |
+| --- | --- | --- |
+| `openjury-dev` | Disposable PR containers on a replaceable dev host | `openjury-dev` |
+| `openjury-staging` | Staging application and smoke-test target | `openjury-staging` |
+| `openjury-production` | Production application | `openjury-production` |
+
+The automation runs from a **trusted administrator workstation**, not GitHub
+Actions or an application runner. It uses administrator SSH to Proxmox and
+guest SSH for configuration. It does not install Docker or runners on the
+hypervisor, copy Proxmox credentials into guests, register runners, enable CD,
+or change GitHub settings. No Proxmox infrastructure is contacted by CI.
+
+### Prerequisites and trust boundaries
+
+- A Proxmox VE host using the **legacy `pve-firewall` backend**, with its
+  datacenter firewall enabled and working. The experimental/new nftables
+  `proxmox-firewall` backend is not supported by these playbooks; do not change
+  backends blindly on a live host. Keep a console session available while
+  applying network changes.
+- An existing **Ubuntu Server 24.04 amd64 cloud-init QEMU template**, with
+  Python 3, `cloud-init`, `qemu-guest-agent`, and OpenSSH installed. Its root disk
+  must be `scsi0`, its cloud-init drive attached, and it must have no runner
+  registration, credentials, custom cloud-init snippets, extra NICs, or mounts.
+  Clean cloud-init state/machine identity before converting it to a template.
+- Separate VLANs on an existing VLAN-aware bridge, with routing/gateways
+  configured by your network administrator. The playbooks do not reconfigure
+  the physical switch, router, Proxmox management interface, or host firewall.
+- An existing **off-host Proxmox Backup Server storage target**, already
+  authenticated in Proxmox. Its server/storage must not depend on the same
+  physical machine. Configure PBS retention verification, alerts, and restore
+  access independently; do not put its credentials in this inventory.
+- A trusted workstation with Python 3.12+ and Ansible from
+  `deploy/proxmox/requirements.txt`, SSH keys, and verified SSH host fingerprints.
+  Do not disable host-key checking. Verify new guest fingerprints via the
+  Proxmox console before connecting.
+
+All three VMs have distinct Docker daemons and runner identities. VM firewalls
+allow inbound SSH only from the configured administrator network and inbound
+HTTP/HTTPS for ingress. Outbound rules block private/link-local and explicitly
+protected networks before allowing configured public DNS/NTP endpoints and web
+traffic. Put the Proxmox/admin networks in `openjury_management_cidrs` and
+**all other sensitive networks and NAT/public aliases** in
+`openjury_protected_cidrs`. The other guests and PBS endpoint are also blocked
+explicitly. Management and guest subnets must not overlap.
+IPv6 is blocked by the VM policy; this setup uses static IPv4 networking.
+The firewall is outside the guest, so Docker port publishing cannot bypass it.
+
+This still needs your upstream firewall policy: prevent VLAN hopping, dev access
+to Proxmox management, and access through public hostnames/NAT hairpins. Denying
+private addresses alone does not protect a publicly reachable management IP.
+DNS/NTP servers are narrow network exceptions, not general management access.
+
+**One physical host is not high availability.** Hardware failure, hypervisor
+compromise, or maintenance affects all environments. VMs isolate guest kernels,
+not the physical failure domain. Dev workloads share the dev VM; fully automatic
+hostile-PR previews need disposable per-PR VMs/microVMs and additional automation.
+
+### Configure and apply
+
+Copy `deploy/proxmox/inventory.example.yml` to the gitignored
+`deploy/proxmox/inventory.local.yml`. Replace the sample VM IDs, host addresses,
+template/storage names, VLANs, CIDRs, DNS/NTP endpoints, public SSH key,
+backup settings, and ACME email. Read all inventory comments before setting the
+operator confirmation flags. Never put private keys, passwords, GitHub tokens,
+or Proxmox/PBS credentials in the file.
+
+From the repository root on your administrator workstation:
+
+```sh
+python3 -m venv /tmp/openjury-ansible
+/tmp/openjury-ansible/bin/pip install -r deploy/proxmox/requirements.txt
+/tmp/openjury-ansible/bin/ansible-playbook \
+  -i deploy/proxmox/inventory.local.yml deploy/proxmox/provision.yml --syntax-check
+/tmp/openjury-ansible/bin/ansible-playbook \
+  -i deploy/proxmox/inventory.local.yml deploy/proxmox/guests.yml --syntax-check
+```
+
+Review the inventory and network policy before running the same commands
+**without** `--syntax-check`, provisioning first and configuring guests second.
+Syntax checks cannot verify your live VLANs, firewall backend, template, storage,
+or PBS availability. The examples are not ready-to-apply infrastructure values.
+Do not treat check mode as a substitute for reviewing Proxmox CLI operations.
+
+Guest configuration installs the Docker stable repository and Compose plugin,
+the guest agent, and a checksum-verified GitHub runner release. It creates the
+`openjury-runner` account and `/opt/actions-runner` but does not register it.
+Registered runners manage their own updates; rerunning the playbook does not
+unpack an archive over an existing runner installation.
+
+Ingress is installed at `/opt/openjury-ingress/compose.yml` and uses the existing
+application labels and `openjury-proxy` network. It runs Traefik with no public
+dashboard, HTTP-to-HTTPS redirects, and a `letsencrypt` HTTP-01 resolver.
+Docker socket access makes Traefik privileged infrastructure: a `:ro` socket
+mount does **not** make its Docker API read-only. Keep it patched and do not
+replace it with PR-controlled images.
+
+### DNS, TLS, and runner registration
+
+Point staging, production, and wildcard dev DNS at their respective ingress
+endpoints. Each VM needs externally reachable TCP 80/443 for HTTP-01 and smoke
+tests. If all VMs share **one public IP**, you need an upstream hostname/SNI-aware
+proxy routing HTTP challenges and TLS traffic to the correct VM (or separate
+public IPs); ordinary port forwarding cannot send the same ports to three VMs.
+Avoid publishing any Proxmox, SSH, Docker, or Traefik management interface.
+
+Wildcard DNS does not provide a wildcard certificate: this HTTP-01 setup issues
+certificates per hostname. For many previews, plan a wildcard/DNS-01 certificate
+strategy and ACME rate-limit handling separately. Do not place broad DNS account
+credentials on the dev runner.
+
+Before registration, configure **runner groups restricted to the trusted
+deployment workflow paths on `main`** as described above. If that restriction is
+unavailable for this repository/account, stop here and use a separate trusted
+deployment repository or controller. Three isolated VMs do not stop a malicious
+PR workflow from requesting an unrestricted production runner.
+
+On each guest, use the short-lived registration token from GitHub's runner setup
+page interactively; do not persist it in inventory or command history:
+
+```sh
+sudo -iu openjury-runner
+cd /opt/actions-runner
+./config.sh
+```
+
+Choose the trusted registration URL/group, the VM's name, and its matching custom
+label from the table. Retain the standard `self-hosted`, `linux`, `x64` labels.
+Do not use `--replace` to take over another runner. Return to your administrator
+account and install/start the service:
+
+```sh
+cd /opt/actions-runner
+sudo ./svc.sh install openjury-runner
+sudo ./svc.sh start
+```
+
+The runner account has Docker access, which is effectively root-equivalent
+**inside its VM**. It must never have hypervisor credentials or host mounts.
+Verify firewall isolation from the dev VM, HTTPS reachability from outside your
+LAN, a successful production backup, and GitHub environment protections before
+setting `PREVIEW_CD_ENABLED` or `CD_ENABLED` to `true`.
+
+### Backups and recovery
+
+The provisioning playbook configures a scheduled production-only backup job to
+your existing off-host PBS storage. Verify an initial backup completes and
+monitor subsequent jobs; creating a schedule does not prove recoverability.
+Perform periodic restore drills into an **isolated network**, keeping the
+restored runner service stopped to avoid duplicate runner identities/deployments.
+Protect PBS access: a VM backup includes runner credentials and ingress TLS keys.
+
+Snapshots on the same Proxmox host are not backups. Separately back up Supabase
+data and retain known-good GHCR digests; neither is included in a frontend VM
+backup. After restoring, verify DNS/TLS, runner identity, network isolation, the
+chosen application digest, and smoke tests before restoring production traffic.
+Dev has no data-recovery requirement: revoke its runner registration and rebuild
+the VM when necessary. PR closure only removes that PR's containers/data, not
+the shared dev VM or its runner.
