@@ -4,8 +4,8 @@
 
 ## Database model
 
-Supabase Auth manages users in `auth.users`; application names can later be
-stored in user metadata or a separate profile table.
+Supabase Auth manages users in `auth.users`; application display names come from
+the `display_name`, `full_name`, or `name` fields in user metadata.
 
 | Table | Purpose |
 | --- | --- |
@@ -78,9 +78,30 @@ status or writing a partial snapshot.
 `publish_competition_results` locks the competition, validates the minimum
 ballot rule, stores the final rankings, and marks the competition completed in
 one transaction. Only then can group members read final results, which include
-entry titles and creator IDs. Preliminary rankings and disqualification audit
+entry titles, internal creator IDs, and `creator_name` labels. Names use the first
+nonblank trimmed metadata `display_name`, `full_name`, or `name`, falling back to
+`Participant`; this member-facing projection never falls back to an email or UUID.
+Preliminary rankings and disqualification audit
 data remain admin-only; direct access to result and audit tables is revoked.
 Disqualification audit rows prevent deletion of the associated entries.
+
+## Admin competition attendees
+
+Migration `10_competition_attendees.sql` adds the admin-only
+`get_admin_competition_attendees(p_competition_id uuid)` RPC for every competition
+phase. It includes all current group members, even those with no activity, plus
+historical creators and voters from that competition only. Departed participants
+have role `former member`; current roles are `admin` or `member`. Audit-only
+former admins and participants from other competitions are not included.
+
+Each row contains `user_id` as an internal key, `display_name`, `role`,
+`has_submission`, and `has_voted`. Participation flags include disqualified
+submissions and any recorded vote, including partial ballots, without exposing
+scores or ballot contents. Labels use trimmed metadata `display_name`, then
+`full_name`, then `name`, then email, and finally `Participant`; UUIDs are never
+used as fallback labels. Email fallback is admin-only. The same migration appends
+the metadata-only `creator_name` to published results without changing their
+completion/membership checks, rankings, or ordering.
 
 ## Implemented group access
 
@@ -124,7 +145,8 @@ without recursive policies. The `create_group(group_name)` RPC validates and
 trims a 1–100 character name, takes the creator from `auth.uid()`, and returns
 the new UUID after atomically creating the group and its admin membership.
 Direct client writes to groups and memberships are not allowed. Invitations,
-roster visibility, and membership management are deferred. Entry and vote access
+general roster visibility, and membership management are deferred; competition
+attendees are visible only through the admin RPC. Entry and vote access
 remain deny-by-default.
 
 On a disposable Supabase database with all migrations applied, run:
@@ -136,6 +158,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_setup.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/secure_submissions.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/transactional_lifecycle.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/admin_review_and_publication.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_attendees.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/realtime_notifications.sql
 ```
 
@@ -146,6 +169,9 @@ legal transitions, ballot creation and revision, self-voting and membership
 denial, stable numbering, and idempotent remote deadline processing. The
 review/publication test covers admin-only access, complete-ballot aggregation,
 tie ranking, minimum votes, retained audit data, and atomic publication.
+The attendee test covers admin-only authorization, tenant isolation, inactive and
+departed participants, name fallbacks, email-free published labels, revoked
+membership, and continued denial of direct sensitive-table access.
 The realtime test verifies per-group and per-user channel authorization,
 membership revocation, rejection of forged broadcasts, and that sensitive row
 data remains excluded from Realtime.
