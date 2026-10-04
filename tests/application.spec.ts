@@ -8,25 +8,50 @@ test("health endpoint @smoke", async ({ request }) => {
 });
 
 test("landing and preview navigation @smoke", async ({ page }) => {
+  const privateRequests: string[] = [];
+  page.on("request", (request) => {
+    if (/\/rest\/v1\//.test(request.url())) privateRequests.push(request.url());
+  });
   await page.goto("/");
   await expect(page).toHaveTitle("OpenJury");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(
     "Competitions for every community",
   );
-  await expect(page.getByRole("button", { name: "Sign in (coming soon)" })).toBeDisabled();
-  await page.getByRole("link", { name: "Explore your dashboard" }).click();
+  const signIn = page.getByRole("heading", { name: "Sign in to OpenJury" });
+  const setup = page.getByRole("heading", { name: "Setup required" });
+  await expect(signIn.or(setup)).toBeVisible();
+  const configured = await signIn.isVisible();
+  if (configured) {
+    await expect(page.getByRole("textbox", { name: "Email address" })).toBeVisible();
+    await page.getByRole("navigation").getByRole("link", { name: "Dashboard", exact: true }).click();
+  } else {
+    await page.getByRole("link", { name: "Explore your dashboard" }).click();
+  }
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your groups");
-  await expect(page.getByRole("button", { name: "Create group (coming soon)" })).toBeDisabled();
-  await page.getByRole("link", { name: "Preview a group" }).click();
+  if (configured) {
+    await expect(signIn).toBeVisible();
+    await expect(page.getByRole("link", { name: "Preview a group" })).toHaveCount(0);
+    await page.goto("/group/demo");
+  } else {
+    await expect(page.getByText("Configure Supabase to sign in and create groups.")).toBeVisible();
+    await page.getByRole("link", { name: "Preview a group" }).click();
+  }
   await expect(page).toHaveURL(/\/group\/demo$/);
-  await expect(page.getByText("Group: demo", { exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "Preview a competition" }).click();
+  if (configured) {
+    await expect(signIn).toBeVisible();
+    await expect(page.getByRole("link", { name: "Preview a competition" })).toHaveCount(0);
+    await page.goto("/competition/demo");
+  } else {
+    await expect(page.getByText("Group: demo", { exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Preview a competition" }).click();
+  }
   await expect(page).toHaveURL(/\/competition\/demo$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Competition");
   await page.getByRole("link", { name: "Preview admin view" }).click();
   await expect(page).toHaveURL(/\/competition\/demo\/admin$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Competition admin");
+  expect(privateRequests).toEqual([]);
 });
 
 test("competition and admin actions remain unavailable", async ({ page }) => {

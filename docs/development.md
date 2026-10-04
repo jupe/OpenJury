@@ -80,7 +80,9 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/02_group_access.sql`, once each, in that order. The
 migrations expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. Existing projects
-with the initial schema need only the second migration.
+with the initial schema need only the second migration. Apply migrations as
+the database owner, as in the SQL Editor: the group-creation function runs with
+its owner's permissions to perform the otherwise-denied writes.
 
 Alternatively, with the Supabase CLI installed and Docker running, initialize a
 local Supabase workspace with `supabase init`, then run `supabase start` and

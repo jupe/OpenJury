@@ -33,12 +33,12 @@ features need the [security prerequisites](docs/security.md) implemented first.
 
 ## Documentation
 
-Start with [local development](docs/development.md) to run the placeholder app.
+Start with [local development](docs/development.md) to run and configure the app.
 All setup commands and detailed operational guidance live in the topic guides:
 
 - [Local development](docs/development.md) — tool versions, commands, Supabase
   configuration, and schema setup.
-- [Architecture](docs/architecture.md) — project structure and placeholder routes.
+- [Architecture](docs/architecture.md) — project structure, session gates, and routes.
 - [Database](docs/database.md) — tables, constraints, and planned event lifecycle.
 - [Security](docs/security.md) — RLS boundary and prerequisites for real features.
 - [CI/CD](docs/ci-cd.md) — delivery flow, tested-image promotion, and merge protection.

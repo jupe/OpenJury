@@ -30,8 +30,6 @@ export function GroupList() {
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
-    setLoading(true);
-    setError("");
     void (async () => {
       try {
         const { data, error } = await client.from("groups").select("id,name").order("name").abortSignal(controller.signal);
@@ -75,7 +73,7 @@ export function GroupList() {
     <>
       <Card title="Your memberships">
         {loading ? <p role="status">Loading groups…</p> : error ? (
-          <><p role="alert">{error}</p><Button onClick={() => setAttempt((value) => value + 1)}>Retry groups</Button></>
+          <><p role="alert">{error}</p><Button onClick={() => { setLoading(true); setError(""); setAttempt((value) => value + 1); }}>Retry groups</Button></>
         ) : groups.length ? (
           <ul className="space-y-2">{groups.map((group) => <li key={group.id}><Link className="break-words underline" href={`/group/${group.id}`}>{group.name}</Link></li>)}</ul>
         ) : <p>You do not belong to any groups yet. Create your first group below.</p>}
@@ -105,9 +103,6 @@ export function GroupDetails({ id }: { id: string }) {
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
-    setLoading(true);
-    setGroup(null);
-    setError("");
     void (async () => {
       try {
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return;
@@ -125,7 +120,7 @@ export function GroupDetails({ id }: { id: string }) {
   }, [client, id, attempt]);
 
   if (loading) return <p role="status">Loading group…</p>;
-  if (error) return <Card title="Group unavailable"><p role="alert">{error}</p><Button onClick={() => setAttempt((value) => value + 1)}>Retry group</Button></Card>;
+  if (error) return <Card title="Group unavailable"><p role="alert">{error}</p><Button onClick={() => { setLoading(true); setGroup(null); setError(""); setAttempt((value) => value + 1); }}>Retry group</Button></Card>;
   if (!group) return <Card title="Group not found or access denied"><p>This group does not exist, or you are not a member.</p><Link href="/dashboard" className="underline">Back to your groups</Link></Card>;
   return (
     <>

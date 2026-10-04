@@ -20,7 +20,7 @@ export default async function GroupPage({
           <Link href="/competition/demo" className="underline">Preview a competition</Link>
         </Card>
       }>
-        <GroupDetails id={id} />
+        <GroupDetails key={id} id={id} />
       </AuthBoundary>
     </>
   );

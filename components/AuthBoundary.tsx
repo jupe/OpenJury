@@ -29,63 +29,70 @@ export default function AuthBoundary({ children, demo }: { children: ReactNode; 
   const [signingOut, setSigningOut] = useState(false);
   const mounted = useRef(false);
   const revision = useRef(0);
+  const currentSession = useRef<Session | null>(null);
 
   useEffect(() => {
     mounted.current = true;
     let active = true;
     let unsubscribe = () => {};
-    const hash = new URLSearchParams(window.location.hash.slice(1));
-    const query = new URLSearchParams(window.location.search);
-    const error = hash.get("error_description") || query.get("error_description") || hash.get("error") || query.get("error");
-    if (error) {
-      setLinkError(`Sign-in link failed: ${error}. Request a new link below.`);
-      for (const key of ["error", "error_code", "error_description"]) {
-        hash.delete(key);
-        query.delete(key);
+    const authRevision = revision;
+    void (async () => {
+      await Promise.resolve();
+      if (!active) return;
+      const hash = new URLSearchParams(window.location.hash.slice(1));
+      const query = new URLSearchParams(window.location.search);
+      const error = hash.get("error_description") || query.get("error_description") || hash.get("error") || query.get("error");
+      if (error) {
+        setLinkError(`Sign-in link failed: ${error}. Request a new link below.`);
+        for (const key of ["error", "error_code", "error_description"]) {
+          hash.delete(key);
+          query.delete(key);
+        }
+        window.history.replaceState(null, "", `${window.location.pathname}${query.size ? `?${query}` : ""}${hash.size ? `#${hash}` : ""}`);
       }
-      window.history.replaceState(null, "", `${window.location.pathname}${query.size ? `?${query}` : ""}${hash.size ? `#${hash}` : ""}`);
-    }
-    try {
-      const supabase = getSupabase();
-      setClient(supabase);
-      const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-        if (!active) return;
-        revision.current++;
-        setSession(nextSession);
-        setSessionError("");
-        setActionError("");
-        setMessage("");
-        setLoading(false);
-      });
-      unsubscribe = () => data.subscription.unsubscribe();
       const initialRevision = revision.current;
-      void supabase.auth.getSession().then(({ data, error }) => {
+      try {
+        const supabase = getSupabase();
+        setClient(supabase);
+        const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
+          // getSession reports failures that INITIAL_SESSION hides.
+          if (!active || event === "INITIAL_SESSION") return;
+          revision.current++;
+          currentSession.current = nextSession;
+          setSession(nextSession);
+          setSessionError("");
+          setActionError("");
+          setMessage("");
+          setLoading(false);
+        });
+        unsubscribe = () => data.subscription.unsubscribe();
+        const initialized = await supabase.auth.initialize();
+        if (initialized.error) throw initialized.error;
+        const result = await supabase.auth.getSession();
+        if (active && revision.current === initialRevision) {
+          if (result.error) {
+            setSession(null);
+            setSessionError(`Unable to load your session: ${result.error.message}`);
+          } else {
+            currentSession.current = result.data.session;
+            setSession(result.data.session);
+          }
+          setLoading(false);
+        }
+      } catch (error) {
         if (!active || revision.current !== initialRevision) return;
-        if (error) {
-          setSession(null);
-          setSessionError(`Unable to load your session: ${error.message}`);
+        if (error instanceof Error && error.message.startsWith("Supabase is not configured.")) {
+          setUnconfigured(true);
         } else {
-          setSession(data.session);
+          setSessionError(`Unable to load your session: ${error instanceof Error ? error.message : "Check the public Supabase configuration."}`);
         }
         setLoading(false);
-      }).catch((error: unknown) => {
-        if (!active || revision.current !== initialRevision) return;
-        setSession(null);
-        setSessionError(`Unable to load your session: ${error instanceof Error ? error.message : "Unexpected error"}`);
-        setLoading(false);
-      });
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith("Supabase is not configured.")) {
-        setUnconfigured(true);
-      } else {
-        setSessionError("Unable to initialize authentication. Check the public Supabase configuration.");
       }
-      setLoading(false);
-    }
+    })();
     return () => {
       active = false;
       mounted.current = false;
-      revision.current++;
+      authRevision.current++;
       unsubscribe();
     };
   }, []);
@@ -114,15 +121,20 @@ export default function AuthBoundary({ children, demo }: { children: ReactNode; 
 
   async function signOut() {
     if (!client || signingOut) return;
+    const requestRevision = revision.current;
     setSigningOut(true);
     setActionError("");
     try {
       const { error } = await client.auth.signOut();
       if (!mounted.current) return;
-      if (error) setActionError(`Unable to sign out: ${error.message}`);
-      else setSession(null);
+      if (error && (revision.current === requestRevision || !currentSession.current)) {
+        setActionError(`Unable to complete sign out on the server: ${error.message}. Your local session may already be cleared.`);
+      } else if (!error && revision.current === requestRevision) {
+        currentSession.current = null;
+        setSession(null);
+      }
     } catch {
-      if (mounted.current) setActionError("Unable to sign out. Please try again.");
+      if (mounted.current && (revision.current === requestRevision || !currentSession.current)) setActionError("Unable to complete sign out. Your local session may already be cleared.");
     } finally {
       if (mounted.current) setSigningOut(false);
     }
