@@ -187,8 +187,8 @@ do $$
 begin
   if (select count(*) from public.get_blind_voting_entries(
     '00000000-0000-0000-0000-000000000024'
-  )) <> 1 then
-    raise exception 'A group member could not read the blind voting projection';
+  )) <> 0 then
+    raise exception 'A voter was shown their own entry in the blind projection';
   end if;
   if exists (
     select 1

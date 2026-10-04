@@ -25,6 +25,8 @@ type Competition = {
 type Submission = { id: string; title: string; media_keys: string[] };
 type BlindEntry = { entry_number: number; media_keys: string[] };
 type AdminEntry = { id: string; creator_id: string; title: string; media_keys: string[] };
+type Category = { id: string; name: string; max_score: number };
+type SavedScore = { entry_number: number; category_id: string; score: number };
 
 function MediaGallery({
   client,
@@ -95,7 +97,12 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [blindEntries, setBlindEntries] = useState<BlindEntry[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [ballotScores, setBallotScores] = useState<Record<number, Record<string, string>>>({});
+  const [ballotFeedback, setBallotFeedback] = useState<Record<number, string>>({});
+  const [savingBallot, setSavingBallot] = useState<number | null>(null);
   const [submissionOpen, setSubmissionOpen] = useState(false);
+  const [votingOpen, setVotingOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [newFiles, setNewFiles] = useState<File[]>([]);
   const [removedKeys, setRemovedKeys] = useState<string[]>([]);
@@ -121,10 +128,21 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       setSubmissionOpen(result.data.status === "submission"
         && (!result.data.submission_deadline
           || Date.parse(result.data.submission_deadline) > Date.now()));
-      const [mine, blind] = await Promise.all([
+      const isVotingOpen = result.data.status === "voting"
+        && (!result.data.voting_deadline
+          || Date.parse(result.data.voting_deadline) > Date.now());
+      setVotingOpen(isVotingOpen);
+      const [mine, blind, categoryResult, savedBallot] = await Promise.all([
         client.rpc("get_my_submission", { p_competition_id: competitionId }),
-        result.data.status === "voting"
+        isVotingOpen
           ? client.rpc("get_blind_voting_entries", { p_competition_id: competitionId })
+          : Promise.resolve({ data: [], error: null }),
+        isVotingOpen
+          ? client.from("categories").select("id,name,max_score")
+            .eq("competition_id", competitionId).order("name")
+          : Promise.resolve({ data: [], error: null }),
+        isVotingOpen
+          ? client.rpc("get_my_ballot", { p_competition_id: competitionId })
           : Promise.resolve({ data: [], error: null }),
       ]);
       if (mine.error) {
@@ -138,7 +156,26 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         setError(`Unable to load anonymous entries: ${blind.error.message}`);
         return;
       }
+      if (categoryResult.error) {
+        setError(`Unable to load scoring categories: ${categoryResult.error.message}`);
+        return;
+      }
+      if (savedBallot.error) {
+        setError(`Unable to load your ballot: ${savedBallot.error.message}`);
+        return;
+      }
       setBlindEntries((blind.data || []) as BlindEntry[]);
+      setCategories((categoryResult.data || []) as Category[]);
+      setBallotScores((savedBallot.data || []).reduce(
+        (scores: Record<number, Record<string, string>>, score: SavedScore) => ({
+          ...scores,
+          [score.entry_number]: {
+            ...scores[score.entry_number],
+            [score.category_id]: String(score.score),
+          },
+        }),
+        {},
+      ));
     } catch {
       setError("Unable to load competition submissions. Please try again.");
     } finally {
@@ -252,6 +289,44 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     else setError("");
   }
 
+  async function saveBallot(event: FormEvent<HTMLFormElement>, entry: BlindEntry) {
+    event.preventDefault();
+    if (savingBallot !== null || !votingOpen || categories.length === 0) return;
+    const scores = ballotScores[entry.entry_number] || {};
+    if (categories.some((category) => !scores[category.id])) {
+      setBallotFeedback((current) => ({
+        ...current,
+        [entry.entry_number]: "Choose a score for every category.",
+      }));
+      return;
+    }
+
+    setSavingBallot(entry.entry_number);
+    setBallotFeedback((current) => ({ ...current, [entry.entry_number]: "" }));
+    try {
+      const { error: ballotError } = await client.rpc("save_ballot", {
+        p_competition_id: competitionId,
+        p_entry_number: entry.entry_number,
+        p_scores: categories.map((category) => ({
+          category_id: category.id,
+          score: Number(scores[category.id]),
+        })),
+      });
+      if (ballotError) throw ballotError;
+      setBallotFeedback((current) => ({
+        ...current,
+        [entry.entry_number]: "Ballot saved. You can revise it until voting closes.",
+      }));
+    } catch {
+      setBallotFeedback((current) => ({
+        ...current,
+        [entry.entry_number]: "Unable to save this ballot. Please try again.",
+      }));
+    } finally {
+      setSavingBallot(null);
+    }
+  }
+
   if (loading) return <p role="status">Loading competition…</p>;
   if (!competition) return <p role="alert">{error || "Competition is unavailable."}</p>;
 
@@ -261,6 +336,9 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         <p>Status: {competition.status}</p>
         {competition.submission_deadline && (
           <p>Submissions close {new Date(competition.submission_deadline).toLocaleString()}</p>
+        )}
+        {competition.voting_deadline && (
+          <p>Voting closes {new Date(competition.voting_deadline).toLocaleString()}</p>
         )}
       </Card>
 
@@ -307,7 +385,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         <Button disabled={saving} onClick={() => void retryCleanup()}>Retry media cleanup</Button>
       )}
 
-      {competition.status === "voting" && (
+      {competition.status === "voting" && votingOpen && (
         <Card title="Anonymous entries">
           {blindEntries.length ? (
             <ol className="space-y-6">
@@ -319,10 +397,61 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                     mediaKeys={entry.media_keys}
                     label={`Anonymous entry ${entry.entry_number} image`}
                   />
+                  <form
+                    onSubmit={(event) => void saveBallot(event, entry)}
+                    className="space-y-3"
+                  >
+                    {categories.map((category) => (
+                      <label key={category.id} className="block">
+                        {category.name} (1–{category.max_score})
+                        <select
+                          required
+                          value={ballotScores[entry.entry_number]?.[category.id] || ""}
+                          onChange={(event) => {
+                            setBallotScores((current) => ({
+                              ...current,
+                              [entry.entry_number]: {
+                                ...current[entry.entry_number],
+                                [category.id]: event.target.value,
+                              },
+                            }));
+                            setBallotFeedback((current) => ({
+                              ...current,
+                              [entry.entry_number]: "",
+                            }));
+                          }}
+                          className="mt-1 block w-full rounded border border-slate-300 p-2"
+                        >
+                          <option value="">Choose a score</option>
+                          {Array.from({ length: category.max_score }, (_, index) => index + 1)
+                            .map((score) => <option key={score} value={score}>{score}</option>)}
+                        </select>
+                      </label>
+                    ))}
+                    {ballotFeedback[entry.entry_number] && (
+                      <p role="status">{ballotFeedback[entry.entry_number]}</p>
+                    )}
+                    <Button
+                      type="submit"
+                      disabled={savingBallot !== null || categories.length === 0}
+                    >
+                      {savingBallot === entry.entry_number
+                        ? "Saving ballot…"
+                        : "Save ballot"}
+                    </Button>
+                  </form>
                 </li>
               ))}
             </ol>
           ) : <p>No entries are available for blind voting.</p>}
+          <p className="mt-4 text-sm text-slate-600">
+            Score each category for an entry. Your own entry is excluded; saved ballots can be revised until voting closes.
+          </p>
+        </Card>
+      )}
+      {competition.status === "voting" && !votingOpen && (
+        <Card title="Voting closed">
+          <p>The voting deadline has passed. Preliminary results are not available to members.</p>
         </Card>
       )}
       {error && !editable && <p role="alert">{error}</p>}

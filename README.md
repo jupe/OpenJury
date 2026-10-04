@@ -12,16 +12,15 @@ remote events use deadlines.
 
 ## Current status
 
-The first implementation slices support **magic-link sign-in, sign-out, group
-listing and creation, and admin management of draft competitions and scoring
-categories** with membership-scoped database access. It is **not yet a working
-voting service**: submissions, media uploads, voting, moderation, invitations,
-and lifecycle automation remain unimplemented.
+The implementation supports **magic-link sign-in, group creation, draft
+competition and category management, private submissions, and anonymous
+category-based voting with ballot revisions**. Invitations, moderation, and
+result aggregation and publication remain unimplemented.
 
-It includes shared UI components, database-enforced group and draft competition
-access, and CI/CD and infrastructure tooling. Entries and votes remain
-deny-by-default; further features need the [security prerequisites](docs/security.md)
-implemented first.
+It includes shared UI components, database-enforced authorization, and CI/CD
+and infrastructure tooling. Entry and vote tables remain inaccessible directly;
+private operations use guarded database functions described in the
+[security guide](docs/security.md).
 
 ## Tech stack
 
