@@ -64,11 +64,13 @@ token="$(gh api --method POST "repos/$REPO/actions/runners/registration-token" -
 scp -q dev-bootstrap.sh "ubuntu@$ip:/tmp/openjury-dev-bootstrap.sh"
 printf '%s\n' "$token" | "${vm[@]}" sudo bash /tmp/openjury-dev-bootstrap.sh "$REPO"
 
+# nip.io would read pr-21.192.168.1.114 as 21.192.168.1; the dashed form is unambiguous.
+domain="${ip//./-}.nip.io"
 cat <<EOF
 
 Dev VM ready. Set these in GitHub, then push a PR revision (or rerun its CI):
-  gh variable set DEV_BASE_DOMAIN --env dev --body "$ip.nip.io"
+  gh variable set DEV_BASE_DOMAIN --env dev --body "$domain"
   gh variable set APP_SCHEME --env dev --body http
   gh variable set PREVIEW_CD_ENABLED --body true
-Previews will be served at http://pr-<number>.$ip.nip.io
+Previews will be served at http://pr-<number>.$domain
 EOF

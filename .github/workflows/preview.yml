@@ -23,6 +23,7 @@ jobs:
     outputs:
       pr: ${{ steps.identify.outputs.pr }}
       sha: ${{ steps.identify.outputs.sha }}
+      artifact: ${{ steps.identify.outputs.artifact }}
     steps:
       - id: identify
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -33,7 +34,10 @@ jobs:
             const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
               ...context.repo, run_id: run.id, per_page: 100
             });
-            if (!artifacts.some(artifact => artifact.name === `image-${run.id}` && !artifact.expired)) {
+            // Same-repository PRs publish a GHCR reference; forks upload the image archive.
+            const artifact = [`image-ref-${run.id}`, `image-${run.id}`]
+              .find(name => artifacts.some(a => a.name === name && !a.expired));
+            if (!artifact) {
               core.info('No tested image was produced; skipping preview.');
               return;
             }
@@ -54,6 +58,7 @@ jobs:
             if (!pr) return;
             core.setOutput('pr', pr.number);
             core.setOutput('sha', run.head_sha);
+            core.setOutput('artifact', artifact);
 
   preview:
     needs: identify
@@ -71,6 +76,7 @@ jobs:
       contents: read
       actions: read
       pull-requests: read
+      packages: read
     env:
       COMPOSE_PROJECT_NAME: openjury-pr-${{ needs.identify.outputs.pr }}
       APP_HOST: pr-${{ needs.identify.outputs.pr }}.${{ vars.DEV_BASE_DOMAIN }}
@@ -103,11 +109,11 @@ jobs:
       - name: Destroy old preview and all its data
         if: steps.current.outputs.current == 'true'
         run: bash deploy/stack.sh destroy
-      - name: Download tested PR image, never PR scripts
+      - name: Download tested PR image or its reference, never PR scripts
         if: steps.current.outputs.current == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: image-${{ github.event.workflow_run.id }}
+          name: ${{ needs.identify.outputs.artifact }}
           path: ${{ runner.temp }}/preview-image
           github-token: ${{ github.token }}
           run-id: ${{ github.event.workflow_run.id }}
@@ -115,12 +121,25 @@ jobs:
         id: deploy
         if: steps.current.outputs.current == 'true'
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOCKER_CONFIG: ${{ runner.temp }}/registry-auth
         run: |
           set -euo pipefail
-          image_id="$(cat "$RUNNER_TEMP/preview-image/image.id")"
-          [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
-          docker load --input "$RUNNER_TEMP/preview-image/image.tar"
-          export IMAGE="$image_id"
+          if [[ -f "$RUNNER_TEMP/preview-image/image.ref" ]]; then
+            image="$(cat "$RUNNER_TEMP/preview-image/image.ref")"
+            [[ "$image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]]
+            [[ "$image" == "ghcr.io/${GITHUB_REPOSITORY,,}-preview@"* ]]
+            trap 'docker logout ghcr.io; rm -rf "$DOCKER_CONFIG"' EXIT
+            printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+            docker pull --quiet "$image"
+            export IMAGE="$image"
+          else
+            image_id="$(cat "$RUNNER_TEMP/preview-image/image.id")"
+            [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
+            docker load --input "$RUNNER_TEMP/preview-image/image.tar"
+            export IMAGE="$image_id"
+          fi
           bash deploy/stack.sh deploy
           curl --fail --silent --show-error --retry 12 --retry-all-errors \
             --retry-delay 5 --max-time 10 "$APP_SCHEME://$APP_HOST/api/health"

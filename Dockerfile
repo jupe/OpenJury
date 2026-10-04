@@ -1,4 +1,7 @@
-FROM node:26.10.0-alpine AS base
+FROM node:26.10.0-alpine AS node
+
+# Build stages use the pinned npm; the runtime never needs npm.
+FROM node AS base
 RUN npm install --global npm@12.2.0
 
 FROM base AS dependencies
@@ -13,7 +16,7 @@ COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
-FROM base AS runner
+FROM node AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \

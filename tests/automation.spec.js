@@ -85,7 +85,10 @@ test("preview identification skips absent or expired images before looking up PR
   const identify = workflow.split("\n  preview:")[0];
   expect(identify).toContain("actions: read");
   const script = identify.split("script: |")[1];
-  for (const artifacts of [[], [{ name: "playwright-report-123" }], [{ name: "image-123", expired: true }], [{ name: "image-123", expired: false }]]) {
+  for (const artifacts of [
+    [], [{ name: "playwright-report-123" }], [{ name: "image-123", expired: true }], [{ name: "image-123", expired: false }],
+    [{ name: "image-ref-123", expired: true }], [{ name: "image-ref-123", expired: false }],
+  ]) {
     let lookedUpPR = false;
     const actions = { listWorkflowRunArtifacts: () => artifacts };
     const repos = { listPullRequestsAssociatedWithCommit: () => { lookedUpPR = true; return []; } };
@@ -94,7 +97,7 @@ test("preview identification skips absent or expired images before looking up PR
       core,
       github: { rest: { actions, repos }, paginate: async (method) => method() },
     });
-    expect(lookedUpPR).toBe(artifacts.some((artifact) => artifact.name === "image-123" && !artifact.expired));
+    expect(lookedUpPR).toBe(artifacts.some((artifact) => ["image-123", "image-ref-123"].includes(artifact.name) && !artifact.expired));
   }
 });
 

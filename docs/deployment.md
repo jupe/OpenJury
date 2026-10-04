@@ -105,7 +105,9 @@ GitHub's self-hosted-runner risks and use isolated disposable dev VMs/hosts.
 GitHub's fork-workflow approval is separate from dev deployment approval.
 
 Preview orchestration always checks out trusted `main` scripts, never PR
-scripts, and loads only the image artifact from that PR's successful CI run.
+scripts, and runs only the image from that PR's successful CI run: pulled by
+digest from `ghcr.io/jupe/openjury-preview` for same-repository PRs, or loaded
+from the run's image artifact for forks.
 Dev should contain **no secrets**. Protect the `dev` environment with required
 maintainer reviewers and prevent self-review before enabling preview CD.
 Do not approve images from unreviewed/untrusted contributors. Fully automatic

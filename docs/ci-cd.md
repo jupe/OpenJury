@@ -35,7 +35,11 @@ no tested image. Pushes to `main` still run full CI and publish a tested image.
 
 Main images are published as `ghcr.io/jupe/openjury:sha-<commit>`. Deployments use
 the immutable `ghcr.io/jupe/openjury@sha256:...` reference recorded in the Release
-summary. No PR has registry write credentials. Release verifies the source
+summary. Same-repository PRs may push only to the separate
+`ghcr.io/jupe/openjury-preview` package (tagged `pr-<number>-<sha>`) so dev
+previews pull just the changed layers; fork PRs get a read-only token and keep
+using the image artifact. PR images are never written to the release package,
+and their versions are deleted when the PR closes. Release verifies the source
 revision and skips superseded main builds; deployment checks main again after
 any approval wait. Releases are serialized across staging and production.
 A failed staging deployment **or smoke test blocks production**.
