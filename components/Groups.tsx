@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthBoundary";
+import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
 import { CompetitionManager } from "@/components/Competitions";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
@@ -11,7 +12,7 @@ import Card from "@/components/Card";
 type Group = { id: string; name: string };
 
 export function GroupList() {
-  const { client } = useAuth();
+  const { client, session } = useAuth();
   const router = useRouter();
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,6 +23,14 @@ export function GroupList() {
   const [createdId, setCreatedId] = useState("");
   const [attempt, setAttempt] = useState(0);
   const mounted = useRef(false);
+  const refresh = useCallback(() => {
+    setLoading(true);
+    setError("");
+    setGroups([]);
+    setAttempt((value) => value + 1);
+  }, []);
+
+  useRealtimeUpdates(client, session.user.id, null, refresh);
 
   useEffect(() => {
     mounted.current = true;
@@ -95,11 +104,19 @@ export function GroupList() {
 }
 
 export function GroupDetails({ id }: { id: string }) {
-  const { client } = useAuth();
+  const { client, session } = useAuth();
   const [group, setGroup] = useState<Group | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const refresh = useCallback(() => {
+    setLoading(true);
+    setError("");
+    setGroup(null);
+    setAttempt((value) => value + 1);
+  }, []);
+
+  useRealtimeUpdates(client, session.user.id, id, refresh);
 
   useEffect(() => {
     const controller = new AbortController();

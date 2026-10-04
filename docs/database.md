@@ -130,6 +130,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_setup.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/secure_submissions.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/transactional_lifecycle.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/admin_review_and_publication.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/realtime_notifications.sql
 ```
 
 Use an owner connection (not an API client). The test creates fixed-ID users
@@ -139,3 +140,6 @@ legal transitions, ballot creation and revision, self-voting and membership
 denial, stable numbering, and idempotent remote deadline processing. The
 review/publication test covers admin-only access, complete-ballot aggregation,
 tie ranking, minimum votes, retained audit data, and atomic publication.
+The realtime test verifies per-group and per-user channel authorization,
+membership revocation, rejection of forged broadcasts, and that sensitive row
+data remains excluded from Realtime.

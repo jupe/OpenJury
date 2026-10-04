@@ -2,6 +2,31 @@
 -- Fixtures and RPC-created data are rolled back.
 begin;
 
+do $$
+declare
+  submission_function text;
+  transition_function text;
+  ballot_function text;
+  deadline_function text;
+begin
+  select lower(pg_get_functiondef('public.save_submission(uuid,uuid,text,text[])'::regprocedure))
+    into submission_function;
+  select lower(pg_get_functiondef('public.transition_competition(uuid,text)'::regprocedure))
+    into transition_function;
+  select lower(pg_get_functiondef('public.save_ballot(uuid,bigint,jsonb)'::regprocedure))
+    into ballot_function;
+  select lower(pg_get_functiondef('public.process_remote_competition_deadlines()'::regprocedure))
+    into deadline_function;
+
+  if position('for update' in submission_function) = 0
+     or position('for update' in transition_function) = 0
+     or position('for update' in ballot_function) = 0
+     or position('skip locked' in deadline_function) = 0 then
+    raise exception 'Submissions, transitions, ballots, and deadline workers must serialize on competition rows';
+  end if;
+end;
+$$;
+
 insert into auth.users (id) values
   ('00000000-0000-0000-0000-000000000031'),
   ('00000000-0000-0000-0000-000000000032'),
