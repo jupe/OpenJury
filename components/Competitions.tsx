@@ -64,8 +64,6 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
-    setLoading(true);
-    setError("");
     void (async () => {
       try {
         const [membership, result] = await Promise.all([
@@ -73,8 +71,8 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             .select("role")
             .eq("group_id", groupId)
             .eq("user_id", session.user.id)
-            .maybeSingle()
-            .abortSignal(controller.signal),
+            .abortSignal(controller.signal)
+            .maybeSingle(),
           client.from("competitions")
             .select("id,name,event_type,status,submission_deadline,voting_deadline")
             .eq("group_id", groupId)
@@ -161,6 +159,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
       }
       setDraft(emptyDraft());
       setEditing(false);
+      setLoading(true);
       setAttempt((value) => value + 1);
     } catch {
       setSaveError("Unable to save competition. Please try again.");
@@ -175,7 +174,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         {loading ? <p role="status">Loading competitions…</p> : error ? (
           <>
             <p role="alert">{error}</p>
-            <Button onClick={() => setAttempt((value) => value + 1)}>Retry competitions</Button>
+            <Button onClick={() => { setLoading(true); setError(""); setAttempt((value) => value + 1); }}>Retry competitions</Button>
           </>
         ) : competitions.length ? (
           <ul className="space-y-4">

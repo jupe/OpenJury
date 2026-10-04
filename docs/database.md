@@ -54,7 +54,8 @@ without recursive policies. The `create_group(group_name)` RPC validates and
 trims a 1–100 character name, takes the creator from `auth.uid()`, and returns
 the new UUID after atomically creating the group and its admin membership.
 Direct client writes to groups and memberships are not allowed. Invitations,
-roster visibility, membership management, and membership management are deferred. Entry and vote access remain deny-by-default.
+roster visibility, and membership management are deferred. Entry and vote access
+remain deny-by-default.
 
 On a disposable Supabase database with all three migrations applied, run:
 

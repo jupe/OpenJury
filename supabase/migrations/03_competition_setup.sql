@@ -80,7 +80,7 @@ begin
       where competition.id = p_competition_id
       for update;
 
-    if not found or target_group_id <> p_group_id then
+    if not found or target_group_id is distinct from p_group_id then
       raise exception 'Competition not found or access denied' using errcode = '42501';
     end if;
     if target_status <> 'draft' then

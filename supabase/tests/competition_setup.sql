@@ -5,7 +5,8 @@ begin;
 insert into auth.users (id) values
   ('00000000-0000-0000-0000-000000000001'),
   ('00000000-0000-0000-0000-000000000002'),
-  ('00000000-0000-0000-0000-000000000003');
+  ('00000000-0000-0000-0000-000000000003'),
+  ('00000000-0000-0000-0000-000000000004');
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
@@ -51,7 +52,7 @@ begin
 
   begin
     perform public.save_draft_competition(
-      null, group_id, 'Bad deadlines', 'remote',
+      null, v_group_id, 'Bad deadlines', 'remote',
       '2026-10-12 12:00:00+00', '2026-10-12 12:00:00+00',
       '[{"name":"Taste","max_score":5}]'
     );
@@ -60,7 +61,7 @@ begin
   end;
   begin
     perform public.save_draft_competition(
-      null, group_id, 'Bad score', 'remote', null, null,
+      null, v_group_id, 'Bad score', 'remote', null, null,
       '[{"name":"Taste","max_score":6}]'
     );
     raise exception 'Score maximum above five accepted';
@@ -73,6 +74,16 @@ begin
     raise exception 'Direct competition writes allowed';
   exception when insufficient_privilege then null;
   end;
+end;
+$$;
+
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000004', true);
+do $$
+begin
+  if exists (select 1 from public.competitions)
+     or exists (select 1 from public.categories) then
+    raise exception 'A non-member can read another tenant competition';
+  end if;
 end;
 $$;
 
@@ -142,9 +153,9 @@ $$;
 reset role;
 do $$
 begin
-  if exists (select 1 from public.competitions)
-     or exists (select 1 from public.categories) then
-    raise exception 'Test data should be isolated to this transaction';
+  if (select count(*) from public.competitions) <> 1
+     or (select count(*) from public.categories) <> 1 then
+    raise exception 'Unexpected competition setup test rows';
   end if;
 end;
 $$;
