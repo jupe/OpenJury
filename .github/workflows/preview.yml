@@ -185,7 +185,8 @@ jobs:
                 state: !current ? 'inactive' : success ? 'success' : 'failure',
                 environment_url: success && current ? process.env.DEPLOYMENT_URL : undefined,
                 log_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-                auto_inactive: true,
+                # All PR deployments share `dev`; do not deactivate other PRs' records.
+                auto_inactive: false,
               });
             }
       - name: Remove downloaded image archive

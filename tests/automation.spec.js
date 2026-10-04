@@ -180,7 +180,7 @@ test("preview reports health failures and removes closed, superseded, or cancell
       exec: { exec: async (command, args) => { commands.push([command, args]); } },
     });
     expect(commands.length).toBe(destroys ? 1 : 0);
-    expect(statuses[0]).toMatchObject({ deployment_id: 99, state: status, auto_inactive: true });
+    expect(statuses[0]).toMatchObject({ deployment_id: 99, state: status, auto_inactive: false });
     expect(statuses[0].environment_url).toBe(status === "success" ? "https://pr-7.example.com" : undefined);
   }
 });
