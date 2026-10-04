@@ -5,7 +5,8 @@
 ## Delivery flow
 
 ```text
-Every PR / merge queue → lint + typecheck + Docker build + browser E2E
+PR / merge queue      → detect relevant changes
+                      → lint + typecheck + Docker build + browser E2E if needed
                        → optional clean dev preview after successful CI
 PR closed or merged   → delete its dev preview, including volumes
 
@@ -20,6 +21,17 @@ CI runs on GitHub-hosted runners, including fork PRs. It exercises the productio
 Docker image, not the Next.js development server. The stable required check is
 `checks` in the `CI` workflow. Image artifacts expire after three days; browser
 reports after seven. Actions are commit-pinned and Dependabot proposes updates.
+
+Documentation-only PRs and merge-queue entries skip the build/test job. The
+documentation allowlist is root-level `*.md`, Markdown files under `docs/`, and
+`LICENSE`; all other paths (including application code, dependencies, tests,
+workflows, database migrations, and deployment configuration) run the full job.
+Mixed changes and moves between code and documentation also run the full job.
+Detection compares the event's base revision with the checked-out merge revision,
+not just the latest commit, without a changed-file API limit.
+The `checks` status still runs and succeeds for documentation-only changes; a
+failed detector or required build fails it. Previews are skipped when CI produces
+no tested image. Pushes to `main` still run full CI and publish a tested image.
 
 Main images are published as `ghcr.io/jupe/openjury:sha-<commit>`. Deployments use
 the immutable `ghcr.io/jupe/openjury@sha256:...` reference recorded in the Release
@@ -39,7 +51,8 @@ In GitHub's ruleset/branch protection settings for `main`:
   deployment, and dependency changes by trusted maintainers.
 
 Workflow files alone cannot enforce merge protection; these repository settings
-must be applied by an administrator. No path filters skip CI.
+must be applied by an administrator. CI is not filtered at the workflow trigger,
+so documentation-only changes do not leave the required check pending.
 
 See [automation](automation.md) for optional reviewed minor-PR merging and
 deployment notifications, and [deployment](deployment.md) for infrastructure,

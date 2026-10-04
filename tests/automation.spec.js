@@ -1,14 +1,102 @@
 import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { runInNewContext } from "node:vm";
 import { assessDiff, hasRequiredProtection, latestReviews, mergeMinorPRs } from "../.github/scripts/minor-pr.mjs";
 import { notifyDeployment } from "../.github/scripts/deployment-feedback.mjs";
+import { shouldRunChecks } from "../.github/scripts/ci-changes.mjs";
 
 const repo = { owner: "jupe", repo: "OpenJury" };
 const fullName = "jupe/OpenJury";
 const sha = "a".repeat(40);
 const context = { repo, serverUrl: "https://github.com", runId: 123 };
 const core = { info() {}, warning() {} };
+
+for (const eventName of ["pull_request", "merge_group"]) {
+  test(`${eventName} skips only documentation-only or empty diffs`, () => {
+    const event = { eventName, baseSha: "b".repeat(40), headSha: sha };
+    for (const files of [[], ["README.md"], ["docs/ci-cd.md", "docs/nested/guide.md", "LICENSE"]]) {
+      expect(shouldRunChecks(event, () => files.join("\0") + "\0")).toBe(false);
+    }
+    for (const file of [
+      "app/page.tsx", "components/Button.tsx", "lib/supabase.ts", "public/logo.svg",
+      "package.json", "package-lock.json", ".nvmrc", "Dockerfile", ".dockerignore",
+      "next.config.ts", "tsconfig.json", "eslint.config.mjs", "postcss.config.mjs",
+      "tests/automation.spec.js", "playwright.config.ts", "supabase/migrations/01_initial_schema.sql",
+      "deploy/compose.yml", ".github/workflows/ci.yml", ".github/scripts/ci-changes.mjs",
+      "app/content.md", "docs/example.js", "unknown-file", "a\nb.js",
+    ]) {
+      expect(shouldRunChecks(event, () => `README.md\0${file}\0`)).toBe(true);
+    }
+  });
+}
+
+test("CI compares full revisions with NUL-separated paths and both sides of renames", () => {
+  const event = { eventName: "pull_request", baseSha: "b".repeat(40), headSha: sha };
+  const git = (command, args, options) => {
+    expect(command).toBe("git");
+    expect(args).toEqual(["diff", "--name-only", "--no-renames", "-z", event.baseSha, sha, "--"]);
+    expect(options).toEqual({ encoding: "utf8" });
+    return "app/page.tsx\0docs/page.md\0";
+  };
+  expect(shouldRunChecks(event, git)).toBe(true);
+  expect(shouldRunChecks(event, () => Array(500).fill("docs/guide.md\0").join("") + "app/page.tsx\0")).toBe(true);
+});
+
+test("main pushes always build and diff failures cannot become successful skips", () => {
+  const fail = () => { throw new Error("Comparison unavailable"); };
+  expect(shouldRunChecks({ eventName: "push" }, fail)).toBe(true);
+  expect(() => shouldRunChecks({ eventName: "pull_request" }, fail)).toThrow("comparison revision");
+  expect(() => shouldRunChecks({
+    eventName: "merge_group", baseSha: "b".repeat(40), headSha: sha,
+  }, fail)).toThrow("Comparison unavailable");
+});
+
+test("required CI status accepts only a successful build or a confirmed documentation skip", () => {
+  const workflow = readFileSync(resolve(".github/workflows/ci.yml"), "utf8");
+  const checks = workflow.slice(workflow.indexOf("\n  checks:"));
+  expect(checks).toContain("needs: [changes, build]");
+  expect(checks).toContain("if: always()");
+  expect(workflow).toContain("if: needs.changes.outputs.build == 'true'");
+  expect(workflow).not.toMatch(/paths(-ignore)?:/);
+  const script = checks.split("run: |")[1];
+  for (const [changes, required, build, passes] of [
+    ["success", "true", "success", true],
+    ["success", "false", "skipped", true],
+    ["failure", "", "skipped", false],
+    ["cancelled", "", "skipped", false],
+    ["success", "true", "failure", false],
+    ["success", "true", "cancelled", false],
+    ["success", "true", "skipped", false],
+    ["success", "", "skipped", false],
+    ["success", "false", "failure", false],
+  ]) {
+    const run = () => execFileSync("bash", ["-e", "-c", script], {
+      env: { ...process.env, CHANGES_RESULT: changes, BUILD_REQUIRED: required, BUILD_RESULT: build },
+    });
+    if (passes) expect(run).not.toThrow();
+    else expect(run).toThrow();
+  }
+});
+
+test("preview identification skips absent or expired images before looking up PRs", async () => {
+  const workflow = readFileSync(resolve(".github/workflows/preview.yml"), "utf8");
+  const identify = workflow.split("\n  preview:")[0];
+  expect(identify).toContain("actions: read");
+  const script = identify.split("script: |")[1];
+  for (const artifacts of [[], [{ name: "playwright-report-123" }], [{ name: "image-123", expired: true }], [{ name: "image-123", expired: false }]]) {
+    let lookedUpPR = false;
+    const actions = { listWorkflowRunArtifacts: () => artifacts };
+    const repos = { listPullRequestsAssociatedWithCommit: () => { lookedUpPR = true; return []; } };
+    await runInNewContext(`(async () => { ${script} })()`, {
+      context: { ...context, payload: { workflow_run: { id: 123, event: "pull_request", conclusion: "success" } } },
+      core,
+      github: { rest: { actions, repos }, paginate: async (method) => method() },
+    });
+    expect(lookedUpPR).toBe(artifacts.some((artifact) => artifact.name === "image-123" && !artifact.expired));
+  }
+});
 
 function mergeFixture() {
   const state = {
