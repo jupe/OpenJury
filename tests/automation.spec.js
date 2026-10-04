@@ -55,7 +55,7 @@ test("main pushes always build and diff failures cannot become successful skips"
 
 test("required CI status accepts only a successful build or a confirmed documentation skip", () => {
   const workflow = readFileSync(resolve(".github/workflows/ci.yml"), "utf8");
-  const checks = workflow.slice(workflow.indexOf("\n  checks:"));
+  const checks = workflow.slice(workflow.indexOf("\n  checks:")).split("\n  preview:")[0];
   expect(checks).toContain("needs: [changes, build]");
   expect(checks).toContain("if: always()");
   expect(workflow).toContain("if: needs.changes.outputs.build == 'true'");
@@ -80,24 +80,142 @@ test("required CI status accepts only a successful build or a confirmed document
   }
 });
 
-test("preview identification skips absent or expired images before looking up PRs", async () => {
+test("PR CI includes trusted preview orchestration after checks with fork and docs skips", () => {
+  const ci = readFileSync(resolve(".github/workflows/ci.yml"), "utf8");
+  const preview = ci.split("\n  preview:")[1];
+  expect(preview).toContain("needs: [build, checks]");
+  expect(preview).toContain("github.event_name == 'pull_request'");
+  expect(preview).toContain("vars.PREVIEW_CD_ENABLED == 'true'");
+  expect(preview).toContain("github.event.pull_request.head.repo.full_name == github.repository");
+  expect(preview).toContain("uses: jupe/OpenJury/.github/workflows/preview.yml@main");
+  expect(preview).toContain("sha: ${{ github.event.pull_request.head.sha }}");
+  expect(preview).toContain("artifact: ${{ needs.build.outputs.preview-artifact }}");
+  expect(ci).toContain("cancel-in-progress: ${{ github.event_name != 'pull_request' || vars.PREVIEW_CD_ENABLED != 'true' }}");
   const workflow = readFileSync(resolve(".github/workflows/preview.yml"), "utf8");
-  const identify = workflow.split("\n  preview:")[0];
-  expect(identify).toContain("actions: read");
-  const script = identify.split("script: |")[1];
-  for (const artifacts of [
-    [], [{ name: "playwright-report-123" }], [{ name: "image-123", expired: true }], [{ name: "image-123", expired: false }],
-    [{ name: "image-ref-123", expired: true }], [{ name: "image-ref-123", expired: false }],
+  expect(workflow).toContain("workflow_call:");
+  expect(workflow).not.toContain("workflow_run");
+  expect(workflow).toContain("deployment: false");
+  expect(workflow).toContain("ref: main");
+  expect(workflow).toContain("run-id: ${{ github.run_id }}");
+  expect(workflow).toContain("cancel-in-progress: false");
+});
+
+function previewScript(stepName) {
+  const workflow = readFileSync(resolve(".github/workflows/preview.yml"), "utf8");
+  return workflow.split(`- name: ${stepName}`)[1].split("\n      - name:")[0].split("script: |")[1];
+}
+
+test("preview validates run inputs and skips closed or superseded PR heads", async () => {
+  const script = previewScript("Recheck PR after waiting for approval and the deployment lock");
+  for (const [state, head, artifact, expected] of [
+    ["open", sha, "image-ref-123", true],
+    ["open", sha, "image-123", true],
+    ["closed", sha, "image-ref-123", false],
+    ["open", "new", "image-ref-123", false],
   ]) {
-    let lookedUpPR = false;
-    const actions = { listWorkflowRunArtifacts: () => artifacts };
-    const repos = { listPullRequestsAssociatedWithCommit: () => { lookedUpPR = true; return []; } };
+    const outputs = {};
     await runInNewContext(`(async () => { ${script} })()`, {
-      context: { ...context, payload: { workflow_run: { id: 123, event: "pull_request", conclusion: "success" } } },
-      core,
-      github: { rest: { actions, repos }, paginate: async (method) => method() },
+      context: { ...context, payload: { pull_request: { number: 7, head: { sha } } } },
+      process: { env: { PR_NUMBER: "7", EXPECTED_SHA: sha, ARTIFACT: artifact } },
+      core: { setOutput: (key, value) => { outputs[key] = value; } },
+      github: { rest: { pulls: { get: async () => ({ data: { state, head: { sha: head } } }) } } },
     });
-    expect(lookedUpPR).toBe(artifacts.some((artifact) => ["image-123", "image-ref-123"].includes(artifact.name) && !artifact.expired));
+    expect(outputs.current).toBe(expected);
+  }
+  for (const env of [
+    { PR_NUMBER: "8", EXPECTED_SHA: sha, ARTIFACT: "image-ref-123" },
+    { PR_NUMBER: "7", EXPECTED_SHA: "other", ARTIFACT: "image-ref-123" },
+    { PR_NUMBER: "7", EXPECTED_SHA: sha, ARTIFACT: "image-ref-999" },
+  ]) {
+    const error = await runInNewContext(`(async () => { ${script} })()`, {
+      context: { ...context, payload: { pull_request: { number: 7, head: { sha } } } },
+      process: { env },
+    }).then(() => null, (failure) => failure.message);
+    expect(error).toContain("Preview inputs do not match");
+  }
+});
+
+test("preview registers an in-progress deployment for the exact PR head, without merging", async () => {
+  const calls = [];
+  const outputs = {};
+  await runInNewContext(`(async () => { ${previewScript("Register deployment for the PR head commit")} })()`, {
+    context: { ...context, payload: { pull_request: { number: 7 } } },
+    process: { env: { EXPECTED_SHA: sha } },
+    core: { setOutput: (key, value) => { outputs[key] = value; } },
+    github: { rest: { repos: {
+      createDeployment: async (args) => { calls.push(args); return { data: { id: 99 } }; },
+      createDeploymentStatus: async (args) => { calls.push(args); },
+    } } },
+  });
+  expect(calls[0]).toMatchObject({
+    ...repo, ref: sha, environment: "dev-pr-7", auto_merge: false,
+    required_contexts: [], transient_environment: true, production_environment: false,
+  });
+  expect(outputs.id).toBe(99);
+  expect(calls[1]).toMatchObject({ deployment_id: 99, state: "in_progress" });
+});
+
+test("preview reports health failures and removes closed, superseded, or cancelled deployments", async () => {
+  for (const [state, head, outcome, jobStatus, status, destroys] of [
+    ["open", sha, "success", "success", "success", false],
+    ["open", sha, "failure", "failure", "failure", true],
+    ["open", sha, "success", "cancelled", "failure", true],
+    ["closed", sha, "success", "success", "inactive", true],
+    ["open", "new", "success", "success", "inactive", true],
+  ]) {
+    const statuses = [];
+    const commands = [];
+    await runInNewContext(`(async () => { ${previewScript("Remove failed, closed, or superseded deployments")} })()`, {
+      context,
+      process: { env: {
+        PR_NUMBER: "7", EXPECTED_SHA: sha, DEPLOYMENT_ID: "99", DEPLOY_OUTCOME: outcome,
+        JOB_STATUS: jobStatus, DEPLOYMENT_URL: "https://pr-7.example.com",
+      } },
+      github: { rest: {
+        pulls: { get: async () => ({ data: { state, head: { sha: head } } }) },
+        repos: { createDeploymentStatus: async (args) => { statuses.push(args); } },
+      } },
+      exec: { exec: async (command, args) => { commands.push([command, args]); } },
+    });
+    expect(commands.length).toBe(destroys ? 1 : 0);
+    expect(statuses[0]).toMatchObject({ deployment_id: 99, state: status, auto_inactive: true });
+    expect(statuses[0].environment_url).toBe(status === "success" ? "https://pr-7.example.com" : undefined);
+  }
+});
+
+test("preview cleanup deactivates only that PR's deployments and respects reopened PRs", async () => {
+  const workflow = readFileSync(resolve(".github/workflows/preview-cleanup.yml"), "utf8");
+  const cleanup = workflow.split("\n  registry:")[0];
+  expect(cleanup).toContain("deployments: write");
+  const script = cleanup.split("script: |")[1];
+  for (const [eventName, state, shouldClean] of [
+    ["pull_request_target", "closed", true],
+    ["pull_request_target", "open", false],
+    ["workflow_dispatch", "open", true],
+  ]) {
+    const commands = [];
+    const statuses = [];
+    const queries = [];
+    await runInNewContext(`(async () => { ${script} })()`, {
+      context: { ...context, eventName },
+      process: { env: { PR_NUMBER: "7" } },
+      github: {
+        paginate: async (method, args) => method(args),
+        rest: {
+          pulls: { get: async () => ({ data: { state } }) },
+          repos: {
+            listDeployments: async (args) => { queries.push(args); return [{ id: 99 }, { id: 100 }]; },
+            createDeploymentStatus: async (args) => { statuses.push(args); },
+          },
+        },
+      },
+      exec: { exec: async (command, args) => { commands.push([command, args]); } },
+    });
+    expect(commands.length).toBe(shouldClean ? 1 : 0);
+    expect(queries).toEqual(shouldClean ? [{ ...repo, environment: "dev-pr-7", per_page: 100 }] : []);
+    expect(statuses.map(({ deployment_id, state }) => ({ deployment_id, state }))).toEqual(
+      shouldClean ? [{ deployment_id: 99, state: "inactive" }, { deployment_id: 100, state: "inactive" }] : [],
+    );
   }
 });
 
