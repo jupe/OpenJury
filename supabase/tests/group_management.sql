@@ -112,14 +112,25 @@ begin
   end;
 
   perform public.delete_group(managed_group);
-  if exists (select 1 from public.groups where id = managed_group)
-     or exists (select 1 from public.group_members where group_id = managed_group)
-     or exists (select 1 from public.competitions where group_id = managed_group) then
+  if exists (select 1 from public.groups where id = managed_group) then
+    raise exception 'Group removal did not remove the group';
+  end if;
+end;
+$$;
+
+reset role;
+do $$
+begin
+  if exists (select 1 from public.groups where created_by = '00000000-0000-0000-0000-000000000101')
+     or exists (select 1 from public.competitions where id = '00000000-0000-0000-0000-000000000111')
+     or (select count(*) from public.group_members
+         where user_id = '00000000-0000-0000-0000-000000000102') <> 1 then
     raise exception 'Group removal did not delete its dependent data';
   end if;
 end;
 $$;
 
+set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000102', true);
 do $$
 declare
@@ -131,15 +142,21 @@ begin
     raise exception 'Group with retained audit data was removed';
   exception when foreign_key_violation then null;
   end;
-  if not exists (select 1 from public.groups where id = audited_group)
-     or not exists (
-       select 1 from public.entry_disqualification_events
-       where entry_id = '00000000-0000-0000-0000-000000000113'
-     ) then
-    raise exception 'Failed removal changed the group or its audit data';
+  if not exists (select 1 from public.groups where id = audited_group) then
+    raise exception 'Failed removal changed the group';
   end if;
 end;
 $$;
 
 reset role;
+do $$
+begin
+  if not exists (
+    select 1 from public.entry_disqualification_events
+    where entry_id = '00000000-0000-0000-0000-000000000113'
+  ) then
+    raise exception 'Failed removal deleted its audit record';
+  end if;
+end;
+$$;
 rollback;
