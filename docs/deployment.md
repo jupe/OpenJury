@@ -124,6 +124,7 @@ summary as `https://pr-<number>.<DEV_BASE_DOMAIN>`.
 | Repository variable | `PREVIEW_CD_ENABLED` | `true` to deploy PR previews |
 | Repository variable | `CD_ENABLED` | `true` to deploy staging then production |
 | `dev` variable | `DEV_BASE_DOMAIN` | e.g. `dev.example.com`, without a scheme |
+| `dev` variable | `APP_SCHEME` | Optional; `http` only for a [LAN-only dev VM](proxmox.md#quick-start-lan-only-dev-vm), defaults to `https` |
 | `staging` / `production` variable | `APP_HOST` | Environment hostname, without a scheme |
 | Each environment variable | `PROXY_NETWORK` | Optional; defaults to `openjury-proxy` |
 | Each environment variable | `TLS_RESOLVER` | Optional; defaults to `letsencrypt` |

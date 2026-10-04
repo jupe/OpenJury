@@ -20,6 +20,30 @@ guest SSH for configuration. It does not install Docker or runners on the
 hypervisor, copy Proxmox credentials into guests, register runners, enable CD,
 or change GitHub settings. No Proxmox infrastructure is contacted by CI.
 
+## Quick start: LAN-only dev VM
+
+For just a dev preview host on a home network, skip the playbooks below.
+`deploy/proxmox/dev-vm.sh` clones a cloud-init template into one VM (DHCP,
+default VM ID `201`), installs Docker and an **HTTP-only** Traefik ingress, and
+registers it as the `openjury-dev` runner. It needs root SSH to Proxmox and an
+authenticated `gh` with admin rights on the repository. It is safe to rerun.
+
+```sh
+PVE_HOST=root@192.168.1.3 TEMPLATE_ID=9000 ./deploy/proxmox/dev-vm.sh
+```
+
+Override `VMID`, `CORES`, `MEMORY_MB`, `DISK_GB`, or `SSH_KEY` as needed. Reserve
+the printed address for the VM's MAC in your router, then set the `dev`
+environment variables `DEV_BASE_DOMAIN=<ip>.nip.io` and `APP_SCHEME=http` and
+the repository variable `PREVIEW_CD_ENABLED=true`. Previews are served at
+`http://pr-<number>.<ip>.nip.io`. Some routers' DNS rebinding protection blocks
+private nip.io answers; allow `nip.io` there or use another resolver.
+
+This trades the isolation below for simplicity: there is no TLS, VLAN, or
+Proxmox VM firewall, so preview images can reach your LAN. Use it only for a
+private repository where you review every PR before approving its `dev`
+deployment. `stack.sh` refuses plain HTTP for staging and production.
+
 ## Prerequisites and trust boundaries
 
 - A Proxmox VE host using the **legacy `pve-firewall` backend**, with its
