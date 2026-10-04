@@ -1,7 +1,109 @@
 @import "tailwindcss";
 
-body {
-  background: #f8fafc;
-  color: #0f172a;
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+  html {
+    color-scheme: light;
+    scroll-padding-top: 1rem;
+  }
+
+  body {
+    background: linear-gradient(160deg, #eef2ff 0, #f8fafc 28rem);
+    color: #0f172a;
+    font-family: Arial, Helvetica, sans-serif;
+    line-height: 1.6;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  h1, h2, h3 {
+    color: #0f172a;
+    line-height: 1.2;
+    text-wrap: balance;
+  }
+
+  main, section, fieldset, label {
+    min-inline-size: 0;
+  }
+
+  main {
+    overflow-wrap: anywhere;
+  }
+
+  input, select, textarea {
+    min-width: 0;
+    max-width: 100%;
+    min-height: 48px;
+    font-size: 16px;
+    background-color: #fff;
+    color: #0f172a;
+    border-radius: 0.75rem;
+  }
+
+  input[type="file"] {
+    padding: 0.5rem;
+    border: 1px solid #cbd5e1;
+  }
+
+  input::file-selector-button {
+    margin-right: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border: 0;
+    border-radius: 0.5rem;
+    background: #eef2ff;
+    color: #3730a3;
+    font: inherit;
+  }
+
+  a, button, summary {
+    touch-action: manipulation;
+  }
+
+  main a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    max-width: 100%;
+    color: #4338ca;
+    text-underline-offset: 4px;
+  }
+
+  :focus-visible {
+    outline: 3px solid #4f46e5;
+    outline-offset: 3px;
+  }
+}
+
+.site-nav {
+  padding: 0.75rem max(1rem, env(safe-area-inset-right)) 0.75rem max(1rem, env(safe-area-inset-left));
+}
+
+.site-main {
+  padding: 1.5rem max(1rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+}
+
+@media (min-width: 640px) {
+  .site-nav {
+    padding: 1rem 1.5rem;
+  }
+
+  .site-main {
+    padding: 3rem 1.5rem;
+  }
+}
+
+@media (max-width: 639px) {
+  main h1 {
+    font-size: 2rem;
+  }
+
+  form button[type="submit"] {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+    animation: none !important;
+  }
 }

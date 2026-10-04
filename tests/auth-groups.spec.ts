@@ -42,6 +42,66 @@ async function configure(page: Page, signedIn = false) {
   }
 }
 
+async function expectPhoneLayout(page: Page) {
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const controls = page.locator("input, select, button, main a, nav a, summary");
+  for (const control of await controls.all()) {
+    if (!await control.isVisible()) continue;
+    const box = await control.boundingBox();
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+    expect(box?.x).toBeGreaterThanOrEqual(0);
+    expect((box?.x || 0) + (box?.width || 0)).toBeLessThanOrEqual(page.viewportSize()!.width);
+    if (await control.evaluate((element) => element.matches("input, select"))) {
+      expect(await control.evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16);
+    }
+  }
+}
+
+test("small phone forms, long names and landscape stay usable", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/groups**`, (route) => route.fulfill({
+    json: [{ id: groupId, name: "Community".repeat(12) }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{
+      id: secondId,
+      name: "Competition".repeat(9),
+      event_type: "remote",
+      status: "draft",
+      submission_deadline: null,
+      voting_deadline: null,
+    }],
+  }));
+  for (const viewport of [{ width: 320, height: 568 }, { width: 360, height: 640 }, { width: 640, height: 360 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/dashboard");
+    await expect(page.getByRole("textbox", { name: "Group name" })).toBeVisible();
+    await expectPhoneLayout(page);
+    await page.goto(`/group/${groupId}`);
+    await expect(page.getByRole("textbox", { name: "Competition name" })).toBeVisible();
+    await page.getByRole("textbox", { name: "Competition name" }).fill("Phone bake-off");
+    await page.getByLabel("Submission deadline").fill("2026-11-01T12:00");
+    await page.getByLabel("Voting deadline").fill("2026-11-02T12:00");
+    await page.getByRole("button", { name: "Add category" }).click();
+    await expect(page.getByRole("textbox", { name: "Category name" })).toHaveCount(2);
+    await expectPhoneLayout(page);
+    await page.getByRole("button", { name: "Remove", exact: true }).last().click();
+    await expect(page.getByRole("textbox", { name: "Category name" })).toHaveCount(1);
+  }
+});
+
+test("phone sign-in controls support zoom and comfortable touch targets", async ({ page }) => {
+  await configure(page);
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto("/");
+  await expect(page.getByRole("textbox", { name: "Email address" })).toBeVisible();
+  await expectPhoneLayout(page);
+  const viewport = await page.locator('meta[name="viewport"]').getAttribute("content");
+  expect(viewport).toContain("width=device-width");
+  expect(viewport).toContain("viewport-fit=cover");
+  expect(viewport).not.toMatch(/user-scalable=no|maximum-scale=1/);
+});
+
 async function mockRealtime(page: Page) {
   const channels = new Map<string, { socket: import("@playwright/test").WebSocketRoute; joinRef: string }>();
   await page.routeWebSocket("wss://foundation.supabase.co/realtime/v1/websocket**", (socket) => {

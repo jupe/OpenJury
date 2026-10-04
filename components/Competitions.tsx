@@ -191,7 +191,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             {competitions.map((competition) => (
               <li key={competition.id} className="rounded border border-slate-200 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
+                  <div className="min-w-0">
                     <Link className="font-semibold underline" href={`/competition/${encodeURIComponent(competition.id)}`}>
                       {competition.name}
                     </Link>
@@ -249,7 +249,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
                     })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
                   </label>
                   <label className="block">Maximum score
-                    <input type="number" required min={1} max={5} value={category.max_score} onChange={(event) => setDraft({
+                    <input type="number" inputMode="numeric" required min={1} max={5} value={category.max_score} onChange={(event) => setDraft({
                       ...draft,
                       categories: draft.categories.map((item, itemIndex) => itemIndex === index ? { ...item, max_score: Number(event.target.value) } : item),
                     })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
