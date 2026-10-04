@@ -165,9 +165,12 @@ export default function AuthBoundary({ children, demo }: { children: ReactNode; 
       <>
         <Card title="Setup required">
           <p>Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY at runtime, or NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local. Use only the public anon key.</p>
-          <p>Authentication and real groups are unavailable. These previews contain no private data.</p>
-          <Link href="/dashboard" className="underline">Explore your dashboard</Link>
+          <p>Authentication and real data are unavailable. The demo below uses fictional, read-only sample content.</p>
+          <Link href="/dashboard" className="underline">Open demo dashboard</Link>
         </Card>
+        <p role="note" className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">
+          Demo mode · fictional sample content · changes are disabled and nothing is saved
+        </p>
         {demo}
       </>
     );

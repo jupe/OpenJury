@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Card from "@/components/Card";
 import AuthBoundary from "@/components/AuthBoundary";
+import { DemoHome } from "@/components/DemoViews";
 
 export default function HomePage() {
   return (
@@ -11,7 +12,7 @@ export default function HomePage() {
         Host baking contests, karaoke nights, or hackathons in your own group,
         with customizable categories and blind voting.
       </p>
-      <AuthBoundary>
+      <AuthBoundary demo={<DemoHome />}>
         <Card title="Welcome to OpenJury">
           <Link href="/dashboard" className="font-medium text-slate-900 underline">
             Explore your dashboard
