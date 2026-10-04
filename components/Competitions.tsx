@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "@/components/AuthBoundary";
 import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
-import Button from "@/components/Button";
+import Button, { ButtonLink } from "@/components/Button";
+import { StatusBadge } from "@/components/CompetitionStatus";
 import Card from "@/components/Card";
 
 type Competition = {
@@ -191,18 +192,29 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             {competitions.map((competition) => (
               <li key={competition.id} className="rounded border border-slate-200 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <Link className="font-semibold underline" href={`/competition/${encodeURIComponent(competition.id)}`}>
+                  <div className="min-w-0 space-y-1">
+                    <Link className="inline-flex min-h-11 items-center font-semibold underline" href={`/competition/${encodeURIComponent(competition.id)}`}>
                       {competition.name}
                     </Link>
-                    <p className="text-sm text-slate-600">
-                      {competition.event_type === "live" ? "Live" : "Remote"} · {competition.status}
+                    <p className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                      <StatusBadge status={competition.status} />
+                      {competition.event_type === "live" ? "Live" : "Remote"}
                     </p>
                   </div>
-                  {isAdmin && competition.status === "draft" && (
-                    <Button disabled={loadingEdit} onClick={() => void editCompetition(competition)}>
-                      {loadingEdit ? "Loading…" : "Edit draft"}
-                    </Button>
+                  {isAdmin && (
+                    <div className="flex flex-wrap gap-3">
+                      {competition.status === "draft" && (
+                        <Button disabled={loadingEdit} onClick={() => void editCompetition(competition)}>
+                          {loadingEdit ? "Loading…" : "Edit draft"}
+                        </Button>
+                      )}
+                      <ButtonLink
+                        href={`/competition/${encodeURIComponent(competition.id)}/admin`}
+                        aria-label={`Manage ${competition.name}`}
+                      >
+                        Manage
+                      </ButtonLink>
+                    </div>
                   )}
                 </div>
                 {(competition.submission_deadline || competition.voting_deadline) && (
