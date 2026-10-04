@@ -819,7 +819,7 @@ test("attendee authorization errors do not expose private admin data", async ({ 
     status: 403, json: { message: "Competition administrator access required" },
   }));
   await page.goto(`/competition/${secondId}/admin`);
-  await expect(page.getByRole("alert")).toContainText("Unable to load competition attendees");
+  await expect(page.getByRole("alert").filter({ hasText: "Unable to load competition attendees" })).toBeVisible();
   await expect(page.getByText("Private entry", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Competition attendees" })).toHaveCount(0);
 });
