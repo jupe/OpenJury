@@ -30,6 +30,7 @@ supabase/
   migrations/02_group_access.sql
   migrations/03_competition_setup.sql
   migrations/04_secure_submissions.sql
+  migrations/05_transactional_lifecycle.sql
   tests/group_access.sql        Rollback-only database access assertions
 .env.example                    Public client configuration template
 ```

@@ -22,20 +22,24 @@ RPC that locks the competition row and enforces submission phase and deadline.
 Separate RPC projections expose identity and title only to group admins; the
 blind-voting projection contains only anonymous entry numbers and opaque media
 keys. Entry and vote tables are excluded from the Realtime publication.
+Migration `05_transactional_lifecycle.sql` adds admin-only, row-locked adjacent
+phase transitions and persistent shuffled entry numbers. Its vote RPC uses the
+same competition lock as submissions and transitions, checks membership,
+category ownership, phase, deadline, and score limits, and permits members to
+update their own existing vote. Remote deadlines are processed by a
+security-definer function executable by `service_role` only; invoke it from a
+trusted scheduled process. Its status checks and row locks make repeated or
+concurrent processing safe.
 The browser session gates protect the UI experience, not the database: all
 private reads and writes must remain authorized by PostgreSQL. Pages are public
 shells and do not render private data on the server.
 
-Before enabling submissions, voting, and publication:
+Remaining security work:
 
 1. Implement invitations and authorized membership management, including admin
    authorization. An initial admin role alone does not grant competition access.
-2. Keep lifecycle transitions and draft edits serialized on the competition row.
-   Any lifecycle RPC must take the same row lock before changing phase.
-3. Enforce voter identity, membership, competition/category consistency,
-   category score limits, voting status, and deadlines in the database.
-4. Implement lifecycle transitions, vote submission, results publishing, and
-   Realtime updates only after the access model is secured.
+2. Implement result aggregation and publication, moderation, and Realtime updates
+   with equivalent database authorization.
 
 The `competition-submissions` Storage bucket is private, limits uploads to
 JPEG/PNG/WebP images up to 10 MiB, and uses random UUID filenames without user
@@ -45,14 +49,16 @@ the authenticated Storage client into temporary in-memory Blob URLs; it does
 not create public or signed media URLs. Removed media and failed uploads are
 deleted through Storage and failed cleanup can be retried.
 
-Run `supabase/tests/group_access.sql` and
-`supabase/tests/competition_setup.sql` and
-`supabase/tests/secure_submissions.sql` as the database owner on a disposable
+Run `supabase/tests/group_access.sql`,
+`supabase/tests/competition_setup.sql`,
+`supabase/tests/secure_submissions.sql`, and
+`supabase/tests/transactional_lifecycle.sql` as the database owner on a disposable
 Supabase database after applying all migrations. The assertions cover tenant
 isolation, admin-only draft setup, deadline and score constraints, frozen
 criteria after submission opens, submission ownership and deadline enforcement,
 media validation, separate admin/blind projections, and continued denial of
-direct entry and vote access. Fixtures roll back.
+direct entry and vote access, lifecycle authorization, vote limits, stable entry
+numbers, and idempotent deadline processing. Fixtures roll back.
 
 Operational safeguards are covered alongside the procedures they protect:
 [public client configuration](development.md#2-configure-supabase),

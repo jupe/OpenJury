@@ -22,20 +22,34 @@ Anonymous entry numbers are nullable until voting starts and unique within a
 competition; the blind projection numbers eligible entries without exposing
 their database IDs, creators, or titles. Category-specific score limits and
 ensuring an entry and category belong to the same competition must be enforced
-when implementing voting. Category maxima cannot exceed the existing fixed
-1–5 vote scale.
+by the voting RPC. Category maxima cannot exceed the existing fixed 1–5 vote
+scale.
 
-## Planned lifecycle
+## Competition lifecycle
 
-The planned lifecycle is:
+The lifecycle is:
 
 ```text
 draft → submission → voting → review_pending → completed
 ```
 
-Live events advance through admin controls; remote events will use deadlines.
-Random numbering, deadline jobs, vote locking, moderation, result aggregation,
-and Realtime subscriptions are intentionally left for future implementation.
+Authenticated group admins advance competitions one phase at a time through
+`transition_competition`. The RPC locks the competition row and assigns each
+entry a shuffled, persistent number when voting starts. Remote competitions
+advance from submission to voting and from voting to review_pending when their
+respective deadlines pass; live competitions use admin transitions. A trusted
+scheduled caller or service-role process should invoke
+`process_remote_competition_deadlines()` periodically. It locks eligible remote
+competitions, skips rows already being processed, and is safe to call repeatedly.
+The final transition to completed remains an admin action.
+
+Members submit or update votes through `cast_vote`. It locks the same competition
+row as submissions and transitions, checks membership, phase, deadline, entry,
+category, and category score limit, then inserts or updates that member's vote.
+This serializes votes with phase changes, so votes cannot cross the voting
+boundary. Direct entry and vote table access remains revoked.
+
+Moderation, result aggregation, and Realtime subscriptions remain future work.
 
 ## Implemented group access
 
@@ -60,6 +74,9 @@ limited to JPEG/PNG/WebP and 10 MiB, and Storage authorization checks ownership
 and phase. Clients download via authenticated requests rather than public or
 signed URLs, and media removal is followed by Storage cleanup.
 
+Migration `05_transactional_lifecycle.sql` adds admin-only lifecycle transitions,
+voting, stable entry numbering, and service-role-only remote deadline processing.
+
 The `02_group_access.sql` migration grants authenticated
 users membership-scoped group reads and reads of their own membership rows,
 without recursive policies. The `create_group(group_name)` RPC validates and
@@ -69,14 +86,17 @@ Direct client writes to groups and memberships are not allowed. Invitations,
 roster visibility, and membership management are deferred. Entry and vote access
 remain deny-by-default.
 
-On a disposable Supabase database with all three migrations applied, run:
+On a disposable Supabase database with all migrations applied, run:
 
 ```sh
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_access.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_setup.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/secure_submissions.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/transactional_lifecycle.sql
 ```
 
 Use an owner connection (not an API client). The test creates fixed-ID users
 and test data inside a transaction and rolls everything back; do not run it
-against a production database.
+against a production database. The lifecycle test covers role authorization,
+legal transitions, serialized vote updates, stable numbering, and idempotent
+remote deadline processing.
