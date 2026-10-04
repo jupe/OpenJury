@@ -22,11 +22,14 @@ components/
   Button.tsx                    Styled native button
   AuthBoundary.tsx              Browser session gate, sign-in, and sign-out
   Groups.tsx                    Authorized group queries and creation form
+  EntryWorkspace.tsx            Member submission, blind media, admin review
 lib/
   supabase.ts                   Lazy Supabase client
 supabase/
   migrations/01_initial_schema.sql
   migrations/02_group_access.sql
+  migrations/03_competition_setup.sql
+  migrations/04_secure_submissions.sql
   tests/group_access.sql        Rollback-only database access assertions
 .env.example                    Public client configuration template
 ```
@@ -37,7 +40,8 @@ from Supabase, or create a group through an atomic database RPC. No private
 server-rendered data is exposed. Without configuration, safe demo navigation
 remains available; no groups are queried.
 
-Competition and admin routes still contain placeholders. Use
-`/competition/demo` and `/competition/demo/admin` to preview them. Their actions
-remain disabled, and the admin page is a public UI preview, not an authorized
-admin area. Group invitations and competition features are future slices.
+Competition and admin routes require an authenticated session for private
+content. Members can submit and edit entries while the submission phase is open;
+voting shows an anonymous projection. Admin submission review is authorized by
+the database. Use `/competition/demo` and `/competition/demo/admin` for public
+previews; they contain no private data and their actions remain disabled.

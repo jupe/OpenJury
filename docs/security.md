@@ -16,8 +16,12 @@ access to their competitions and categories. Competition creation and draft
 updates are restricted to group admins through a security-definer RPC; direct
 table writes remain revoked. The RPC validates deadline ordering and 1–5
 category maxima, and locks the competition row before allowing a draft edit.
-Entries and votes remain deny-by-default. Do not add permissive policies just
-to make the remaining placeholders functional.
+Migration `04_secure_submissions.sql` keeps direct entry and vote table access
+revoked. Authenticated members create or edit only their own entry through an
+RPC that locks the competition row and enforces submission phase and deadline.
+Separate RPC projections expose identity and title only to group admins; the
+blind-voting projection contains only anonymous entry numbers and opaque media
+keys. Entry and vote tables are excluded from the Realtime publication.
 The browser session gates protect the UI experience, not the database: all
 private reads and writes must remain authorized by PostgreSQL. Pages are public
 shells and do not render private data on the server.
@@ -27,21 +31,28 @@ Before enabling submissions, voting, and publication:
 1. Implement invitations and authorized membership management, including admin
    authorization. An initial admin role alone does not grant competition access.
 2. Keep lifecycle transitions and draft edits serialized on the competition row.
-3. Provide a safe blind-voting view or RPC that omits `creator_id` and `title`
-   for non-admins until results are published. **RLS filters rows, not columns**;
-   RLS alone cannot hide those fields while exposing the same entry row.
-4. Enforce voter identity, membership, competition/category consistency,
+   Any lifecycle RPC must take the same row lock before changing phase.
+3. Enforce voter identity, membership, competition/category consistency,
    category score limits, voting status, and deadlines in the database.
-5. Add private Storage buckets and appropriate upload/read policies.
-6. Implement lifecycle transitions, results publishing, and Realtime updates
-   only after the access model is secured.
+4. Implement lifecycle transitions, vote submission, results publishing, and
+   Realtime updates only after the access model is secured.
+
+The `competition-submissions` Storage bucket is private, limits uploads to
+JPEG/PNG/WebP images up to 10 MiB, and uses random UUID filenames without user
+identifiers or original filenames. Storage policies bind each object to its
+entry owner and competition phase. The UI downloads protected objects through
+the authenticated Storage client into temporary in-memory Blob URLs; it does
+not create public or signed media URLs. Removed media and failed uploads are
+deleted through Storage and failed cleanup can be retried.
 
 Run `supabase/tests/group_access.sql` and
-`supabase/tests/competition_setup.sql` as the database owner on a disposable
+`supabase/tests/competition_setup.sql` and
+`supabase/tests/secure_submissions.sql` as the database owner on a disposable
 Supabase database after applying all migrations. The assertions cover tenant
 isolation, admin-only draft setup, deadline and score constraints, frozen
-criteria after submission opens, and continued denial of entries and votes.
-Fixtures roll back.
+criteria after submission opens, submission ownership and deadline enforcement,
+media validation, separate admin/blind projections, and continued denial of
+direct entry and vote access. Fixtures roll back.
 
 Operational safeguards are covered alongside the procedures they protect:
 [public client configuration](development.md#2-configure-supabase),
