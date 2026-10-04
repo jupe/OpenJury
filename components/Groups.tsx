@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthBoundary";
 import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
 import { CompetitionManager } from "@/components/Competitions";
+import Breadcrumbs from "@/components/Breadcrumbs";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
 
@@ -200,6 +201,7 @@ export function GroupDetails({ id }: { id: string }) {
   if (!group) return <Card title="Group not found or access denied"><p>This group does not exist, or you are not a member.</p><Link href="/dashboard" className="underline">Back to your groups</Link></Card>;
   return (
     <>
+      <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: group.name }]} />
       <Card title={group.name}><p>Group: {group.id}</p></Card>
       {isAdmin && (
         <Card title="Group settings">
