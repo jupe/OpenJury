@@ -87,7 +87,7 @@ test("PR CI includes trusted preview orchestration after checks with fork and do
   expect(preview).toContain("github.event_name == 'pull_request'");
   expect(preview).toContain("vars.PREVIEW_CD_ENABLED == 'true'");
   expect(preview).toContain("github.event.pull_request.head.repo.full_name == github.repository");
-  expect(preview).toContain("uses: jupe/OpenJury/.github/workflows/preview.yml@25646215ded255adb6c02aa80c161dd56b14557b");
+  expect(preview).toContain("uses: jupe/OpenJury/.github/workflows/preview.yml@50d123dcc5a2600c27fa91a540be7501ed46e252");
   expect(preview).not.toMatch(/uses: (?:\.\/\.github\/workflows\/preview\.yml|jupe\/OpenJury\/\.github\/workflows\/preview\.yml@main)/);
   expect(preview).toContain("sha: ${{ github.event.pull_request.head.sha }}");
   expect(preview).toContain("artifact: ${{ needs.build.outputs.preview-artifact }}");

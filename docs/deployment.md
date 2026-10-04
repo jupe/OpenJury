@@ -114,11 +114,12 @@ GitHub's self-hosted-runner risks and use isolated disposable dev VMs/hosts.
 GitHub's fork-workflow approval is separate from dev deployment approval.
 
 The PR's `CI` workflow calls `.github/workflows/preview.yml` at the immutable
-commit `25646215ded255adb6c02aa80c161dd56b14557b` as a reusable workflow; it has
-no separate `workflow_run` trigger. This revision already has `workflow_call`,
-so CI can resolve it even before this change reaches `main`. Keep the dev runner
+commit `50d123dcc5a2600c27fa91a540be7501ed46e252` as a reusable workflow; it has
+no separate `workflow_run` trigger. Pin only commits on `main`: GitHub cannot
+resolve a commit whose branch was deleted, which fails every CI run with a
+workflow file error. Keep the dev runner
 group restricted to
-`jupe/OpenJury/.github/workflows/preview.yml@25646215ded255adb6c02aa80c161dd56b14557b`,
+`jupe/OpenJury/.github/workflows/preview.yml@50d123dcc5a2600c27fa91a540be7501ed46e252`,
 not the PR-controlled caller. Keep staging/production runner policies restricted
 to their trusted workflows on `main`. Preview orchestration always checks out
 trusted `main` scripts, never PR

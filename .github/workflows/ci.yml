@@ -239,7 +239,7 @@ jobs:
       vars.PREVIEW_CD_ENABLED == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository
     # Pin existing reusable orchestration; main may still have only workflow_run.
-    uses: jupe/OpenJury/.github/workflows/preview.yml@25646215ded255adb6c02aa80c161dd56b14557b
+    uses: jupe/OpenJury/.github/workflows/preview.yml@50d123dcc5a2600c27fa91a540be7501ed46e252
     permissions:
       contents: read
       actions: read
