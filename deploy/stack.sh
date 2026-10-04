@@ -121,15 +121,14 @@ fi
 
 docker compose "${files[@]}" up --detach --wait --wait-timeout 300 --remove-orphans
 if [[ -n "${SUPABASE_MIGRATIONS:-}" && "$preview" == true ]]; then
-  # Optional fixed preview account, so sign-in needs no email round trip.
-  if [[ -n "${PREVIEW_ADMIN_PASSWORD:-}" ]]; then
+  # This default is only for disposable previews; persistent environments never seed it.
+  PREVIEW_ADMIN_PASSWORD="${PREVIEW_ADMIN_PASSWORD:-openjury-preview}" \
     PREVIEW_ADMIN_EMAIL="${PREVIEW_ADMIN_EMAIL:-admin@openjury.test}" python3 -c 'import json, os; print(json.dumps({
       "email": os.environ["PREVIEW_ADMIN_EMAIL"],
       "password": os.environ["PREVIEW_ADMIN_PASSWORD"],
       "email_confirm": True}))' |
-      curl --fail --silent --show-error --output /dev/null \
-        --retry 10 --retry-all-errors --retry-delay 2 \
+    curl --fail --silent --show-error --output /dev/null \
+      --retry 10 --retry-all-errors --retry-delay 2 \
         --header "apikey: $SUPABASE_SERVICE_KEY" --header "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
         --header "Content-Type: application/json" --data-binary @- "$SUPABASE_URL/auth/v1/admin/users"
-  fi
 fi
