@@ -87,8 +87,8 @@ jobs:
           docker compose -f deploy/compose.yml -f deploy/compose.tls.yml config --quiet
           docker compose -f deploy/compose.yml -f deploy/compose.tls.yml \
             -f deploy/compose.supabase.yml -f deploy/compose.supabase.tls.yml config --quiet
-          bash -n deploy/proxmox/dev-vm.sh deploy/proxmox/dev-bootstrap.sh deploy/supabase/migrate.sh
-          shellcheck deploy/proxmox/dev-vm.sh deploy/proxmox/dev-bootstrap.sh deploy/supabase/migrate.sh
+          bash -n deploy/proxmox/vm.sh deploy/proxmox/vm-bootstrap.sh deploy/supabase/migrate.sh
+          shellcheck deploy/proxmox/vm.sh deploy/proxmox/vm-bootstrap.sh deploy/supabase/migrate.sh
         env:
           COMPOSE_PROJECT_NAME: openjury-pr-1
           IMAGE: openjury:ci
@@ -239,7 +239,7 @@ jobs:
       vars.PREVIEW_CD_ENABLED == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository
     # Pin existing reusable orchestration; main may still have only workflow_run.
-    uses: jupe/OpenJury/.github/workflows/preview.yml@25646215ded255adb6c02aa80c161dd56b14557b
+    uses: jupe/OpenJury/.github/workflows/preview.yml@50d123dcc5a2600c27fa91a540be7501ed46e252
     permissions:
       contents: read
       actions: read

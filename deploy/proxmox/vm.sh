@@ -1,16 +1,24 @@
 #!/usr/bin/env bash
-# Create the single LAN-only dev VM from an existing cloud-init template and turn
-# it into the openjury-dev preview runner. Run from your workstation; needs SSH
-# to the Proxmox host as root and an authenticated `gh` with repository admin.
+# Create one LAN VM (dev, staging, or production) from an existing cloud-init
+# template and turn it into that environment's openjury-<environment> runner.
+# Run from your workstation; needs SSH to the Proxmox host as root and an
+# authenticated `gh` with repository admin.
 # Safe to rerun: an existing VM is reused and a registered runner is kept.
 set -euo pipefail
 
+ENVIRONMENT="${ENVIRONMENT:-dev}"
+case "$ENVIRONMENT" in
+  dev) default_vmid=201 default_memory=4096 ;;
+  staging) default_vmid=202 default_memory=2048 ;;
+  production) default_vmid=203 default_memory=2048 ;;
+  *) echo "ENVIRONMENT must be dev, staging, or production" >&2; exit 1 ;;
+esac
 PVE_HOST="${PVE_HOST:-root@192.168.1.3}"
 TEMPLATE_ID="${TEMPLATE_ID:-9000}"
-VMID="${VMID:-201}"
-VM_NAME="${VM_NAME:-openjury-dev}"
+VMID="${VMID:-$default_vmid}"
+VM_NAME="${VM_NAME:-openjury-$ENVIRONMENT}"
 CORES="${CORES:-2}"
-MEMORY_MB="${MEMORY_MB:-4096}"
+MEMORY_MB="${MEMORY_MB:-$default_memory}"
 DISK_GB="${DISK_GB:-32}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519.pub}"
 REPO="${REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
@@ -61,8 +69,22 @@ for _ in $(seq 30); do "${vm[@]}" true 2>/dev/null && break; sleep 5; done
 "${vm[@]}" cloud-init status --wait >/dev/null || [[ $? -eq 2 ]]
 
 token="$(gh api --method POST "repos/$REPO/actions/runners/registration-token" --jq .token)"
-scp -q dev-bootstrap.sh "ubuntu@$ip:/tmp/openjury-dev-bootstrap.sh"
-printf '%s\n' "$token" | "${vm[@]}" sudo bash /tmp/openjury-dev-bootstrap.sh "$REPO"
+scp -q vm-bootstrap.sh "ubuntu@$ip:/tmp/openjury-bootstrap.sh"
+printf '%s\n' "$token" | "${vm[@]}" sudo bash /tmp/openjury-bootstrap.sh "$REPO" "$ENVIRONMENT"
+
+if [[ "$ENVIRONMENT" != dev ]]; then
+  cat <<EOF
+
+$ENVIRONMENT VM ready: plain HTTP on http://$ip. Point your TLS-terminating proxy
+at it, preserving the Host header, then set (see docs/proxmox.md):
+  gh variable set APP_HOST --env $ENVIRONMENT --body <public hostname>
+  gh variable set TLS_TERMINATION --env $ENVIRONMENT --body upstream
+  gh variable set SUPABASE_SELF_HOSTED --env $ENVIRONMENT --body true
+Until SMTP is configured, magic-link emails stay in this VM's Mailpit:
+  ssh -L 8025:127.0.0.1:8025 ubuntu@$ip   # then open http://localhost:8025
+EOF
+  exit 0
+fi
 
 # nip.io would read pr-21.192.168.1.114 as 21.192.168.1; the dashed form is unambiguous.
 domain="${ip//./-}.nip.io"

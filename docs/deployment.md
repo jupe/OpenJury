@@ -33,7 +33,9 @@ previews also offer password sign-in for an optional seeded account
 `PREVIEW_ADMIN_PASSWORD` secret). Staging and production never enable password
 sign-in. Never point dev at staging or production. Persistent Supabase projects, backups, and
 schema migrations are managed separately; this frontend deployment does not
-reset or migrate them. Preserve deny-by-default access for competition data.
+reset or migrate them, unless an environment opts into the
+[self-hosted stack](proxmox.md#quick-start-lan-staging-and-production-vms).
+Preserve deny-by-default access for competition data.
 
 ## Supplemental Vercel hosting
 
@@ -112,11 +114,12 @@ GitHub's self-hosted-runner risks and use isolated disposable dev VMs/hosts.
 GitHub's fork-workflow approval is separate from dev deployment approval.
 
 The PR's `CI` workflow calls `.github/workflows/preview.yml` at the immutable
-commit `25646215ded255adb6c02aa80c161dd56b14557b` as a reusable workflow; it has
-no separate `workflow_run` trigger. This revision already has `workflow_call`,
-so CI can resolve it even before this change reaches `main`. Keep the dev runner
+commit `50d123dcc5a2600c27fa91a540be7501ed46e252` as a reusable workflow; it has
+no separate `workflow_run` trigger. Pin only commits on `main`: GitHub cannot
+resolve a commit whose branch was deleted, which fails every CI run with a
+workflow file error. Keep the dev runner
 group restricted to
-`jupe/OpenJury/.github/workflows/preview.yml@25646215ded255adb6c02aa80c161dd56b14557b`,
+`jupe/OpenJury/.github/workflows/preview.yml@50d123dcc5a2600c27fa91a540be7501ed46e252`,
 not the PR-controlled caller. Keep staging/production runner policies restricted
 to their trusted workflows on `main`. Preview orchestration always checks out
 trusted `main` scripts, never PR
@@ -154,8 +157,12 @@ These per-PR deployment records do not supply secrets or replace `dev` approval.
 | `staging` / `production` variable | `APP_HOST` | Environment hostname, without a scheme |
 | Each environment variable | `PROXY_NETWORK` | Optional; defaults to `openjury-proxy` |
 | Each environment variable | `TLS_RESOLVER` | Optional; defaults to `letsencrypt` |
-| `staging` / `production` variable | `SUPABASE_URL` | That environment's public Supabase URL |
-| `staging` / `production` secret | `SUPABASE_ANON_KEY` | That environment's **public anon** key only |
+| `staging` / `production` variable | `SUPABASE_URL` | That environment's public Supabase URL (hosted Supabase only) |
+| `staging` / `production` secret | `SUPABASE_ANON_KEY` | That environment's **public anon** key only (hosted Supabase only) |
+| `staging` / `production` variable | `SUPABASE_SELF_HOSTED` | `true` to run a persistent Supabase stack on the host instead ([LAN VMs](proxmox.md#quick-start-lan-staging-and-production-vms)) |
+| `staging` / `production` variable | `TLS_TERMINATION` | `upstream` when your own proxy terminates HTTPS in front of the host; defaults to `traefik` |
+| `staging` / `production` variables | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_ADMIN_EMAIL`, `SMTP_SENDER_NAME` | Self-hosted Supabase only: magic-link mail server; unset sends mail to the host's Mailpit |
+| `staging` / `production` secret | `SMTP_PASS` | Self-hosted Supabase only: SMTP password |
 
 Allow Actions to publish/read this repository's GHCR package. The workflows use
 short-lived `GITHUB_TOKEN` credentials; no PAT is required. If the package already

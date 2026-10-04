@@ -57,8 +57,18 @@ jobs:
           APP_HOST: ${{ vars.APP_HOST }}
           PROXY_NETWORK: ${{ vars.PROXY_NETWORK }}
           TLS_RESOLVER: ${{ vars.TLS_RESOLVER }}
+          # `upstream` when a proxy in front of the host terminates HTTPS.
+          TLS_TERMINATION: ${{ vars.TLS_TERMINATION }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # Self-hosted Supabase on the host, migrated from this trusted revision.
+          SUPABASE_MIGRATIONS: ${{ vars.SUPABASE_SELF_HOSTED == 'true' && format('{0}/supabase/migrations', github.workspace) || '' }}
+          SMTP_HOST: ${{ vars.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT }}
+          SMTP_USER: ${{ vars.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_ADMIN_EMAIL: ${{ vars.SMTP_ADMIN_EMAIL }}
+          SMTP_SENDER_NAME: ${{ vars.SMTP_SENDER_NAME }}
           GH_TOKEN: ${{ github.token }}
           DOCKER_CONFIG: ${{ runner.temp }}/registry-auth
         shell: bash

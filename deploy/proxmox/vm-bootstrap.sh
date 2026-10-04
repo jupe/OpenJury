@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Runs as root on the LAN-only dev VM (copied and started by dev-vm.sh).
-# Installs Docker, an HTTP-only Traefik ingress, and the openjury-dev runner.
+# Runs as root on a LAN VM (copied and started by vm.sh). Installs Docker, an
+# HTTP-only Traefik ingress, Mailpit, and the openjury-<environment> runner.
 # Reads a short-lived runner registration token on stdin; safe to rerun.
 set -euo pipefail
 
-repo="${1:?Usage: dev-bootstrap.sh <owner/repo> < registration-token}"
+repo="${1:?Usage: vm-bootstrap.sh <owner/repo> <dev|staging|production> < registration-token}"
+environment="${2:?Usage: vm-bootstrap.sh <owner/repo> <dev|staging|production> < registration-token}"
+[[ "$environment" =~ ^(dev|staging|production)$ ]] || { echo "Invalid environment" >&2; exit 1; }
 runner_version=2.337.0
 runner_sha256=70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613
 runner_user=openjury-runner
@@ -51,6 +53,20 @@ usermod --append --groups docker "$runner_user"
 
 docker network inspect openjury-proxy >/dev/null 2>&1 || docker network create openjury-proxy
 
+# Dev serves Mailpit at http://mail.<domain>. Elsewhere magic links are login
+# credentials, so Mailpit is reachable only through an SSH tunnel to the VM.
+if [[ "$environment" == dev ]]; then
+  # shellcheck disable=SC2016 # Backticks are Traefik rule syntax.
+  mail_access='    labels:
+      - traefik.enable=true
+      - traefik.http.routers.openjury-mail.rule=HostRegexp(`^mail\..+`)
+      - traefik.http.routers.openjury-mail.entrypoints=web
+      - traefik.http.services.openjury-mail.loadbalancer.server.port=8025'
+else
+  mail_access='    ports:
+      - "127.0.0.1:8025:8025"'
+fi
+
 install -d -m 0700 /opt/openjury-ingress
 cat > /opt/openjury-ingress/compose.yml <<EOF
 services:
@@ -81,7 +97,7 @@ services:
       timeout: 5s
       retries: 6
 
-  # Catches magic-link emails from every preview's Auth; UI at http://mail.<domain>.
+  # Catches magic-link emails from Auth unless the environment configures SMTP.
   mail:
     image: $mailpit_image
     restart: unless-stopped
@@ -92,11 +108,7 @@ services:
     networks:
       proxy:
         aliases: [openjury-mail]
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.openjury-mail.rule=HostRegexp(\`^mail\\..+\`)
-      - traefik.http.routers.openjury-mail.entrypoints=web
-      - traefik.http.services.openjury-mail.loadbalancer.server.port=8025
+$mail_access
 
 networks:
   proxy:
@@ -127,7 +139,7 @@ if [[ ! -f .runner ]]; then
   fi
   sudo -u "$runner_user" ./config.sh --unattended \
     --url "https://github.com/$repo" --token "$token" \
-    --name "$(hostname)" --labels openjury-dev
+    --name "$(hostname)" --labels "openjury-$environment"
   ./svc.sh install "$runner_user"
 fi
 ./svc.sh start || true
