@@ -82,8 +82,10 @@ jobs:
           bash -n deploy/stack.sh
           shellcheck deploy/stack.sh
           docker compose -f deploy/compose.yml -f deploy/compose.tls.yml config --quiet
-          bash -n deploy/proxmox/dev-vm.sh deploy/proxmox/dev-bootstrap.sh
-          shellcheck deploy/proxmox/dev-vm.sh deploy/proxmox/dev-bootstrap.sh
+          docker compose -f deploy/compose.yml -f deploy/compose.tls.yml \
+            -f deploy/compose.supabase.yml -f deploy/compose.supabase.tls.yml config --quiet
+          bash -n deploy/proxmox/dev-vm.sh deploy/proxmox/dev-bootstrap.sh deploy/supabase/migrate.sh
+          shellcheck deploy/proxmox/dev-vm.sh deploy/proxmox/dev-bootstrap.sh deploy/supabase/migrate.sh
         env:
           COMPOSE_PROJECT_NAME: openjury-pr-1
           IMAGE: openjury:ci
@@ -151,13 +153,15 @@ jobs:
             | grep "^ghcr.io/${GITHUB_REPOSITORY,,}-preview@sha256:")"
           mkdir -p "$RUNNER_TEMP/image-ref"
           echo "$image" > "$RUNNER_TEMP/image-ref/image.ref"
+          # The preview applies these to its own disposable Supabase backend.
+          cp -R supabase/migrations "$RUNNER_TEMP/image-ref/migrations"
 
       - name: Upload tested PR image reference
         if: steps.preview-image.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: image-ref-${{ github.run_id }}
-          path: ${{ runner.temp }}/image-ref/image.ref
+          path: ${{ runner.temp }}/image-ref/
           overwrite: true
           if-no-files-found: error
           retention-days: 3
@@ -168,6 +172,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/image"
           docker save --output "$RUNNER_TEMP/image/image.tar" openjury:ci
           docker image inspect openjury:ci --format '{{.Id}}' > "$RUNNER_TEMP/image/image.id"
+          cp -R supabase/migrations "$RUNNER_TEMP/image/migrations"
 
       - name: Upload tested image
         if: github.event_name == 'push' || (github.event_name == 'pull_request' && steps.preview-image.outcome != 'success')
@@ -177,6 +182,7 @@ jobs:
           path: |
             ${{ runner.temp }}/image/image.tar
             ${{ runner.temp }}/image/image.id
+            ${{ runner.temp }}/image/migrations/
           archive: true
           overwrite: true
           if-no-files-found: error

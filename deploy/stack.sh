@@ -23,8 +23,9 @@ case "$action" in
     if [[ -n "$container" ]]; then
       old_image="$(docker inspect --format '{{.Image}}' "$container")"
     fi
+    # Include the Supabase services so their database and storage volumes go too.
     IMAGE="${IMAGE:-openjury:unused}" APP_HOST="${APP_HOST:-unused.invalid}" \
-      docker compose -f compose.yml down --volumes --remove-orphans
+      docker compose -f compose.yml -f compose.supabase.yml down --volumes --remove-orphans
     if [[ -n "$old_image" ]]; then
       docker image rm "$old_image" || echo "Image still referenced; leaving shared image in place."
     fi
@@ -53,4 +54,47 @@ case "${APP_SCHEME:-https}" in
     ;;
   *) echo "APP_SCHEME must be http or https" >&2; exit 1 ;;
 esac
-docker compose "${files[@]}" up --detach --wait --wait-timeout 180 --remove-orphans
+
+# A PR preview with migrations gets its own disposable Supabase backend.
+if [[ -n "${SUPABASE_MIGRATIONS:-}" ]]; then
+  if [[ ! "$COMPOSE_PROJECT_NAME" =~ ^openjury-pr-[1-9][0-9]*$ || ! -d "$SUPABASE_MIGRATIONS" ]]; then
+    echo "SUPABASE_MIGRATIONS must be a directory and is only allowed for PR previews" >&2
+    exit 1
+  fi
+  b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+  jwt() {
+    local header payload now
+    now="$(date +%s)"
+    header="$(printf '{"alg":"HS256","typ":"JWT"}' | b64url)"
+    payload="$(printf '{"role":"%s","iss":"supabase","iat":%d,"exp":%d}' "$1" "$now" $((now + 31536000)) | b64url)"
+    printf '%s.%s.%s' "$header" "$payload" \
+      "$(printf '%s.%s' "$header" "$payload" | openssl dgst -sha256 -hmac "$JWT_SECRET" -binary | b64url)"
+  }
+  JWT_SECRET="$(openssl rand -hex 32)"
+  POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+  REALTIME_SECRET_KEY_BASE="$(openssl rand -hex 32)"
+  SUPABASE_URL="${APP_SCHEME:-https}://$APP_HOST"
+  SUPABASE_ANON_KEY="$(jwt anon)"
+  SUPABASE_SERVICE_KEY="$(jwt service_role)"
+  export JWT_SECRET POSTGRES_PASSWORD REALTIME_SECRET_KEY_BASE SUPABASE_URL SUPABASE_ANON_KEY SUPABASE_SERVICE_KEY
+  files+=(-f compose.supabase.yml)
+  if [[ "${APP_SCHEME:-https}" == https ]]; then
+    files+=(-f compose.supabase.tls.yml)
+  fi
+fi
+
+docker compose "${files[@]}" up --detach --wait --wait-timeout 300 --remove-orphans
+if [[ -n "${SUPABASE_MIGRATIONS:-}" ]]; then
+  docker compose "${files[@]}" run --rm migrate
+  # Optional fixed preview account, so sign-in needs no email round trip.
+  if [[ -n "${PREVIEW_ADMIN_PASSWORD:-}" ]]; then
+    PREVIEW_ADMIN_EMAIL="${PREVIEW_ADMIN_EMAIL:-admin@openjury.test}" python3 -c 'import json, os; print(json.dumps({
+      "email": os.environ["PREVIEW_ADMIN_EMAIL"],
+      "password": os.environ["PREVIEW_ADMIN_PASSWORD"],
+      "email_confirm": True}))' |
+      curl --fail --silent --show-error --output /dev/null \
+        --retry 10 --retry-all-errors --retry-delay 2 \
+        --header "apikey: $SUPABASE_SERVICE_KEY" --header "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
+        --header "Content-Type: application/json" --data-binary @- "$SUPABASE_URL/auth/v1/admin/users"
+  fi
+fi

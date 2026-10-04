@@ -38,7 +38,9 @@ environment variables `DEV_BASE_DOMAIN=<ip-with-dashes>.nip.io` (for example
 `192-168-1-114.nip.io`; nip.io resolves the dotted `pr-21.192.168.1.114` to
 `21.192.168.1`) and
 `APP_SCHEME=http` and the repository variable `PREVIEW_CD_ENABLED=true`.
-Previews are served at `http://pr-<number>.<ip-with-dashes>.nip.io`. Some routers' DNS rebinding protection blocks
+Previews are served at `http://pr-<number>.<ip-with-dashes>.nip.io`, each with
+its own disposable Supabase backend, and magic-link emails land in Mailpit at
+`http://mail.<ip-with-dashes>.nip.io`. Some routers' DNS rebinding protection blocks
 private nip.io answers; allow `nip.io` there or use another resolver.
 
 This trades the isolation below for simplicity: there is no TLS, VLAN, or

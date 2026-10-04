@@ -16,15 +16,16 @@ function session(user = userId, email = "member@example.com") {
   };
 }
 
-async function configure(page: Page, signedIn = false) {
+async function configure(page: Page, signedIn = false, passwordSignIn = false) {
   await page.route("**/runtime-config.js", (route) => route.fulfill({
     contentType: "application/javascript",
-    body: `window.__OPENJURY_CONFIG__ = ${JSON.stringify({ SUPABASE_URL: supabaseURL, SUPABASE_ANON_KEY: "public-test-anon" })};`,
+    body: `window.__OPENJURY_CONFIG__ = ${JSON.stringify({ SUPABASE_URL: supabaseURL, SUPABASE_ANON_KEY: "public-test-anon", PASSWORD_SIGN_IN: passwordSignIn })};`,
   }));
   await page.route(`${supabaseURL}/**`, (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/auth/v1/logout") return route.fulfill({ status: 204 });
     if (path === "/auth/v1/otp") return route.fulfill({ json: {} });
+    if (path === "/auth/v1/token") return route.fulfill({ json: session(userId, "admin@openjury.test") });
     if (path === "/auth/v1/user") return route.fulfill({ json: session().user });
     if (path === "/rest/v1/groups") {
       const id = new URL(route.request().url()).searchParams.get("id");
@@ -249,6 +250,27 @@ test("magic link permits signup and redirects to dashboard with accessible statu
   expect(request.postDataJSON()).toMatchObject({ email: "new@example.com", create_user: true });
   expect(new URL(request.url()).searchParams.get("redirect_to")).toBe(new URL("/dashboard", page.url()).href);
   await expect(page.getByRole("status")).toContainText("Check your email");
+});
+
+test("password sign-in is hidden unless enabled", async ({ page }) => {
+  await configure(page);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Sign in to OpenJury" })).toBeVisible();
+  await expect(page.getByLabel("Password")).toHaveCount(0);
+});
+
+test("preview password sign-in uses the seeded account", async ({ page }) => {
+  await configure(page, false, true);
+  await page.goto("/");
+  const form = page.locator("form").filter({ has: page.getByLabel("Password") });
+  await form.getByRole("textbox", { name: "Email address" }).fill("admin@openjury.test");
+  await form.getByLabel("Password").fill("preview-secret");
+  const requestPromise = page.waitForRequest((request) => request.url().includes("/auth/v1/token"));
+  await page.getByRole("button", { name: "Sign in with password" }).click();
+  const request = await requestPromise;
+  expect(new URL(request.url()).searchParams.get("grant_type")).toBe("password");
+  expect(request.postDataJSON()).toMatchObject({ email: "admin@openjury.test", password: "preview-secret" });
+  await expect(page.getByText("Signed in as admin@openjury.test")).toBeVisible();
 });
 
 test("OTP failures and rejected links are visible and retryable", async ({ page }) => {

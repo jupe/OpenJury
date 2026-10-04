@@ -117,7 +117,7 @@ test("runtime public configuration is uncached and injected @smoke", async ({ pa
   const prefix = "window.__OPENJURY_CONFIG__ = ";
   expect(script.startsWith(prefix)).toBe(true);
   const config = JSON.parse(script.slice(prefix.length).trim().replace(/;$/, ""));
-  expect(Object.keys(config).sort()).toEqual(["SUPABASE_ANON_KEY", "SUPABASE_URL"]);
+  expect(Object.keys(config).sort()).toEqual(["PASSWORD_SIGN_IN", "SUPABASE_ANON_KEY", "SUPABASE_URL"]);
   await page.goto("/");
   await expect.poll(() => page.evaluate(() => window.__OPENJURY_CONFIG__)).toEqual(config);
 });

@@ -20,12 +20,18 @@ disabled. Never supply a service-role key. This allows staging and production
 to use different Supabase projects without rebuilding the image. The original
 `NEXT_PUBLIC_*` variables remain available for local development.
 
-The frontend uses browser sessions and group data in Supabase. **Dev previews deliberately have no
-Supabase credentials or persistent backend**, so every preview starts empty.
-To exercise authenticated group journeys in previews, first extend preview
-provisioning/teardown with an isolated disposable Supabase project or stack per
-PR, and run database/RLS tests. Never
-point dev at staging or production. Persistent Supabase projects, backups, and
+The frontend uses browser sessions and group data in Supabase. **Each dev
+preview gets its own disposable Supabase backend** (`deploy/compose.supabase.yml`:
+Postgres, Auth, PostgREST, Realtime, and Storage) with secrets generated per
+deployment. The PR's own `supabase/migrations` are applied to it, and its API is
+served on the preview host under `/auth/v1`, `/rest/v1`, `/realtime/v1`, and
+`/storage/v1`. Every revision starts empty, and closing the PR deletes the
+database and storage volumes. It needs about 0.5 GB RAM per preview. Magic-link
+emails go to the dev VM's shared Mailpit (`http://mail.<DEV_BASE_DOMAIN>`), and
+previews also offer password sign-in for an optional seeded account
+(`PREVIEW_ADMIN_EMAIL`, default `admin@openjury.test`, and the
+`PREVIEW_ADMIN_PASSWORD` secret). Staging and production never enable password
+sign-in. Never point dev at staging or production. Persistent Supabase projects, backups, and
 schema migrations are managed separately; this frontend deployment does not
 reset or migrate them. Preserve deny-by-default access for competition data.
 
@@ -126,6 +132,8 @@ summary as `https://pr-<number>.<DEV_BASE_DOMAIN>`.
 | Repository variable | `PREVIEW_CD_ENABLED` | `true` to deploy PR previews |
 | Repository variable | `CD_ENABLED` | `true` to deploy staging then production |
 | `dev` variable | `DEV_BASE_DOMAIN` | e.g. `dev.example.com`, without a scheme |
+| `dev` variable | `PREVIEW_ADMIN_EMAIL` | Optional seeded preview account; defaults to `admin@openjury.test` |
+| `dev` secret | `PREVIEW_ADMIN_PASSWORD` | Optional; when set, every preview seeds that account with this password |
 | `dev` variable | `APP_SCHEME` | Optional; `http` only for a [LAN-only dev VM](proxmox.md#quick-start-lan-only-dev-vm), defaults to `https` |
 | `staging` / `production` variable | `APP_HOST` | Environment hostname, without a scheme |
 | Each environment variable | `PROXY_NETWORK` | Optional; defaults to `openjury-proxy` |

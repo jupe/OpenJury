@@ -1,0 +1,18 @@
+# TLS for the per-PR Supabase API routers; stack.sh adds it with compose.tls.yml.
+services:
+  auth:
+    labels:
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}-auth.tls=true
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}-auth.tls.certresolver=${TLS_RESOLVER:-letsencrypt}
+  rest:
+    labels:
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}-rest.tls=true
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}-rest.tls.certresolver=${TLS_RESOLVER:-letsencrypt}
+  realtime:
+    labels:
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}-realtime.tls=true
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}-realtime.tls.certresolver=${TLS_RESOLVER:-letsencrypt}
+  storage:
+    labels:
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}-storage.tls=true
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}-storage.tls.certresolver=${TLS_RESOLVER:-letsencrypt}

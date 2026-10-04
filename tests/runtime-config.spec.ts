@@ -9,6 +9,7 @@ const envNames = [
   "NEXT_PUBLIC_SUPABASE_URL",
   "NEXT_PUBLIC_SUPABASE_ANON_KEY",
   "SUPABASE_SERVICE_ROLE_KEY",
+  "PASSWORD_SIGN_IN",
 ] as const;
 let previous: Record<string, string | undefined>;
 
@@ -40,9 +41,19 @@ test("runtime script exposes only public fields and escapes script delimiters", 
   expect(context.window.__OPENJURY_CONFIG__).toEqual({
     SUPABASE_URL: "https://example.supabase.co",
     SUPABASE_ANON_KEY: value,
+    PASSWORD_SIGN_IN: false,
   });
   process.env.SUPABASE_URL = "https://changed.supabase.co";
   expect(await GET().text()).toContain("https://changed.supabase.co");
+});
+
+test("password sign-in is exposed only when explicitly enabled", async () => {
+  for (const [value, expected] of [["true", true], ["1", false], ["", false]] as const) {
+    process.env.PASSWORD_SIGN_IN = value;
+    const context = { window: {} as Window };
+    runInNewContext(await GET().text(), context);
+    expect(context.window.__OPENJURY_CONFIG__?.PASSWORD_SIGN_IN).toBe(expected);
+  }
 });
 
 test("missing configuration fails closed; server client uses runtime public configuration", async () => {
@@ -51,6 +62,7 @@ test("missing configuration fails closed; server client uses runtime public conf
   expect(context.window.__OPENJURY_CONFIG__).toEqual({
     SUPABASE_URL: "",
     SUPABASE_ANON_KEY: "",
+    PASSWORD_SIGN_IN: false,
   });
   expect(() => getSupabase()).toThrow("Supabase is not configured");
   process.env.SUPABASE_URL = "https://runtime.supabase.co";
