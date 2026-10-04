@@ -23,6 +23,17 @@ if [[ "$(cat /etc/docker/daemon.json 2>/dev/null)" != "$daemon_json" ]]; then
   restart_docker=true
 fi
 
+# Swap absorbs startup peaks of concurrent previews instead of OOM-killing them.
+if [[ ! -f /swapfile ]]; then
+  fallocate -l 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+fi
+swapon --show=NAME --noheadings | grep -qx /swapfile || swapon /swapfile
+grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+echo 'vm.swappiness=10' > /etc/sysctl.d/90-openjury-swap.conf
+sysctl --quiet --load /etc/sysctl.d/90-openjury-swap.conf
+
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install --yes ca-certificates curl git qemu-guest-agent docker.io docker-compose-v2
