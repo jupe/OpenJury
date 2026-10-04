@@ -41,7 +41,8 @@ respective deadlines pass; live competitions use admin transitions. A trusted
 scheduled caller or service-role process should invoke
 `process_remote_competition_deadlines()` periodically. It locks eligible remote
 competitions, skips rows already being processed, and is safe to call repeatedly.
-The final transition to completed remains an admin action.
+The move from review to completed is only available through atomic result
+publication.
 
 Members submit or revise complete category ballots through `save_ballot`. It
 locks the same competition row as submissions and transitions, verifies the
@@ -54,7 +55,32 @@ returns only the caller's own scores; there is no member-facing ballot or
 preliminary-results projection. Direct entry and vote table access remains
 revoked.
 
-Moderation, result aggregation, and Realtime subscriptions remain future work.
+## Admin review and publication
+
+After voting closes, group admins can access preliminary rankings and
+disqualification controls only while a competition is in `review_pending`.
+Disqualification requires a 1–500 character reason, records the acting admin
+and timestamp, and marks the entry without deleting its submission or votes.
+Disqualified entries are omitted from rankings and publication.
+
+A ballot counts for an entry only when it contains a score for every category.
+Partial single-score votes and entries without complete ballots do not affect
+preliminary scores. Each category's complete-ballot scores are averaged after
+normalizing by that category's maximum to a percentage; the category
+percentages are then averaged with equal weight. Entries are ranked by this
+score in descending order; exact ties share a rank using standard competition
+ranking after scores are rounded to four decimal percentage points (for example,
+1, 1, 3). Before publication, each eligible entry must
+have at least one complete ballot. Admins may disqualify an entry that does not
+meet that minimum; publication otherwise fails without changing competition
+status or writing a partial snapshot.
+
+`publish_competition_results` locks the competition, validates the minimum
+ballot rule, stores the final rankings, and marks the competition completed in
+one transaction. Only then can group members read final results, which include
+entry titles and creator IDs. Preliminary rankings and disqualification audit
+data remain admin-only; direct access to result and audit tables is revoked.
+Disqualification audit rows prevent deletion of the associated entries.
 
 ## Implemented group access
 
@@ -83,7 +109,9 @@ Migration `05_transactional_lifecycle.sql` adds admin-only lifecycle transitions
 voting, stable entry numbering, and service-role-only remote deadline processing.
 Migration `06_secure_ballots.sql` adds atomic category ballots and a private
 own-ballot projection, excludes the voter's own entry, and applies the same
-self-voting prohibition to the single-score `cast_vote` RPC.
+self-voting prohibition to the single-score `cast_vote` RPC. Migration
+`07_admin_review_and_publication.sql` adds admin-only preliminary results,
+reasoned disqualification with audit retention, and atomic publication.
 
 The `02_group_access.sql` migration grants authenticated
 users membership-scoped group reads and reads of their own membership rows,
@@ -101,10 +129,13 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_access.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_setup.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/secure_submissions.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/transactional_lifecycle.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/admin_review_and_publication.sql
 ```
 
 Use an owner connection (not an API client). The test creates fixed-ID users
 and test data inside a transaction and rolls everything back; do not run it
 against a production database. The lifecycle test covers role authorization,
 legal transitions, ballot creation and revision, self-voting and membership
-denial, stable numbering, and idempotent remote deadline processing.
+denial, stable numbering, and idempotent remote deadline processing. The
+review/publication test covers admin-only access, complete-ballot aggregation,
+tie ranking, minimum votes, retained audit data, and atomic publication.

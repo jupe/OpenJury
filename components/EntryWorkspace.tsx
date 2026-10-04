@@ -27,6 +27,25 @@ type BlindEntry = { entry_number: number; media_keys: string[] };
 type AdminEntry = { id: string; creator_id: string; title: string; media_keys: string[] };
 type Category = { id: string; name: string; max_score: number };
 type SavedScore = { entry_number: number; category_id: string; score: number };
+type PublishedResult = {
+  rank: number;
+  score: number;
+  vote_count: number;
+  title: string;
+  creator_id: string;
+};
+type AdminReviewResult = {
+  entry_id: string;
+  creator_id: string;
+  title: string;
+  is_disqualified: boolean;
+  rank: number | null;
+  score: number | null;
+  vote_count: number;
+  disqualification_reason: string | null;
+  disqualified_by: string | null;
+  disqualified_at: string | null;
+};
 
 function MediaGallery({
   client,
@@ -101,6 +120,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   const [ballotScores, setBallotScores] = useState<Record<number, Record<string, string>>>({});
   const [ballotFeedback, setBallotFeedback] = useState<Record<number, string>>({});
   const [savingBallot, setSavingBallot] = useState<number | null>(null);
+  const [publishedResults, setPublishedResults] = useState<PublishedResult[]>([]);
   const [submissionOpen, setSubmissionOpen] = useState(false);
   const [votingOpen, setVotingOpen] = useState(false);
   const [title, setTitle] = useState("");
@@ -132,7 +152,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         && (!result.data.voting_deadline
           || Date.parse(result.data.voting_deadline) > Date.now());
       setVotingOpen(isVotingOpen);
-      const [mine, blind, categoryResult, savedBallot] = await Promise.all([
+      const [mine, blind, categoryResult, savedBallot, finalResults] = await Promise.all([
         client.rpc("get_my_submission", { p_competition_id: competitionId }),
         isVotingOpen
           ? client.rpc("get_blind_voting_entries", { p_competition_id: competitionId })
@@ -143,6 +163,9 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           : Promise.resolve({ data: [], error: null }),
         isVotingOpen
           ? client.rpc("get_my_ballot", { p_competition_id: competitionId })
+          : Promise.resolve({ data: [], error: null }),
+        result.data.status === "completed"
+          ? client.rpc("get_published_competition_results", { p_competition_id: competitionId })
           : Promise.resolve({ data: [], error: null }),
       ]);
       if (mine.error) {
@@ -164,8 +187,13 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         setError(`Unable to load your ballot: ${savedBallot.error.message}`);
         return;
       }
+      if (finalResults.error) {
+        setError(`Unable to load published results: ${finalResults.error.message}`);
+        return;
+      }
       setBlindEntries((blind.data || []) as BlindEntry[]);
       setCategories((categoryResult.data || []) as Category[]);
+      setPublishedResults((finalResults.data || []) as PublishedResult[]);
       setBallotScores((savedBallot.data || []).reduce(
         (scores: Record<number, Record<string, string>>, score: SavedScore) => ({
           ...scores,
@@ -454,6 +482,21 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           <p>The voting deadline has passed. Preliminary results are not available to members.</p>
         </Card>
       )}
+      {competition.status === "completed" && (
+        <Card title="Published results">
+          {publishedResults.length ? (
+            <ol className="space-y-3">
+              {publishedResults.map((result) => (
+                <li key={`${result.rank}:${result.creator_id}`} className="rounded border border-slate-200 p-3">
+                  <h2 className="font-semibold">Rank {result.rank}: {result.title}</h2>
+                  <p>Submitted by {result.creator_id}</p>
+                  <p>{result.score.toFixed(2)}% · {result.vote_count} complete ballots</p>
+                </li>
+              ))}
+            </ol>
+          ) : <p>No results were published.</p>}
+        </Card>
+      )}
       {error && !editable && <p role="alert">{error}</p>}
     </div>
   );
@@ -462,19 +505,42 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
 export function AdminSubmissions({ competitionId }: { competitionId: string }) {
   const { client } = useAuth();
   const [entries, setEntries] = useState<AdminEntry[]>([]);
+  const [reviewResults, setReviewResults] = useState<AdminReviewResult[] | null>(null);
+  const [competitionStatus, setCompetitionStatus] = useState("");
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [workingEntry, setWorkingEntry] = useState("");
+  const [publishing, setPublishing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
 
   useEffect(() => {
     let active = true;
     void (async () => {
       try {
-        const { data, error: queryError } = await client.rpc("get_admin_submissions", {
-          p_competition_id: competitionId,
-        });
+        const [submissionResult, competitionResult] = await Promise.all([
+          client.rpc("get_admin_submissions", { p_competition_id: competitionId }),
+          client.from("competitions").select("status").eq("id", competitionId).maybeSingle(),
+        ]);
         if (!active) return;
-        if (queryError) setError(`Unable to load admin submissions: ${queryError.message}`);
-        else setEntries((data || []) as AdminEntry[]);
+        if (submissionResult.error) {
+          setError(`Unable to load admin submissions: ${submissionResult.error.message}`);
+          return;
+        }
+        if (competitionResult.error || !competitionResult.data) {
+          setError(`Unable to load competition status: ${competitionResult.error?.message || "Competition not found."}`);
+          return;
+        }
+        setEntries((submissionResult.data || []) as AdminEntry[]);
+        setCompetitionStatus(competitionResult.data.status);
+        if (competitionResult.data.status === "review_pending") {
+          const review = await client.rpc("get_admin_review_results", {
+            p_competition_id: competitionId,
+          });
+          if (!active) return;
+          if (review.error) setError(`Unable to load preliminary results: ${review.error.message}`);
+          else setReviewResults((review.data || []) as AdminReviewResult[]);
+        }
       } catch {
         if (active) setError("Unable to load admin submissions. Please try again.");
       } finally {
@@ -484,22 +550,125 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
     return () => { active = false; };
   }, [client, competitionId]);
 
+  async function refreshReviewResults() {
+    const { data, error: refreshError } = await client.rpc("get_admin_review_results", {
+      p_competition_id: competitionId,
+    });
+    if (refreshError) throw refreshError;
+    setReviewResults((data || []) as AdminReviewResult[]);
+  }
+
+  async function disqualify(entry: AdminReviewResult) {
+    const reason = reasons[entry.entry_id]?.trim();
+    if (!reason || workingEntry) return;
+    setWorkingEntry(entry.entry_id);
+    setError("");
+    setActionMessage("");
+    try {
+      const { error: disqualifyError } = await client.rpc("disqualify_competition_entry", {
+        p_competition_id: competitionId,
+        p_entry_id: entry.entry_id,
+        p_reason: reason,
+      });
+      if (disqualifyError) throw disqualifyError;
+      await refreshReviewResults();
+      setReasons((current) => ({ ...current, [entry.entry_id]: "" }));
+    } catch (reviewError) {
+      setError(`Unable to disqualify entry: ${reviewError instanceof Error ? reviewError.message : "Please try again."}`);
+    } finally {
+      setWorkingEntry("");
+    }
+  }
+
+  async function publishResults() {
+    if (publishing) return;
+    setPublishing(true);
+    setError("");
+    setActionMessage("");
+    try {
+      const { error: publishError } = await client.rpc("publish_competition_results", {
+        p_competition_id: competitionId,
+      });
+      if (publishError) throw publishError;
+      setCompetitionStatus("completed");
+      setReviewResults(null);
+      setActionMessage("Results published. Group members can now view the final rankings and identities.");
+    } catch (publishError) {
+      setError(`Unable to publish results: ${publishError instanceof Error ? publishError.message : "Please try again."}`);
+    } finally {
+      setPublishing(false);
+    }
+  }
+
   if (loading) return <p role="status">Loading admin submissions…</p>;
   if (error) return <p role="alert">{error}</p>;
 
   return (
-    <Card title="Private submission review">
-      {entries.length ? (
-        <ul className="space-y-6">
-          {entries.map((entry) => (
-            <li key={entry.id} className="space-y-2">
-              <h2 className="font-semibold">{entry.title}</h2>
-              <p className="break-all text-sm text-slate-600">Submitted by {entry.creator_id}</p>
-              <MediaGallery client={client} mediaKeys={entry.media_keys} label="Submission image" />
-            </li>
-          ))}
-        </ul>
-      ) : <p>No submissions have been received.</p>}
-    </Card>
+    <div className="space-y-6">
+      <Card title="Private submission review">
+        {entries.length ? (
+          <ul className="space-y-6">
+            {entries.map((entry) => (
+              <li key={entry.id} className="space-y-2">
+                <h2 className="font-semibold">{entry.title}</h2>
+                <p className="break-all text-sm text-slate-600">Submitted by {entry.creator_id}</p>
+                <MediaGallery client={client} mediaKeys={entry.media_keys} label="Submission image" />
+              </li>
+            ))}
+          </ul>
+        ) : <p>No submissions have been received.</p>}
+      </Card>
+      {reviewResults && (
+        <Card title="Preliminary rankings (admins only)">
+          <p>Scores are category-normalized averages. Ties share a rank; only complete ballots count.</p>
+          <ul className="space-y-4">
+            {reviewResults.map((entry) => (
+              <li key={entry.entry_id} className="rounded border border-slate-200 p-4">
+                <h2 className="font-semibold">
+                  {entry.rank === null ? "Not ranked" : `Rank ${entry.rank}`}: {entry.title}
+                </h2>
+                <p className="break-all text-sm text-slate-600">Submitted by {entry.creator_id}</p>
+                {!entry.is_disqualified && (
+                  <p>{entry.score === null ? "No complete ballots" : `${entry.score.toFixed(2)}%`}
+                    {" · "}{entry.vote_count} complete ballots</p>
+                )}
+                {entry.is_disqualified ? (
+                  <p>
+                    Disqualified: {entry.disqualification_reason}
+                    {entry.disqualified_by && ` · Admin ${entry.disqualified_by}`}
+                    {entry.disqualified_at && ` · ${new Date(entry.disqualified_at).toLocaleString()}`}
+                  </p>
+                ) : (
+                  <div className="mt-3 flex flex-wrap items-end gap-3">
+                    <label className="min-w-56 flex-1">Disqualification reason
+                      <input
+                        maxLength={500}
+                        value={reasons[entry.entry_id] || ""}
+                        onChange={(event) => setReasons((current) => ({
+                          ...current, [entry.entry_id]: event.target.value,
+                        }))}
+                        className="mt-1 block w-full rounded border border-slate-300 p-2"
+                      />
+                    </label>
+                    <Button
+                      disabled={!reasons[entry.entry_id]?.trim() || workingEntry !== ""}
+                      onClick={() => void disqualify(entry)}
+                    >
+                      {workingEntry === entry.entry_id ? "Disqualifying…" : "Disqualify"}
+                    </Button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+          {actionMessage && <p role="status">{actionMessage}</p>}
+          <Button disabled={publishing || workingEntry !== ""} onClick={() => void publishResults()}>
+            {publishing ? "Publishing…" : "Publish final results"}
+          </Button>
+        </Card>
+      )}
+      {competitionStatus === "completed" && actionMessage && <p role="status">{actionMessage}</p>}
+      {error && <p role="alert">{error}</p>}
+    </div>
   );
 }
