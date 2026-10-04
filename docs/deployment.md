@@ -178,8 +178,10 @@ rollout requirement.
   volumes before starting the tested image. There are no persistent dev mounts.
   Failed, stale, or closed-during-deployment previews are also removed.
   CI runs with preview CD enabled are not interrupted by newer PR commits;
-  outdated heads are skipped after approval. Each PR's deployment statuses are
-  independent, so a successful preview does not deactivate another PR's URL.
+  newer checks run independently of older preview approvals, and outdated heads
+  are skipped after approval. Replacing a preview marks its previous deployment
+  records inactive, even if the replacement fails. Each PR's deployment statuses
+  are independent, so a successful preview does not deactivate another PR's URL.
 - PR closure (merged **or unmerged**) triggers trusted cleanup without a dev
   approval. Deployment and cleanup share a per-PR lock; other PRs are independent.
   Reopening a PR triggers CI and a fresh preview.

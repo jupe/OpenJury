@@ -101,7 +101,22 @@ jobs:
             });
       - name: Destroy old preview and all its data
         if: steps.current.outputs.current == 'true'
-        run: bash deploy/stack.sh destroy
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.id }}
+        with:
+          script: |
+            await exec.exec('bash', ['deploy/stack.sh', 'destroy']);
+            const deployments = await github.paginate(github.rest.repos.listDeployments, {
+              ...context.repo, environment: `dev-pr-${process.env.PR_NUMBER}`, per_page: 100,
+            });
+            for (const deployment of deployments) {
+              if (deployment.id === Number(process.env.DEPLOYMENT_ID)) continue;
+              await github.rest.repos.createDeploymentStatus({
+                ...context.repo, deployment_id: deployment.id, state: 'inactive',
+              });
+            }
       - name: Download tested PR image or its reference, never PR scripts
         if: steps.current.outputs.current == 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

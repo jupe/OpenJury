@@ -90,7 +90,8 @@ test("PR CI includes trusted preview orchestration after checks with fork and do
   expect(preview).toContain("uses: jupe/OpenJury/.github/workflows/preview.yml@main");
   expect(preview).toContain("sha: ${{ github.event.pull_request.head.sha }}");
   expect(preview).toContain("artifact: ${{ needs.build.outputs.preview-artifact }}");
-  expect(ci).toContain("cancel-in-progress: ${{ github.event_name != 'pull_request' || vars.PREVIEW_CD_ENABLED != 'true' }}");
+  expect(ci).toContain("vars.PREVIEW_CD_ENABLED == 'true' && github.run_id || 'latest'");
+  expect(ci).toContain("cancel-in-progress: true");
   const workflow = readFileSync(resolve(".github/workflows/preview.yml"), "utf8");
   expect(workflow).toContain("workflow_call:");
   expect(workflow).not.toContain("workflow_run");
@@ -181,6 +182,27 @@ test("preview reports health failures and removes closed, superseded, or cancell
     expect(statuses[0]).toMatchObject({ deployment_id: 99, state: status, auto_inactive: true });
     expect(statuses[0].environment_url).toBe(status === "success" ? "https://pr-7.example.com" : undefined);
   }
+});
+
+test("destroying an old preview deactivates prior transient records, but not its replacement", async () => {
+  const statuses = [];
+  const queries = [];
+  const commands = [];
+  await runInNewContext(`(async () => { ${previewScript("Destroy old preview and all its data")} })()`, {
+    context,
+    process: { env: { PR_NUMBER: "7", DEPLOYMENT_ID: "100" } },
+    exec: { exec: async (command, args) => { commands.push([command, args]); } },
+    github: {
+      paginate: async (method, args) => method(args),
+      rest: { repos: {
+        listDeployments: async (args) => { queries.push(args); return [{ id: 99 }, { id: 100 }]; },
+        createDeploymentStatus: async (args) => { statuses.push(args); },
+      } },
+    },
+  });
+  expect(commands).toEqual([["bash", ["deploy/stack.sh", "destroy"]]]);
+  expect(queries).toEqual([{ ...repo, environment: "dev-pr-7", per_page: 100 }]);
+  expect(statuses).toEqual([{ ...repo, deployment_id: 99, state: "inactive" }]);
 });
 
 test("preview cleanup deactivates only that PR's deployments and respects reopened PRs", async () => {

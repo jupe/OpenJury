@@ -10,9 +10,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  # Do not interrupt an approved deployment; stale PR heads are checked again.
-  cancel-in-progress: ${{ github.event_name != 'pull_request' || vars.PREVIEW_CD_ENABLED != 'true' }}
+  # Preview approval must neither block newer checks nor interrupt deployment.
+  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'pull_request' && vars.PREVIEW_CD_ENABLED == 'true' && github.run_id || 'latest' }}
+  cancel-in-progress: true
 
 jobs:
   changes:
