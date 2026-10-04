@@ -103,7 +103,7 @@ begin
   end if;
   begin
     perform public.transition_competition(
-      '00000000-0000-0000-0000-000000000042', 'completed'
+      '00000000-0000-0000-0000-000000000042', 'results_published'
     );
     raise exception 'Competition completed without publishing results';
   exception when object_not_in_prerequisite_state then null;
@@ -538,7 +538,7 @@ begin
     raise exception 'Admin could not atomically publish reviewed results';
   end if;
   if (select status from public.competitions
-      where id = '00000000-0000-0000-0000-000000000041') <> 'completed' then
+      where id = '00000000-0000-0000-0000-000000000041') <> 'results_published' then
     raise exception 'Publication did not complete the competition';
   end if;
 

@@ -30,7 +30,7 @@ scale.
 The lifecycle is:
 
 ```text
-draft → submission → voting → review_pending → completed
+draft → submission → voting → review_pending → results_published
 ```
 
 Authenticated group admins advance competitions one phase at a time through
@@ -41,7 +41,7 @@ respective deadlines pass; live competitions use admin transitions. A trusted
 scheduled caller or service-role process should invoke
 `process_remote_competition_deadlines()` periodically. It locks eligible remote
 competitions, skips rows already being processed, and is safe to call repeatedly.
-The move from review to completed is only available through atomic result
+The move from review to `results_published` is only available through atomic result
 publication.
 
 Members submit or revise complete category ballots through `save_ballot`. It
@@ -80,7 +80,7 @@ meet that minimum; publication otherwise fails without changing competition
 status or writing a partial snapshot.
 
 `publish_competition_results` locks the competition, validates the minimum
-ballot rule, stores the final rankings, and marks the competition completed in
+ballot rule, stores the final rankings, and marks the competition `results_published` in
 one transaction. Only then can group members read final results, which include
 entry titles, internal creator IDs, and `creator_name` labels. Names use the first
 nonblank trimmed metadata `display_name`, `full_name`, or `name`, falling back to

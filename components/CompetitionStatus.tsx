@@ -3,7 +3,7 @@ const labels: Record<string, string> = {
   submission: "Open for entries",
   voting: "Voting",
   review_pending: "In review",
-  completed: "Results published",
+  results_published: "Results published",
 };
 
 const styles: Record<string, string> = {
@@ -11,7 +11,7 @@ const styles: Record<string, string> = {
   submission: "bg-emerald-100 text-emerald-800",
   voting: "bg-indigo-100 text-indigo-800",
   review_pending: "bg-amber-100 text-amber-800",
-  completed: "bg-sky-100 text-sky-800",
+  results_published: "bg-sky-100 text-sky-800",
 };
 
 export function statusLabel(status: string) {

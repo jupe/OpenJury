@@ -280,10 +280,10 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         isVotingOpen
           ? client.rpc("get_my_ballot", { p_competition_id: competitionId })
           : Promise.resolve({ data: [], error: null }),
-        result.data.status === "completed"
+        result.data.status === "results_published"
           ? client.rpc("get_published_competition_results", { p_competition_id: competitionId })
           : Promise.resolve({ data: [], error: null }),
-        result.data.status === "completed"
+        result.data.status === "results_published"
           ? client.rpc("get_published_competition_category_results", { p_competition_id: competitionId })
           : Promise.resolve({ data: [], error: null }),
       ]);
@@ -631,7 +631,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           )}
         </Card>
       )}
-      {competition.status === "completed" && (
+      {competition.status === "results_published" && (
         <Card title="Published results">
           {publishedResults.length ? (
             <ol className="space-y-3">
@@ -641,7 +641,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                   <p>Submitted by {result.creator_name || "Participant"}</p>
                   {result.is_disqualified
                     ? <p>Disqualified</p>
-                    : <p>{result.score?.toFixed(2) ?? "—"}% · {result.vote_count} complete ballots</p>}
+                    : <p>{result.score?.toFixed(4) ?? "—"}% · {result.vote_count} complete ballots</p>}
                 </li>
               ))}
             </ol>
@@ -649,10 +649,21 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           {publishedCategoryResults.length > 0 && (
             <section className="mt-6 space-y-3">
               <h2 className="text-lg font-semibold">Category winners</h2>
-              {publishedCategoryResults.filter((result) => result.rank === 1).map((winner) => (
-                <p key={`${winner.category_id}:${winner.title}`}>
-                  {winner.category_name}: {winner.title} ({winner.creator_name}) — {winner.score.toFixed(2)}%
-                </p>
+              {[...new Map(publishedCategoryResults.map((result) => [
+                result.category_id,
+                result.category_name,
+              ])).entries()].map(([categoryId, categoryName]) => (
+                <section key={categoryId}>
+                  <h3 className="font-semibold">{categoryName}</h3>
+                  <ol className="list-inside list-decimal">
+                    {publishedCategoryResults.filter((result) => result.category_id === categoryId).map((result, index) => (
+                      <li key={`${categoryId}:${index}`}>
+                        {result.rank === 1 ? "Winner: " : ""}{result.title} ({result.creator_name})
+                        {" — "}{result.score.toFixed(4)}%
+                      </li>
+                    ))}
+                  </ol>
+                </section>
               ))}
             </section>
           )}
@@ -797,6 +808,9 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
       let cleanupFailure = "";
       if (disposition === "remove_content") {
         const submission = entries.find((item) => item.id === entry.entry_id);
+        setEntries((current) => current.map((item) => item.id === entry.entry_id
+          ? { ...item, title: "Content removed", media_keys: [] }
+          : item));
         if (submission?.media_keys.length) {
           const { error: removeError } = await client.storage
             .from("competition-submissions")
@@ -878,7 +892,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
         p_competition_id: competitionId,
       });
       if (publishError) throw publishError;
-      setCompetitionStatus("completed");
+      setCompetitionStatus("results_published");
       setReviewResults(null);
       setActionMessage("Results published. Group members can now view the final rankings and identities.");
     } catch (publishError) {
@@ -969,7 +983,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
                 </h2>
                 <p className="break-words text-sm text-slate-600">Submitted by {attendeeName(entry.creator_id)}</p>
                 {!entry.is_disqualified && (
-                  <p>{entry.score === null ? "No complete ballots" : `${entry.score.toFixed(2)}%`}
+                  <p>{entry.score === null ? "No complete ballots" : `${entry.score.toFixed(4)}%`}
                     {" · "}{entry.vote_count} complete ballots</p>
                 )}
                 {entry.is_disqualified && (
@@ -1046,7 +1060,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
               <h2 className="text-lg font-semibold">Preliminary category winners</h2>
               {reviewCategories.filter((category) => category.rank === 1).map((winner) => (
                 <p key={`${winner.category_id}:${winner.entry_id}`}>
-                  {winner.category_name}: {winner.title} ({attendeeName(winner.creator_id)}) — {winner.score.toFixed(2)}%
+                  {winner.category_name}: {winner.title} ({attendeeName(winner.creator_id)}) — {winner.score.toFixed(4)}%
                 </p>
               ))}
             </section>
@@ -1057,7 +1071,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
           </Button>
         </Card>
       )}
-      {competitionStatus === "completed" && actionMessage && <p role="status">{actionMessage}</p>}
+      {competitionStatus === "results_published" && actionMessage && <p role="status">{actionMessage}</p>}
       {error && <p role="alert">{error}</p>}
     </div>
   );

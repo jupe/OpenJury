@@ -485,7 +485,7 @@ test("participants refetch authorized competition data after reconnect", async (
   await expect(page.getByRole("heading", { name: "Voting ended" })).toBeVisible();
   await expect(page.getByText(/The administrator is reviewing the results/)).toBeVisible();
 
-  status = "completed";
+  status = "results_published";
   await page.route(`${supabaseURL}/rest/v1/rpc/get_published_competition_results`, (route) =>
     route.fulfill({ json: [] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_published_competition_category_results`, (route) =>
@@ -751,7 +751,7 @@ test("admins disqualify and publish while group members see only final identitie
     await route.fulfill({ status: 204 });
   });
   await page.route(`${supabaseURL}/rest/v1/rpc/publish_competition_results`, async (route) => {
-    status = "completed";
+    status = "results_published";
     await route.fulfill({ status: 204 });
   });
   await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) =>
@@ -788,7 +788,7 @@ test("admins disqualify and publish while group members see only final identitie
   await page.goto(`/competition/${competitionId}`);
   await expect(page.getByRole("heading", { name: "Published results" })).toBeVisible();
   await expect(page.getByText("Submitted by Alex Baker")).toBeVisible();
-  await expect(page.getByText("82.50% · 2 complete ballots")).toBeVisible();
+  await expect(page.getByText("82.5000% · 2 complete ballots")).toBeVisible();
   await expectPhoneLayout(page);
 });
 

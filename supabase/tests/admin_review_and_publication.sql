@@ -257,12 +257,17 @@ begin
     'Content was inappropriate',
     'remove_content'
   );
+  if public.can_read_submission_media(
+    '00000000-0000-0000-0000-000000000071/00000000-0000-0000-0000-000000000078/00000000-0000-0000-0000-000000000079.jpg'
+  ) then
+    raise exception 'Removed entry media remained readable to admins';
+  end if;
 
   if public.publish_competition_results('00000000-0000-0000-0000-000000000071') <> 3 then
     raise exception 'Publication did not snapshot all eligible entries';
   end if;
   if (select status from public.competitions
-      where id = '00000000-0000-0000-0000-000000000071') <> 'completed' then
+      where id = '00000000-0000-0000-0000-000000000071') <> 'results_published' then
     raise exception 'Publication did not complete the competition';
   end if;
   if (select count(*) from public.get_published_competition_results(

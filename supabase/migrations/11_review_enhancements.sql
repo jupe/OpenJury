@@ -3,6 +3,17 @@ begin;
 alter table public.competitions
   add column results_publish_at timestamptz;
 
+alter table public.competitions
+  drop constraint competitions_status_check;
+update public.competitions
+  set status = 'results_published'
+  where status = 'completed';
+alter table public.competitions
+  add constraint competitions_status_check
+    check (status in (
+      'draft', 'submission', 'voting', 'review_pending', 'results_published'
+    ));
+
 alter table public.entries
   add column disqualification_display text not null default 'exclude'
     check (disqualification_display in ('exclude', 'bottom', 'remove_content')),
@@ -471,13 +482,46 @@ as $$
     );
 $$;
 
+create or replace function public.can_read_submission_media(p_name text)
+returns boolean
+language sql
+security definer
+set search_path = ''
+as $$
+  select auth.uid() is not null
+    and exists (
+      select 1
+      from public.entries as entry
+      join public.competitions as competition
+        on competition.id = entry.competition_id
+      join public.group_members as membership
+        on membership.group_id = competition.group_id
+      where (storage.foldername(p_name))[1] = competition.id::text
+        and (storage.foldername(p_name))[2] = entry.id::text
+        and membership.user_id = auth.uid()
+        and not entry.content_removed
+        and (
+          membership.role = 'admin'
+          or (
+            competition.status = 'submission'
+            and entry.creator_id = auth.uid()
+          )
+          or (
+            competition.status = 'voting'
+            and p_name = any(entry.media_keys)
+            and (competition.voting_deadline is null
+              or clock_timestamp() < competition.voting_deadline)
+          )
+        )
+    );
+$$;
+
 revoke all on function public.can_delete_submission_media(text)
   from public, anon, authenticated;
 grant execute on function public.can_delete_submission_media(text) to authenticated;
-
-create trigger published_competition_category_results_broadcast_change
-after insert or update or delete on public.published_competition_category_results
-for each row execute function public.broadcast_group_change();
+revoke all on function public.can_read_submission_media(text)
+  from public, anon, authenticated;
+grant execute on function public.can_read_submission_media(text) to authenticated;
 
 revoke all on function public.get_admin_review_results(uuid)
   from public, anon, authenticated;
@@ -685,7 +729,7 @@ begin
 
   get diagnostics published_count = row_count;
   update public.competitions
-    set status = 'completed', results_publish_at = null
+    set status = 'results_published', results_publish_at = null
     where id = p_competition_id;
   return published_count;
 end;
@@ -717,14 +761,15 @@ begin
       on membership.group_id = competition.group_id
     where competition.id = p_competition_id
       and membership.user_id = actor
-      and competition.status = 'completed'
+      and competition.status = 'results_published'
   ) then
     raise exception 'Published results are not available'
       using errcode = '42501';
   end if;
 
   return query
-    select result.rank, result.score, result.vote_count, result.title, result.creator_id,
+    select result.rank, result.score, result.vote_count,
+           coalesce(result.title, entry.title), coalesce(result.creator_id, entry.creator_id),
            coalesce(
              nullif(btrim(account.raw_user_meta_data ->> 'display_name'), ''),
              nullif(btrim(account.raw_user_meta_data ->> 'full_name'), ''),
@@ -733,7 +778,9 @@ begin
            ),
            result.is_disqualified
     from public.published_competition_results as result
-    left join auth.users as account on account.id = result.creator_id
+    join public.entries as entry on entry.id = result.entry_id
+    left join auth.users as account
+      on account.id = coalesce(result.creator_id, entry.creator_id)
     where result.competition_id = p_competition_id
     order by result.rank, result.entry_id;
 end;
@@ -762,7 +809,7 @@ begin
       on membership.group_id = competition.group_id
     where competition.id = p_competition_id
       and membership.user_id = actor
-      and competition.status = 'completed'
+      and competition.status = 'results_published'
   ) then
     raise exception 'Published results are not available'
       using errcode = '42501';
