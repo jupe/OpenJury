@@ -74,6 +74,7 @@ not create public or signed media URLs. Removed media and failed uploads are
 deleted through Storage and failed cleanup can be retried.
 
 Run `supabase/tests/group_access.sql`,
+`supabase/tests/group_management.sql`,
 `supabase/tests/competition_setup.sql`,
 `supabase/tests/secure_submissions.sql`,
 `supabase/tests/transactional_lifecycle.sql`, and

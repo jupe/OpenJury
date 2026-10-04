@@ -130,6 +130,17 @@ test("group admins can rename and remove groups", async ({ page }) => {
   expect(removals).toEqual([{ p_group_id: groupId }]);
 });
 
+test("ordinary group members cannot manage group settings", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/group_members**`, (route) => route.fulfill({
+    json: [{ role: "member" }],
+  }));
+
+  await page.goto(`/group/${groupId}`);
+  await expect(page.getByRole("heading", { name: "Group settings" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Remove group" })).toHaveCount(0);
+});
+
 test("phone sign-in controls support zoom and comfortable touch targets", async ({ page }) => {
   await configure(page);
   await page.setViewportSize({ width: 320, height: 568 });

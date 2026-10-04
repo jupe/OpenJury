@@ -101,6 +101,11 @@ begin
   exception when invalid_parameter_value then null;
   end;
   begin
+    perform public.rename_group(managed_group, null);
+    raise exception 'Null group name accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
     perform public.rename_group(managed_group, repeat('x', 101));
     raise exception 'Long group name accepted';
   exception when invalid_parameter_value then null;
