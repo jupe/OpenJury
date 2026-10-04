@@ -23,9 +23,13 @@ moderation, or lifecycle automation is implemented.
 
 ### 1. Install and run
 
-Use Node.js 22 or newer and npm.
+Use Node.js 26.10.0 (pinned in `.nvmrc`) and npm 12.2.0, matching Docker and CI.
+Node.js 26 is currently the Current release, not LTS.
 
 ```sh
+nvm install
+nvm use
+npm install --global npm@12.2.0
 npm ci
 cp .env.example .env.local
 npm run dev
@@ -33,6 +37,12 @@ npm run dev
 
 Open <http://localhost:3000>. All placeholder routes work without Supabase
 configuration. Restart the dev server after changing environment variables.
+If you do not use nvm, install the same Node.js version directly.
+
+Tooling uses the latest compatible stable releases. ESLint stays on 9.39.5
+because Next.js's React/import/accessibility plugins do not yet support ESLint
+10; TypeScript stays on 6.0.3 because typescript-eslint does not yet support
+TypeScript 7. Upgrade these together once upstream support is available.
 
 Available commands:
 
