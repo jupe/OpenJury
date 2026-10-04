@@ -1,0 +1,184 @@
+name: PR preview
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  # This event only tears down resources using trusted main-branch code.
+  pull_request_target:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR preview to destroy (also works while preview CD is disabled)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  identify:
+    if: >-
+      (vars.PREVIEW_CD_ENABLED == 'true' || github.event_name == 'workflow_dispatch') &&
+      (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      pr: ${{ steps.identify.outputs.pr }}
+      action: ${{ steps.identify.outputs.action }}
+      sha: ${{ steps.identify.outputs.sha }}
+    steps:
+      - id: identify
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            if (context.eventName === 'workflow_dispatch') {
+              const number = context.payload.inputs.pr_number;
+              if (!/^[1-9][0-9]*$/.test(number)) throw new Error('Invalid PR number');
+              await github.rest.pulls.get({ ...context.repo, pull_number: Number(number) });
+              core.setOutput('pr', number);
+              core.setOutput('action', 'destroy');
+              return;
+            }
+            if (context.eventName === 'pull_request_target') {
+              core.setOutput('pr', context.payload.pull_request.number);
+              core.setOutput('action', 'destroy');
+              return;
+            }
+            const run = context.payload.workflow_run;
+            if (run.event !== 'pull_request' || run.conclusion !== 'success') return;
+            // Fork runs may not populate workflow_run.pull_requests.
+            const pulls = await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit, {
+              ...context.repo, commit_sha: run.head_sha, per_page: 100
+            });
+            const pr = pulls.find(pr =>
+              pr.state === 'open' &&
+              pr.head.sha === run.head_sha &&
+              pr.base.repo.full_name === `${context.repo.owner}/${context.repo.repo}`
+            );
+            if (!pr) return;
+            core.setOutput('pr', pr.number);
+            core.setOutput('action', 'deploy');
+            core.setOutput('sha', run.head_sha);
+
+  preview:
+    needs: identify
+    if: needs.identify.outputs.pr != '' && needs.identify.outputs.action == 'deploy'
+    runs-on: [self-hosted, linux, x64, openjury-dev]
+    timeout-minutes: 20
+    # Approval is required before ANY PR image (including fork images) is loaded.
+    environment:
+      name: dev
+      url: ${{ steps.deploy.outputs.url }}
+    concurrency:
+      group: openjury-preview-${{ needs.identify.outputs.pr }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    env:
+      COMPOSE_PROJECT_NAME: openjury-pr-${{ needs.identify.outputs.pr }}
+      APP_HOST: pr-${{ needs.identify.outputs.pr }}.${{ vars.DEV_BASE_DOMAIN }}
+      PROXY_NETWORK: ${{ vars.PROXY_NETWORK }}
+      TLS_RESOLVER: ${{ vars.TLS_RESOLVER }}
+      PULL_POLICY: never
+      # Previews must never inherit credentials for a persistent backend.
+      SUPABASE_URL: ""
+      SUPABASE_ANON_KEY: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Recheck PR after waiting for approval and the deployment lock
+        id: current
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ needs.identify.outputs.pr }}
+          EXPECTED_SHA: ${{ needs.identify.outputs.sha }}
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              ...context.repo, pull_number: Number(process.env.PR_NUMBER)
+            });
+            const current = pr.state === 'open' && pr.head.sha === process.env.EXPECTED_SHA;
+            core.setOutput('current', current);
+      - name: Destroy old preview and all its data
+        if: steps.current.outputs.current == 'true'
+        run: bash deploy/stack.sh destroy
+      - name: Download tested PR image, never PR scripts
+        if: steps.current.outputs.current == 'true' && needs.identify.outputs.action == 'deploy'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: image-${{ github.event.workflow_run.id }}
+          path: ${{ runner.temp }}/preview-image
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Start clean preview
+        id: deploy
+        if: steps.current.outputs.current == 'true' && needs.identify.outputs.action == 'deploy'
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_id="$(cat "$RUNNER_TEMP/preview-image/image.id")"
+          [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
+          docker load --input "$RUNNER_TEMP/preview-image/image.tar"
+          export IMAGE="$image_id"
+          bash deploy/stack.sh deploy
+          echo "url=https://$APP_HOST" >> "$GITHUB_OUTPUT"
+          printf '### PR preview\nhttps://%s\n\nRecreated from scratch; no data is preserved.\n' "$APP_HOST" >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove failed, closed, or superseded deployments
+        if: always() && steps.current.outputs.current == 'true' && needs.identify.outputs.action == 'deploy'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ needs.identify.outputs.pr }}
+          EXPECTED_SHA: ${{ needs.identify.outputs.sha }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              ...context.repo, pull_number: Number(process.env.PR_NUMBER)
+            });
+            if (process.env.DEPLOY_OUTCOME !== 'success' ||
+                pr.state !== 'open' || pr.head.sha !== process.env.EXPECTED_SHA) {
+              await exec.exec('bash', ['deploy/stack.sh', 'destroy']);
+            }
+      - name: Remove downloaded image archive
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/preview-image"
+
+  cleanup:
+    needs: identify
+    if: needs.identify.outputs.pr != '' && needs.identify.outputs.action == 'destroy'
+    runs-on: [self-hosted, linux, x64, openjury-dev]
+    timeout-minutes: 10
+    # No environment approval: closing a PR must not leave its resources running.
+    concurrency:
+      group: openjury-preview-${{ needs.identify.outputs.pr }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Clean up unless the PR has since reopened
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ needs.identify.outputs.pr }}
+          COMPOSE_PROJECT_NAME: openjury-pr-${{ needs.identify.outputs.pr }}
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              ...context.repo, pull_number: Number(process.env.PR_NUMBER)
+            });
+            if (context.eventName === 'workflow_dispatch' || pr.state === 'closed') {
+              await exec.exec('bash', ['deploy/stack.sh', 'destroy']);
+            }

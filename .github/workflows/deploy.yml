@@ -1,0 +1,100 @@
+name: Deploy persistent environment
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      image:
+        required: true
+        type: string
+      revision:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux, x64, "openjury-${{ inputs.environment }}"]
+    timeout-minutes: 15
+    environment:
+      name: ${{ inputs.environment }}
+      url: https://${{ vars.APP_HOST }}
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+      - name: Reject stale or invalid releases
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          REVISION: ${{ inputs.revision }}
+          TARGET: ${{ inputs.environment }}
+        with:
+          script: |
+            if (!['staging', 'production'].includes(process.env.TARGET)) {
+              throw new Error('Invalid deployment environment');
+            }
+            const { data } = await github.rest.repos.getBranch({
+              ...context.repo, branch: 'main'
+            });
+            if (data.commit.sha !== process.env.REVISION) {
+              throw new Error('Main has advanced; deploy its successful CI run instead');
+            }
+      - name: Deploy immutable image
+        id: deploy
+        env:
+          IMAGE: ${{ inputs.image }}
+          COMPOSE_PROJECT_NAME: openjury-${{ inputs.environment }}
+          APP_HOST: ${{ vars.APP_HOST }}
+          PROXY_NETWORK: ${{ vars.PROXY_NETWORK }}
+          TLS_RESOLVER: ${{ vars.TLS_RESOLVER }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          DOCKER_CONFIG: ${{ runner.temp }}/registry-auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]]
+          [[ "$IMAGE" == "ghcr.io/${GITHUB_REPOSITORY,,}@"* ]]
+          trap 'docker logout ghcr.io; rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          bash deploy/stack.sh deploy
+          echo "url=https://$APP_HOST" >> "$GITHUB_OUTPUT"
+          printf '### Deployment\nImage: `%s`\nURL: https://%s\n' "$IMAGE" "$APP_HOST" >> "$GITHUB_STEP_SUMMARY"
+
+  smoke:
+    needs: deploy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Smoke test through the public ingress
+        run: npm run test:smoke
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ needs.deploy.outputs.url }}
+      - name: Upload smoke report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: smoke-${{ inputs.environment }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: playwright-report/
+          retention-days: 7

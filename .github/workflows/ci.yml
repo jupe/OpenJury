@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build production image
+        run: docker build --tag openjury:ci --label "org.opencontainers.image.revision=${{ github.sha }}" .
+
+      - name: Start production image
+        run: |
+          docker run --detach --name openjury-ci \
+            --publish 127.0.0.1:3000:3000 \
+            --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /tmp --tmpfs /app/.next/cache:uid=1001,gid=1001 \
+            openjury:ci
+
+      - name: Wait for health check
+        shell: bash
+        run: |
+          for attempt in {1..60}; do
+            if curl --fail --silent --show-error --max-time 2 http://127.0.0.1:3000/api/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Production container did not become healthy"
+          exit 1
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Test production image
+        run: npm run test:e2e
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+
+      - name: Save tested image
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: |
+          mkdir -p "$RUNNER_TEMP/image"
+          docker save --output "$RUNNER_TEMP/image/image.tar" openjury:ci
+          docker image inspect openjury:ci --format '{{.Id}}' > "$RUNNER_TEMP/image/image.id"
+
+      - name: Upload tested image
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/image/image.tar
+            ${{ runner.temp }}/image/image.id
+          archive: true
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report-${{ github.run_id }}
+          overwrite: true
+          path: playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Show container logs
+        if: always()
+        run: docker logs openjury-ci || true
+
+      - name: Remove container
+        if: always()
+        run: docker rm --force openjury-ci || true

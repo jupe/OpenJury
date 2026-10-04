@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import Layout from "@/components/Layout";
 import "./globals.css";
 
@@ -13,6 +14,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
+        <Script src="/runtime-config.js" strategy="beforeInteractive" />
         <Layout>{children}</Layout>
       </body>
     </html>
