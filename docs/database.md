@@ -34,3 +34,23 @@ draft → submission → voting → review_pending → completed
 Live events advance through admin controls; remote events will use deadlines.
 Random numbering, deadline jobs, vote locking, moderation, result aggregation,
 and Realtime subscriptions are intentionally left for future implementation.
+
+## Implemented group access
+
+Apply `02_group_access.sql` after the initial migration. It grants authenticated
+users membership-scoped group reads and reads of their own membership rows,
+without recursive policies. The `create_group(group_name)` RPC validates and
+trims a 1–100 character name, takes the creator from `auth.uid()`, and returns
+the new UUID after atomically creating the group and its admin membership.
+Direct client writes to groups and memberships are not allowed. Invitations,
+roster visibility, membership management, and competition access are deferred.
+
+On a disposable Supabase database with both migrations applied, run:
+
+```sh
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_access.sql
+```
+
+Use an owner connection (not an API client). The test creates fixed-ID users
+and test data inside a transaction and rolls everything back; do not run it
+against a production database.
