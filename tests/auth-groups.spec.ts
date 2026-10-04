@@ -34,6 +34,15 @@ async function configure(page: Page, signedIn = false, passwordSignIn = false) {
     if (path === "/rest/v1/group_members") return route.fulfill({ json: [{ role: "admin" }] });
     if (path === "/rest/v1/competitions") return route.fulfill({ json: [] });
     if (path === "/rest/v1/categories") return route.fulfill({ json: [] });
+    if (path === "/rest/v1/rpc/get_admin_competition_attendees") return route.fulfill({
+      json: [{
+        user_id: userId,
+        display_name: "Alex Baker",
+        role: "admin",
+        has_submission: true,
+        has_voted: false,
+      }],
+    });
     return route.fulfill({ status: 400, json: { message: `Unexpected endpoint: ${path}` } });
   });
   if (signedIn) {
@@ -507,6 +516,7 @@ test("admins discard private review data after membership is revoked", async ({ 
   await page.goto(`/competition/${competitionId}/admin`);
   await expect.poll(() => realtime.hasChannel(`user:${userId}`)).toBe(true);
   await expect(page.getByText("Private admin entry")).toBeVisible();
+  await expect(page.getByText("Alex Baker", { exact: true })).toBeVisible();
   accessible = false;
   const refetch = page.waitForRequest((request) =>
     request.url().includes("/rest/v1/competitions"));
@@ -514,6 +524,7 @@ test("admins discard private review data after membership is revoked", async ({ 
   await refetch;
   await expect(page.getByText(/Unable to load competition status/)).toBeVisible();
   await expect(page.getByText("Private admin entry")).toHaveCount(0);
+  await expect(page.getByText("Alex Baker", { exact: true })).toHaveCount(0);
 });
 
 test("empty memberships and failed group creation provide clear feedback", async ({ page }) => {
@@ -735,6 +746,7 @@ test("admins disqualify and publish while group members see only final identitie
       vote_count: 2,
       title: "Reviewed entry",
       creator_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      creator_name: "Alex Baker",
     }] }));
 
   await page.goto(`/competition/${competitionId}/admin`);
@@ -743,7 +755,8 @@ test("admins disqualify and publish while group members see only final identitie
   await page.getByLabel("Disqualification reason").fill("Rule violation");
   await page.getByRole("button", { name: "Disqualify" }).click();
   await expect(page.getByText("Disqualified: Rule violation")).toBeVisible();
-  await expect(page.getByText(/Admin aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/)).toBeVisible();
+  await expect(page.getByText(/Admin Alex Baker/)).toBeVisible();
+  await expect(page.locator("body")).not.toContainText(userId);
   expect(disqualification).toMatchObject({
     p_competition_id: competitionId,
     p_entry_id: "77777777-7777-4777-8777-777777777777",
@@ -754,7 +767,59 @@ test("admins disqualify and publish while group members see only final identitie
 
   await page.goto(`/competition/${competitionId}`);
   await expect(page.getByRole("heading", { name: "Published results" })).toBeVisible();
-  await expect(page.getByText("Submitted by aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")).toBeVisible();
+  await expect(page.getByText("Submitted by Alex Baker")).toBeVisible();
   await expect(page.getByText("82.50% · 2 complete ballots")).toBeVisible();
   await expectPhoneLayout(page);
+});
+
+test("competition admins see all attendees, including non-submitters and former members", async ({ page }) => {
+  await configure(page, true);
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{ id: secondId, group_id: groupId, name: "Community bake-off", status: "submission" }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) => route.fulfill({
+    json: [{ id: groupId, creator_id: userId, title: "Lemon tart", media_keys: [] }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_competition_attendees`, (route) => {
+    expect(route.request().postDataJSON()).toEqual({ p_competition_id: secondId });
+    return route.fulfill({
+      json: [
+        { user_id: userId, display_name: "Alex Baker", role: "admin", has_submission: true, has_voted: false },
+        { user_id: secondId, display_name: "Voter only", role: "member", has_submission: false, has_voted: true },
+        { user_id: groupId, display_name: "Not started", role: "member", has_submission: false, has_voted: false },
+        { user_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", display_name: "Former entrant", role: "former member", has_submission: true, has_voted: false },
+      ],
+    });
+  });
+  await page.goto(`/competition/${secondId}/admin`);
+  await expect(page.getByRole("heading", { name: "Community bake-off" })).toBeVisible();
+  const roster = page.getByRole("heading", { name: "Competition attendees" }).locator("..");
+  await expect(roster.getByRole("listitem")).toHaveCount(4);
+  await expect(roster.getByRole("listitem").filter({ hasText: "Voter only" })).toContainText("Member · No submission · Has voted");
+  await expect(roster.getByRole("listitem").filter({ hasText: "Not started" })).toContainText("Member · No submission · Has not voted");
+  await expect(roster.getByRole("listitem").filter({ hasText: "Former entrant" })).toContainText("Former member · Submitted");
+  await expect(page.getByText("Submitted by Alex Baker")).toBeVisible();
+  await expect(page.locator("body")).not.toContainText(secondId);
+  await expect(page.locator("body")).not.toContainText(userId);
+  await expect(page.locator("body")).not.toContainText(groupId);
+  await expectPhoneLayout(page);
+  await page.screenshot({ path: "/tmp/openjury-competition-attendees.png", fullPage: true });
+});
+
+test("attendee authorization errors do not expose private admin data", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{ id: secondId, group_id: groupId, name: "Private competition", status: "submission" }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) => route.fulfill({
+    json: [{ id: groupId, creator_id: userId, title: "Private entry", media_keys: [] }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_competition_attendees`, (route) => route.fulfill({
+    status: 403, json: { message: "Competition administrator access required" },
+  }));
+  await page.goto(`/competition/${secondId}/admin`);
+  await expect(page.getByRole("alert")).toContainText("Unable to load competition attendees");
+  await expect(page.getByText("Private entry", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Competition attendees" })).toHaveCount(0);
 });

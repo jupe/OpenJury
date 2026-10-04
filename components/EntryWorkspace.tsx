@@ -26,6 +26,13 @@ type Competition = {
 type Submission = { id: string; title: string; media_keys: string[] };
 type BlindEntry = { entry_number: number; media_keys: string[] };
 type AdminEntry = { id: string; creator_id: string; title: string; media_keys: string[] };
+type CompetitionAttendee = {
+  user_id: string;
+  display_name: string;
+  role: string;
+  has_submission: boolean;
+  has_voted: boolean;
+};
 type Category = { id: string; name: string; max_score: number };
 type SavedScore = { entry_number: number; category_id: string; score: number };
 type PublishedResult = {
@@ -34,6 +41,7 @@ type PublishedResult = {
   vote_count: number;
   title: string;
   creator_id: string;
+  creator_name: string;
 };
 type AdminReviewResult = {
   entry_id: string;
@@ -545,7 +553,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
               {publishedResults.map((result) => (
                 <li key={`${result.rank}:${result.creator_id}`} className="rounded border border-slate-200 p-3">
                   <h2 className="font-semibold">Rank {result.rank}: {result.title}</h2>
-                  <p>Submitted by {result.creator_id}</p>
+                  <p>Submitted by {result.creator_name || "Participant"}</p>
                   <p>{result.score.toFixed(2)}% · {result.vote_count} complete ballots</p>
                 </li>
               ))}
@@ -563,6 +571,8 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
   const [groupId, setGroupId] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [entries, setEntries] = useState<AdminEntry[]>([]);
+  const [attendees, setAttendees] = useState<CompetitionAttendee[]>([]);
+  const [competitionName, setCompetitionName] = useState("");
   const [reviewResults, setReviewResults] = useState<AdminReviewResult[] | null>(null);
   const [competitionStatus, setCompetitionStatus] = useState("");
   const [reasons, setReasons] = useState<Record<string, string>>({});
@@ -575,6 +585,8 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
     setLoading(true);
     setError("");
     setEntries([]);
+    setAttendees([]);
+    setCompetitionName("");
     setReviewResults(null);
     setCompetitionStatus("");
     setAttempt((value) => value + 1);
@@ -584,9 +596,10 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
     let active = true;
     void (async () => {
       try {
-        const [submissionResult, competitionResult] = await Promise.all([
+        const [submissionResult, competitionResult, attendeeResult] = await Promise.all([
           client.rpc("get_admin_submissions", { p_competition_id: competitionId }),
-          client.from("competitions").select("group_id,status").eq("id", competitionId).maybeSingle(),
+          client.from("competitions").select("group_id,name,status").eq("id", competitionId).maybeSingle(),
+          client.rpc("get_admin_competition_attendees", { p_competition_id: competitionId }),
         ]);
         if (!active) return;
         if (submissionResult.error) {
@@ -597,7 +610,13 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
           setError(`Unable to load competition status: ${competitionResult.error?.message || "Competition not found."}`);
           return;
         }
+        if (attendeeResult.error) {
+          setError(`Unable to load competition attendees: ${attendeeResult.error.message}`);
+          return;
+        }
         setGroupId(competitionResult.data.group_id);
+        setCompetitionName(competitionResult.data.name);
+        setAttendees((attendeeResult.data || []) as CompetitionAttendee[]);
         setEntries((submissionResult.data || []) as AdminEntry[]);
         setCompetitionStatus(competitionResult.data.status);
         if (competitionResult.data.status === "review_pending") {
@@ -672,15 +691,36 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
   if (loading) return <p role="status">Loading admin submissions…</p>;
   if (error) return <p role="alert">{error}</p>;
 
+  const attendeeName = (userId: string) =>
+    attendees.find((attendee) => attendee.user_id === userId)?.display_name || "Participant";
+
   return (
     <div className="space-y-6">
+      <h2 className="break-words text-2xl font-semibold">{competitionName}</h2>
+      <Card title="Competition attendees">
+        <p>Group members and anyone who has submitted or voted in this competition.</p>
+        {attendees.length ? (
+          <ul className="space-y-3">
+            {attendees.map((attendee) => (
+              <li key={attendee.user_id} className="rounded border border-slate-200 p-3">
+                <p className="break-words font-semibold">{attendee.display_name || "Participant"}</p>
+                <p className="text-sm text-slate-600">
+                  {attendee.role === "admin" ? "Admin" : attendee.role === "member" ? "Member" : "Former member"}
+                  {" · "}{attendee.has_submission ? "Submitted" : "No submission"}
+                  {" · "}{attendee.has_voted ? "Has voted" : "Has not voted"}
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : <p>No attendees are involved yet.</p>}
+      </Card>
       <Card title="Private submission review">
         {entries.length ? (
           <ul className="space-y-6">
             {entries.map((entry) => (
               <li key={entry.id} className="space-y-2">
                 <h2 className="font-semibold">{entry.title}</h2>
-                <p className="break-all text-sm text-slate-600">Submitted by {entry.creator_id}</p>
+                <p className="break-words text-sm text-slate-600">Submitted by {attendeeName(entry.creator_id)}</p>
                 <MediaGallery client={client} mediaKeys={entry.media_keys} label="Submission image" />
               </li>
             ))}
@@ -696,7 +736,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
                 <h2 className="font-semibold">
                   {entry.rank === null ? "Not ranked" : `Rank ${entry.rank}`}: {entry.title}
                 </h2>
-                <p className="break-all text-sm text-slate-600">Submitted by {entry.creator_id}</p>
+                <p className="break-words text-sm text-slate-600">Submitted by {attendeeName(entry.creator_id)}</p>
                 {!entry.is_disqualified && (
                   <p>{entry.score === null ? "No complete ballots" : `${entry.score.toFixed(2)}%`}
                     {" · "}{entry.vote_count} complete ballots</p>
@@ -704,7 +744,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
                 {entry.is_disqualified ? (
                   <p>
                     Disqualified: {entry.disqualification_reason}
-                    {entry.disqualified_by && ` · Admin ${entry.disqualified_by}`}
+                    {entry.disqualified_by && ` · Admin ${attendeeName(entry.disqualified_by)}`}
                     {entry.disqualified_at && ` · ${new Date(entry.disqualified_at).toLocaleString()}`}
                   </p>
                 ) : (

@@ -13,7 +13,6 @@ export default async function CompetitionPage({
   return (
     <>
       <h1 className="text-3xl font-bold">Competition</h1>
-      <p className="break-all text-slate-600">Competition: {id}</p>
       <AuthBoundary demo={<DemoCompetition id={id} />}>
         <EntryWorkspace competitionId={id} />
         <Link href={`/competition/${encodeURIComponent(id)}/admin`} className="underline">

@@ -44,8 +44,18 @@ RPC records a reason/admin/timestamp event and does not delete the entry or its
 votes. Direct reads of audit and published snapshot tables are
 revoked. A row-locked publication RPC validates complete ballots and the minimum
 vote count, snapshots rankings, and completes the competition atomically. The
-published-results RPC reveals entry titles and creator IDs only to group members
+published-results RPC reveals entry titles and internal creator IDs only to group members
 after completion; the lifecycle RPC cannot bypass publication.
+Migration `10_competition_attendees.sql` adds an admin-only attendee RPC with an
+empty security-definer search path and authenticated-only execution. It checks
+`auth.uid()` against current admin membership, includes all current group members
+and only this competition's historical creators/voters, and excludes audit-only
+departed admins. It returns names, current/former roles, and submission/voting
+participation flags, never scores or ballot contents. Trimmed metadata names
+fall back to email only in this admin projection, then to `Participant`, never
+to UUIDs. The published-results RPC appends metadata-only `creator_name` labels
+with a `Participant` fallback; no email fallback is exposed to members.
+Direct profile, entry, vote, audit, and result-table access is not granted.
 The browser session gates protect the UI experience, not the database: all
 private reads and writes must remain authorized by PostgreSQL. Pages are public
 shells and do not render private data on the server.
@@ -77,8 +87,9 @@ Run `supabase/tests/group_access.sql`,
 `supabase/tests/group_management.sql`,
 `supabase/tests/competition_setup.sql`,
 `supabase/tests/secure_submissions.sql`,
-`supabase/tests/transactional_lifecycle.sql`, and
-`supabase/tests/admin_review_and_publication.sql`, and
+`supabase/tests/transactional_lifecycle.sql`,
+`supabase/tests/admin_review_and_publication.sql`,
+`supabase/tests/competition_attendees.sql`, and
 `supabase/tests/realtime_notifications.sql` as the database owner on a
 disposable Supabase database after applying all migrations. The assertions cover tenant
 isolation, admin-only draft setup, deadline and score constraints, frozen
@@ -91,7 +102,10 @@ deadline worker used to serialize concurrent operations. The realtime test cover
 revocation, message-forgery denial, safe payloads, and publication exclusions.
 The admin review/publication test covers role-gated preliminary
 results, disqualification audit retention, ballot aggregation/ties/minimums, and
-post-publication identity access. Fixtures roll back.
+post-publication identity access. The attendee test covers inactive/current and
+historical participants, role/label fallbacks, email-free published labels,
+anonymous/member/other-tenant denial, membership revocation, and denied direct
+sensitive-table access. Fixtures roll back.
 
 Operational safeguards are covered alongside the procedures they protect:
 [public client configuration](development.md#2-configure-supabase),

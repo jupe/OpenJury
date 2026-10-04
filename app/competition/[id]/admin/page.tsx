@@ -12,9 +12,8 @@ export default async function CompetitionAdminPage({
   return (
     <>
       <h1 className="text-3xl font-bold">Competition admin</h1>
-      <p className="break-all text-slate-600">Competition: {id}</p>
       <AuthBoundary demo={<DemoAdmin id={id} />}>
-        <AdminSubmissions competitionId={id} />
+        <AdminSubmissions key={id} competitionId={id} />
       </AuthBoundary>
     </>
   );

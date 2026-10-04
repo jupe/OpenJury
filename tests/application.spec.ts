@@ -44,7 +44,7 @@ test("landing and preview navigation @smoke", async ({ page }) => {
     await expect(page.getByRole("link", { name: "Preview a competition" })).toHaveCount(0);
     await page.goto("/competition/demo");
   } else {
-    await expect(page.getByText("Group: demo", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Northside Makers" })).toBeVisible();
     await page.getByRole("link", { name: "Spring Bake-off" }).click();
   }
   await expect(page).toHaveURL(/\/competition\/demo$/);
@@ -75,24 +75,30 @@ test("demo views show fictional, read-only examples", async ({ page }) => {
   await expect(page.getByLabel("Presentation").first()).toBeDisabled();
   await page.getByRole("link", { name: "Admin review" }).first().click();
   await expect(page.getByRole("heading", { name: "Private submission review example" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Competition attendees" })).toBeVisible();
+  await expect(page.getByText("Sample member C", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Preliminary rankings example" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Disqualify" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Publish final results" })).toBeDisabled();
 });
 
-test("dynamic identifiers are displayed and preserved by admin links", async ({ page }) => {
-  const id = "community-2026";
+test("database identifiers stay hidden but are preserved by navigation links", async ({ page }) => {
+  const id = "db68a1af-c7e9-437b-99bf-2641263c498e";
   await page.goto(`/group/${encodeURIComponent(id)}`);
-  await expect(page.getByText(`Group: ${id}`, { exact: true })).toBeVisible();
+  await expect(page.locator("body")).not.toContainText(id);
   await page.goto(`/competition/${encodeURIComponent(id)}`);
-  await expect(page.getByText(`Competition: ${id}`, { exact: true }).first()).toBeVisible();
+  await expect(page.locator("body")).not.toContainText(id);
   await expect(page.getByRole("link", { name: "Admin review" }).first()).toHaveAttribute(
     "href",
     `/competition/${encodeURIComponent(id)}/admin`,
   );
   await page.getByRole("link", { name: "Admin review" }).first().click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Competition admin");
-  await expect(page.getByText(`Competition: ${id}`, { exact: true }).first()).toBeVisible();
+  await expect(page.locator("body")).not.toContainText(id);
+  await expect(page.getByRole("link", { name: "Participant view" })).toHaveAttribute(
+    "href",
+    `/competition/${encodeURIComponent(id)}`,
+  );
 });
 
 test("mobile layout and main navigation", async ({ page }) => {

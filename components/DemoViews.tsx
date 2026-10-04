@@ -42,7 +42,6 @@ export function DemoGroup({ id }: { id: string }) {
   return (
     <>
       <Card title={id === "demo" ? "Northside Makers" : "Demo group"}>
-        <p>Group: {id}</p>
         <p>Sample community for previewing group and competition views.</p>
         <p className="text-sm">Your role: Admin · Members: 12</p>
       </Card>
@@ -72,7 +71,6 @@ export function DemoCompetition({ id }: { id: string }) {
   return (
     <>
       <Card title="Spring Bake-off">
-        <p>Competition: {id}</p>
         <p>Remote · Example views for submission, voting, and published results.</p>
         <p>Scoring categories: Presentation, Creativity, and Taste.</p>
         <div className="flex flex-wrap gap-4">
@@ -142,12 +140,21 @@ export function DemoAdmin({ id }: { id: string }) {
   return (
     <>
       <Card title="Spring Bake-off · Admin">
-        <p>Competition: {id}</p>
         <p>Example admin views: submission review, preliminary rankings, and publication.</p>
         <div className="flex flex-wrap gap-4">
           <Link className="underline" href={`/competition/${encodeURIComponent(id)}`}>Participant view</Link>
           <Link className="underline" href={demoGroup}>Back to Northside Makers</Link>
         </div>
+      </Card>
+
+      <Card title="Competition attendees">
+        <p>Fictional group members, including those who have not submitted an entry.</p>
+        <ul className="space-y-3">
+          <li><p className="font-semibold">Sample admin</p><p>Admin · No submission · Has voted</p></li>
+          <li><p className="font-semibold">Sample member A</p><p>Member · Submitted · Has voted</p></li>
+          <li><p className="font-semibold">Sample member B</p><p>Member · Submitted · Has not voted</p></li>
+          <li><p className="font-semibold">Sample member C</p><p>Member · No submission · Has not voted</p></li>
+        </ul>
       </Card>
 
       <Card title="Private submission review example">
