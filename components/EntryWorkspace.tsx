@@ -23,6 +23,7 @@ type Competition = {
   status: string;
   submission_deadline: string | null;
   voting_deadline: string | null;
+  results_publish_at: string | null;
   // A many-to-one embed is one object; untyped clients infer an array.
   groups?: { name: string } | { name: string }[] | null;
 };
@@ -69,10 +70,19 @@ type Category = { id: string; name: string; max_score: number };
 type SavedScore = { entry_number: number; category_id: string; score: number };
 type PublishedResult = {
   rank: number;
-  score: number;
+  score: number | null;
   vote_count: number;
   title: string;
   creator_id: string;
+  creator_name: string;
+  is_disqualified: boolean;
+};
+type PublishedCategoryResult = {
+  category_id: string;
+  category_name: string;
+  rank: number;
+  score: number;
+  title: string;
   creator_name: string;
 };
 type AdminReviewResult = {
@@ -86,7 +96,24 @@ type AdminReviewResult = {
   disqualification_reason: string | null;
   disqualified_by: string | null;
   disqualified_at: string | null;
+  disqualification_display: "exclude" | "bottom" | "remove_content";
+  content_removed: boolean;
 };
+type AdminCategoryResult = {
+  category_id: string;
+  category_name: string;
+  entry_id: string;
+  title: string;
+  creator_id: string;
+  rank: number;
+  score: number;
+};
+
+function localDateTime(value: string | null) {
+  if (!value) return "";
+  const date = new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60_000);
+  return date.toISOString().slice(0, 16);
+}
 
 function MediaGallery({
   client,
@@ -197,6 +224,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   const [ballotFeedback, setBallotFeedback] = useState<Record<number, string>>({});
   const [savingBallot, setSavingBallot] = useState<number | null>(null);
   const [publishedResults, setPublishedResults] = useState<PublishedResult[]>([]);
+  const [publishedCategoryResults, setPublishedCategoryResults] = useState<PublishedCategoryResult[]>([]);
   const [submissionOpen, setSubmissionOpen] = useState(false);
   const [votingOpen, setVotingOpen] = useState(false);
   const [title, setTitle] = useState("");
@@ -218,9 +246,10 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     setCategories([]);
     setBallotScores({});
     setPublishedResults([]);
+    setPublishedCategoryResults([]);
     try {
       const result = await client.from("competitions")
-        .select("id,group_id,name,status,submission_deadline,voting_deadline,groups(name)")
+        .select("id,group_id,name,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
         .eq("id", competitionId)
         .maybeSingle();
       if (result.error || !result.data) {
@@ -237,7 +266,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         && (!result.data.voting_deadline
           || Date.parse(result.data.voting_deadline) > Date.now());
       setVotingOpen(isVotingOpen);
-      const [membership, mine, blind, categoryResult, savedBallot, finalResults] = await Promise.all([
+      const [membership, mine, blind, categoryResult, savedBallot, finalResults, finalCategories] = await Promise.all([
         client.from("group_members").select("role")
           .eq("group_id", result.data.group_id).eq("user_id", session.user.id).maybeSingle(),
         client.rpc("get_my_submission", { p_competition_id: competitionId }),
@@ -253,6 +282,9 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           : Promise.resolve({ data: [], error: null }),
         result.data.status === "completed"
           ? client.rpc("get_published_competition_results", { p_competition_id: competitionId })
+          : Promise.resolve({ data: [], error: null }),
+        result.data.status === "completed"
+          ? client.rpc("get_published_competition_category_results", { p_competition_id: competitionId })
           : Promise.resolve({ data: [], error: null }),
       ]);
       // Only decides whether to offer the admin page; the server enforces access.
@@ -280,9 +312,14 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         setError(`Unable to load published results: ${finalResults.error.message}`);
         return;
       }
+      if (finalCategories.error) {
+        setError(`Unable to load published category winners: ${finalCategories.error.message}`);
+        return;
+      }
       setBlindEntries((blind.data || []) as BlindEntry[]);
       setCategories((categoryResult.data || []) as Category[]);
       setPublishedResults((finalResults.data || []) as PublishedResult[]);
+      setPublishedCategoryResults((finalCategories.data || []) as PublishedCategoryResult[]);
       setBallotScores((savedBallot.data || []).reduce(
         (scores: Record<number, Record<string, string>>, score: SavedScore) => ({
           ...scores,
@@ -586,6 +623,14 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           <p>The voting deadline has passed. Preliminary results are not available to members.</p>
         </Card>
       )}
+      {competition.status === "review_pending" && (
+        <Card title="Voting ended">
+          <p>Voting has ended! The administrator is reviewing the results. Please wait for the results to be published.</p>
+          {competition.results_publish_at && (
+            <p>Results are scheduled to be published {new Date(competition.results_publish_at).toLocaleString()}.</p>
+          )}
+        </Card>
+      )}
       {competition.status === "completed" && (
         <Card title="Published results">
           {publishedResults.length ? (
@@ -594,11 +639,23 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                 <li key={`${result.rank}:${result.creator_id}`} className="rounded border border-slate-200 p-3">
                   <h2 className="font-semibold">Rank {result.rank}: {result.title}</h2>
                   <p>Submitted by {result.creator_name || "Participant"}</p>
-                  <p>{result.score.toFixed(2)}% · {result.vote_count} complete ballots</p>
+                  {result.is_disqualified
+                    ? <p>Disqualified</p>
+                    : <p>{result.score?.toFixed(2) ?? "—"}% · {result.vote_count} complete ballots</p>}
                 </li>
               ))}
             </ol>
           ) : <p>No results were published.</p>}
+          {publishedCategoryResults.length > 0 && (
+            <section className="mt-6 space-y-3">
+              <h2 className="text-lg font-semibold">Category winners</h2>
+              {publishedCategoryResults.filter((result) => result.rank === 1).map((winner) => (
+                <p key={`${winner.category_id}:${winner.title}`}>
+                  {winner.category_name}: {winner.title} ({winner.creator_name}) — {winner.score.toFixed(2)}%
+                </p>
+              ))}
+            </section>
+          )}
         </Card>
       )}
       {error && !editable && <p role="alert">{error}</p>}
@@ -613,8 +670,12 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
   const [entries, setEntries] = useState<AdminEntry[]>([]);
   const [attendees, setAttendees] = useState<CompetitionAttendee[]>([]);
   const [reviewResults, setReviewResults] = useState<AdminReviewResult[] | null>(null);
+  const [reviewCategories, setReviewCategories] = useState<AdminCategoryResult[]>([]);
   const [competitionStatus, setCompetitionStatus] = useState("");
+  const [publishAt, setPublishAt] = useState("");
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [dispositions, setDispositions] = useState<Record<string, "exclude" | "bottom" | "remove_content">>({});
+  const [pendingMediaCleanup, setPendingMediaCleanup] = useState<Record<string, string[]>>({});
   const [workingEntry, setWorkingEntry] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -641,7 +702,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
         const [submissionResult, competitionResult, attendeeResult] = await Promise.all([
           client.rpc("get_admin_submissions", { p_competition_id: competitionId }),
           client.from("competitions")
-            .select("id,group_id,name,status,submission_deadline,voting_deadline,groups(name)")
+            .select("id,group_id,name,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
             .eq("id", competitionId).maybeSingle(),
           client.rpc("get_admin_competition_attendees", { p_competition_id: competitionId }),
         ]);
@@ -661,15 +722,19 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
         setGroupId(competitionResult.data.group_id);
         setAttendees((attendeeResult.data || []) as CompetitionAttendee[]);
         setCompetition(competitionResult.data);
+        setPublishAt(localDateTime(competitionResult.data.results_publish_at));
         setEntries((submissionResult.data || []) as AdminEntry[]);
         setCompetitionStatus(competitionResult.data.status);
         if (competitionResult.data.status === "review_pending") {
-          const review = await client.rpc("get_admin_review_results", {
-            p_competition_id: competitionId,
-          });
+          const [review, categories] = await Promise.all([
+            client.rpc("get_admin_review_results", { p_competition_id: competitionId }),
+            client.rpc("get_admin_review_category_results", { p_competition_id: competitionId }),
+          ]);
           if (!active) return;
           if (review.error) setError(`Unable to load preliminary results: ${review.error.message}`);
           else setReviewResults((review.data || []) as AdminReviewResult[]);
+          if (categories.error) setError(`Unable to load category winners: ${categories.error.message}`);
+          else setReviewCategories((categories.data || []) as AdminCategoryResult[]);
         }
       } catch {
         if (active) setError("Unable to load admin submissions. Please try again.");
@@ -683,11 +748,14 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
   useRealtimeUpdates(client, session.user.id, groupId, refresh);
 
   async function refreshReviewResults() {
-    const { data, error: refreshError } = await client.rpc("get_admin_review_results", {
-      p_competition_id: competitionId,
-    });
-    if (refreshError) throw refreshError;
-    setReviewResults((data || []) as AdminReviewResult[]);
+    const [review, categories] = await Promise.all([
+      client.rpc("get_admin_review_results", { p_competition_id: competitionId }),
+      client.rpc("get_admin_review_category_results", { p_competition_id: competitionId }),
+    ]);
+    if (review.error) throw review.error;
+    if (categories.error) throw categories.error;
+    setReviewResults((review.data || []) as AdminReviewResult[]);
+    setReviewCategories((categories.data || []) as AdminCategoryResult[]);
   }
 
   async function advance() {
@@ -712,6 +780,9 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
   async function disqualify(entry: AdminReviewResult) {
     const reason = reasons[entry.entry_id]?.trim();
     if (!reason || workingEntry) return;
+    const disposition = dispositions[entry.entry_id] || "exclude";
+    if (disposition === "remove_content"
+      && !window.confirm("Remove this entry's title and private images? The entry and moderation audit remain, but it cannot be reinstated.")) return;
     setWorkingEntry(entry.entry_id);
     setError("");
     setActionMessage("");
@@ -720,14 +791,80 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
         p_competition_id: competitionId,
         p_entry_id: entry.entry_id,
         p_reason: reason,
+        p_disposition: disposition,
       });
       if (disqualifyError) throw disqualifyError;
+      let cleanupFailure = "";
+      if (disposition === "remove_content") {
+        const submission = entries.find((item) => item.id === entry.entry_id);
+        if (submission?.media_keys.length) {
+          const { error: removeError } = await client.storage
+            .from("competition-submissions")
+            .remove(submission.media_keys);
+          if (removeError) {
+            setPendingMediaCleanup((current) => ({ ...current, [entry.entry_id]: submission.media_keys }));
+            cleanupFailure = "The entry was hidden, but private image cleanup failed. Retry cleanup below.";
+          }
+        }
+      }
       await refreshReviewResults();
       setReasons((current) => ({ ...current, [entry.entry_id]: "" }));
+      if (cleanupFailure) setError(cleanupFailure);
     } catch (reviewError) {
       setError(`Unable to disqualify entry: ${failureMessage(reviewError)}`);
     } finally {
       setWorkingEntry("");
+    }
+  }
+
+  async function retryMediaCleanup(entryId: string) {
+    const keys = pendingMediaCleanup[entryId];
+    if (!keys?.length) return;
+    const { error: cleanupError } = await client.storage.from("competition-submissions").remove(keys);
+    if (cleanupError) {
+      setError(`Unable to remove private images: ${failureMessage(cleanupError)}`);
+      return;
+    }
+    setPendingMediaCleanup((current) => {
+      const next = { ...current };
+      delete next[entryId];
+      return next;
+    });
+    setError("");
+  }
+
+  async function reinstate(entry: AdminReviewResult) {
+    const reason = reasons[entry.entry_id]?.trim();
+    if (!reason || workingEntry) return;
+    setWorkingEntry(entry.entry_id);
+    setError("");
+    try {
+      const { error: reinstateError } = await client.rpc("reinstate_competition_entry", {
+        p_competition_id: competitionId,
+        p_entry_id: entry.entry_id,
+        p_reason: reason,
+      });
+      if (reinstateError) throw reinstateError;
+      await refreshReviewResults();
+      setReasons((current) => ({ ...current, [entry.entry_id]: "" }));
+    } catch (reviewError) {
+      setError(`Unable to reinstate entry: ${failureMessage(reviewError)}`);
+    } finally {
+      setWorkingEntry("");
+    }
+  }
+
+  async function saveSchedule() {
+    try {
+      const { error: scheduleError } = await client.rpc("set_competition_results_schedule", {
+        p_competition_id: competitionId,
+        p_publish_at: publishAt ? new Date(publishAt).toISOString() : null,
+      });
+      if (scheduleError) throw scheduleError;
+      setActionMessage(publishAt ? "Publication schedule saved." : "Scheduled publication cancelled.");
+      refresh();
+    } catch (scheduleError) {
+      setError(`Unable to save publication schedule: ${failureMessage(scheduleError)}`);
     }
   }
 
@@ -752,7 +889,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
   }
 
   if (loading) return <p role="status">Loading admin submissions…</p>;
-  if (error) return <p role="alert">{error}</p>;
+  if (error && !competition) return <p role="alert">{error}</p>;
   const step = nextTransition[competitionStatus];
 
   const attendeeName = (userId: string) =>
@@ -770,7 +907,19 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
           <p>Edit the draft from the group page. Opening submissions locks its settings.</p>
         )}
         {competitionStatus === "review_pending" && (
-          <p>Review the preliminary rankings below, then publish the final results.</p>
+          <>
+            <p>Review the preliminary rankings below, then publish the final results.</p>
+            <label className="mt-3 block max-w-sm">Schedule results publication
+              <input
+                type="datetime-local"
+                value={publishAt}
+                onChange={(event) => setPublishAt(event.target.value)}
+                className="mt-1 block w-full rounded border border-slate-300 p-2"
+              />
+            </label>
+            <p className="text-sm text-slate-600">Change the time or leave it blank to cancel the schedule. You can update it any time before publication.</p>
+            <Button onClick={() => void saveSchedule()}>Save publication schedule</Button>
+          </>
         )}
         {transitionError && <p role="alert">{transitionError}</p>}
         {step && (
@@ -823,13 +972,39 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
                   <p>{entry.score === null ? "No complete ballots" : `${entry.score.toFixed(2)}%`}
                     {" · "}{entry.vote_count} complete ballots</p>
                 )}
-                {entry.is_disqualified ? (
+                {entry.is_disqualified && (
                   <p>
-                    Disqualified: {entry.disqualification_reason}
+                    {entry.content_removed ? "Content removed" : `Disqualified (${entry.disqualification_display})`}: {entry.disqualification_reason}
                     {entry.disqualified_by && ` · Admin ${attendeeName(entry.disqualified_by)}`}
                     {entry.disqualified_at && ` · ${new Date(entry.disqualified_at).toLocaleString()}`}
                   </p>
-                ) : (
+                )}
+                {entry.is_disqualified && !entry.content_removed && (
+                  <div className="mt-3 flex flex-wrap items-end gap-3">
+                    <label className="min-w-0 basis-full sm:basis-56 sm:flex-1">Reason for reinstatement
+                      <input
+                        maxLength={488}
+                        value={reasons[entry.entry_id] || ""}
+                        onChange={(event) => setReasons((current) => ({
+                          ...current, [entry.entry_id]: event.target.value,
+                        }))}
+                        className="mt-1 block w-full rounded border border-slate-300 p-2"
+                      />
+                    </label>
+                    <Button
+                      disabled={!reasons[entry.entry_id]?.trim() || workingEntry !== ""}
+                      onClick={() => void reinstate(entry)}
+                    >
+                      Reinstate entry
+                    </Button>
+                  </div>
+                )}
+                {pendingMediaCleanup[entry.entry_id]?.length > 0 && (
+                  <Button onClick={() => void retryMediaCleanup(entry.entry_id)}>
+                    Retry private image cleanup
+                  </Button>
+                )}
+                {!entry.is_disqualified && (
                   <div className="mt-3 flex flex-wrap items-end gap-3">
                     <label className="min-w-0 basis-full sm:basis-56 sm:flex-1">Disqualification reason
                       <input
@@ -840,6 +1015,20 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
                         }))}
                         className="mt-1 block w-full rounded border border-slate-300 p-2"
                       />
+                    </label>
+                    <label>Result handling
+                      <select
+                        value={dispositions[entry.entry_id] || "exclude"}
+                        onChange={(event) => setDispositions((current) => ({
+                          ...current,
+                          [entry.entry_id]: event.target.value as "exclude" | "bottom" | "remove_content",
+                        }))}
+                        className="mt-1 block rounded border border-slate-300 p-2"
+                      >
+                        <option value="exclude">Exclude from results</option>
+                        <option value="bottom">Show as disqualified at bottom</option>
+                        <option value="remove_content">Remove inappropriate content</option>
+                      </select>
                     </label>
                     <Button
                       disabled={!reasons[entry.entry_id]?.trim() || workingEntry !== ""}
@@ -852,6 +1041,16 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
               </li>
             ))}
           </ul>
+          {reviewCategories.filter((category) => category.rank === 1).length > 0 && (
+            <section className="mt-6 space-y-2">
+              <h2 className="text-lg font-semibold">Preliminary category winners</h2>
+              {reviewCategories.filter((category) => category.rank === 1).map((winner) => (
+                <p key={`${winner.category_id}:${winner.entry_id}`}>
+                  {winner.category_name}: {winner.title} ({attendeeName(winner.creator_id)}) — {winner.score.toFixed(2)}%
+                </p>
+              ))}
+            </section>
+          )}
           {actionMessage && <p role="status">{actionMessage}</p>}
           <Button disabled={publishing || workingEntry !== ""} onClick={() => void publishResults()}>
             {publishing ? "Publishing…" : "Publish final results"}

@@ -477,8 +477,18 @@ test("participants refetch authorized competition data after reconnect", async (
   await expect(page.getByRole("heading", { name: "Entry 7" })).toBeVisible();
   await expect(page.getByText("Status: Voting")).toBeVisible();
 
+  status = "review_pending";
+  const waitingRefetch = page.waitForRequest((request) =>
+    request.url().includes("/rest/v1/competitions"));
+  realtime.broadcast(`group:${groupId}`, "data_changed");
+  await waitingRefetch;
+  await expect(page.getByRole("heading", { name: "Voting ended" })).toBeVisible();
+  await expect(page.getByText(/The administrator is reviewing the results/)).toBeVisible();
+
   status = "completed";
   await page.route(`${supabaseURL}/rest/v1/rpc/get_published_competition_results`, (route) =>
+    route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_published_competition_category_results`, (route) =>
     route.fulfill({ json: [] }));
   const reconnect = page.waitForRequest((request) =>
     request.url().includes("/rest/v1/competitions"));
@@ -511,6 +521,8 @@ test("admins discard private review data after membership is revoked", async ({ 
     }] : [],
   }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_review_results`, (route) =>
+    route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_review_category_results`, (route) =>
     route.fulfill({ json: [] }));
 
   await page.goto(`/competition/${competitionId}/admin`);
@@ -703,6 +715,8 @@ test("admins disqualify and publish while group members see only final identitie
     disqualification_reason: null,
     disqualified_by: null,
     disqualified_at: null,
+    disqualification_display: "exclude",
+    content_removed: false,
   }];
   let disqualification: Record<string, unknown> | undefined;
   await configure(page, true);
@@ -718,6 +732,8 @@ test("admins disqualify and publish while group members see only final identitie
     }] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_review_results`, (route) =>
     route.fulfill({ json: reviewRows }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_review_category_results`, (route) =>
+    route.fulfill({ json: [] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/disqualify_competition_entry`, async (route) => {
     const nextDisqualification = route.request().postDataJSON() as Record<string, unknown>;
     disqualification = nextDisqualification;
@@ -728,6 +744,7 @@ test("admins disqualify and publish while group members see only final identitie
       score: null,
       vote_count: 0,
       disqualification_reason: nextDisqualification.p_reason,
+      disqualification_display: nextDisqualification.p_disposition,
       disqualified_by: userId,
       disqualified_at: "2026-10-04T11:00:00.000Z",
     }));
@@ -747,14 +764,17 @@ test("admins disqualify and publish while group members see only final identitie
       title: "Reviewed entry",
       creator_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       creator_name: "Alex Baker",
+      is_disqualified: false,
     }] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_published_competition_category_results`, (route) =>
+    route.fulfill({ json: [] }));
 
   await page.goto(`/competition/${competitionId}/admin`);
   await expect(page.getByRole("heading", { name: "Preliminary rankings (admins only)" })).toBeVisible();
   await expectPhoneLayout(page);
   await page.getByLabel("Disqualification reason").fill("Rule violation");
   await page.getByRole("button", { name: "Disqualify" }).click();
-  await expect(page.getByText("Disqualified: Rule violation")).toBeVisible();
+  await expect(page.getByText("Disqualified (exclude): Rule violation")).toBeVisible();
   await expect(page.getByText(/Admin Alex Baker/)).toBeVisible();
   await expect(page.locator("body")).not.toContainText(userId);
   expect(disqualification).toMatchObject({

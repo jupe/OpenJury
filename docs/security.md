@@ -46,6 +46,13 @@ revoked. A row-locked publication RPC validates complete ballots and the minimum
 vote count, snapshots rankings, and completes the competition atomically. The
 published-results RPC reveals entry titles and internal creator IDs only to group members
 after completion; the lifecycle RPC cannot bypass publication.
+Migration `11_review_enhancements.sql` adds admin-only category review projections,
+disqualification dispositions, audited reinstatement, and an admin-editable
+publication schedule. Content removal clears the entry's title and media references,
+then authorizes the admin to delete those private Storage objects during review;
+the entry, votes, and audit remain for accountability. Scheduled publication is
+service-role-only and uses the same locked atomic publication function as manual
+publication. Category and overall snapshots remain inaccessible until completion.
 Migration `10_competition_attendees.sql` adds an admin-only attendee RPC with an
 empty security-definer search path and authenticated-only execution. It checks
 `auth.uid()` against current admin membership, includes all current group members
@@ -69,6 +76,9 @@ a fixed version marker. Entries, votes, audit events, and result rows are not
 added to the Realtime publication. Clients refetch their existing RLS/RPC
 projections on notifications, reconnection, network recovery, tab visibility,
 and local deadlines; token refresh/sign-out remains managed by Supabase Auth.
+A trusted scheduled service must invoke
+`process_scheduled_competition_publications()` periodically using the service-role
+credential; never expose that credential to the browser.
 
 Remaining security work:
 
