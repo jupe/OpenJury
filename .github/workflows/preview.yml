@@ -85,9 +85,12 @@ jobs:
       PROXY_NETWORK: ${{ vars.PROXY_NETWORK }}
       TLS_RESOLVER: ${{ vars.TLS_RESOLVER }}
       PULL_POLICY: never
-      # Previews must never inherit credentials for a persistent backend.
+      # Previews must never inherit credentials for a persistent backend; stack.sh
+      # creates a disposable per-PR Supabase when the PR ships migrations.
       SUPABASE_URL: ""
       SUPABASE_ANON_KEY: ""
+      PREVIEW_ADMIN_EMAIL: ${{ vars.PREVIEW_ADMIN_EMAIL }}
+      PREVIEW_ADMIN_PASSWORD: ${{ secrets.PREVIEW_ADMIN_PASSWORD }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -139,6 +142,9 @@ jobs:
             [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
             docker load --input "$RUNNER_TEMP/preview-image/image.tar"
             export IMAGE="$image_id"
+          fi
+          if [[ -d "$RUNNER_TEMP/preview-image/migrations" ]]; then
+            export SUPABASE_MIGRATIONS="$RUNNER_TEMP/preview-image/migrations"
           fi
           bash deploy/stack.sh deploy
           curl --fail --silent --show-error --retry 12 --retry-all-errors \

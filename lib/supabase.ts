@@ -5,11 +5,17 @@ declare global {
     __OPENJURY_CONFIG__?: {
       SUPABASE_URL?: string;
       SUPABASE_ANON_KEY?: string;
+      PASSWORD_SIGN_IN?: boolean;
     };
   }
 }
 
 let client: SupabaseClient | undefined;
+
+/** Password sign-in is only enabled for disposable dev previews with a seeded account. */
+export function passwordSignInEnabled(): boolean {
+  return typeof window !== "undefined" && window.__OPENJURY_CONFIG__?.PASSWORD_SIGN_IN === true;
+}
 
 export function getSupabase(): SupabaseClient {
   if (client) return client;

@@ -10,6 +10,7 @@ runner_sha256=70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613
 runner_user=openjury-runner
 runner_dir=/opt/actions-runner
 traefik_image=traefik:v3.7.13
+mailpit_image=axllent/mailpit:v1.31.4
 token=""
 read -r token || true
 
@@ -79,6 +80,23 @@ services:
       interval: 10s
       timeout: 5s
       retries: 6
+
+  # Catches magic-link emails from every preview's Auth; UI at http://mail.<domain>.
+  mail:
+    image: $mailpit_image
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      MP_MAX_MESSAGES: 500
+    networks:
+      proxy:
+        aliases: [openjury-mail]
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.openjury-mail.rule=HostRegexp(\`^mail\\..+\`)
+      - traefik.http.routers.openjury-mail.entrypoints=web
+      - traefik.http.services.openjury-mail.loadbalancer.server.port=8025
 
 networks:
   proxy:

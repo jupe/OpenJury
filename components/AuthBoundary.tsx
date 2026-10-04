@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
-import { getSupabase } from "@/lib/supabase";
+import { getSupabase, passwordSignInEnabled } from "@/lib/supabase";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
 
@@ -25,6 +25,7 @@ export default function AuthBoundary({ children, demo }: { children: ReactNode; 
   const [actionError, setActionError] = useState("");
   const [message, setMessage] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const mounted = useRef(false);
@@ -119,6 +120,24 @@ export default function AuthBoundary({ children, demo }: { children: ReactNode; 
     }
   }
 
+  async function signInWithPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!client || pending) return;
+    const requestRevision = revision.current;
+    setPending(true);
+    setActionError("");
+    setMessage("");
+    try {
+      const { error } = await client.auth.signInWithPassword({ email: email.trim(), password });
+      if (!mounted.current || revision.current !== requestRevision) return;
+      if (error) setActionError(`Unable to sign in: ${error.message}`);
+    } catch {
+      if (mounted.current && revision.current === requestRevision) setActionError("Unable to sign in. Please try again.");
+    } finally {
+      if (mounted.current) setPending(false);
+    }
+  }
+
   async function signOut() {
     if (!client || signingOut) return;
     const requestRevision = revision.current;
@@ -182,6 +201,18 @@ export default function AuthBoundary({ children, demo }: { children: ReactNode; 
             <Button type="submit" disabled={pending}>{pending ? "Sending link…" : "Send sign-in link"}</Button>
           </form>
           {(pending || message) && <p role="status">{pending ? "Sending your sign-in link…" : message}</p>}
+          {passwordSignInEnabled() && (
+            <form onSubmit={signInWithPassword} className="mt-6 space-y-4 border-t border-slate-200 pt-4" aria-busy={pending}>
+              <p>Preview environment: sign in with the seeded account instead.</p>
+              <label className="block">Email address
+                <input type="email" autoComplete="username" autoCapitalize="none" spellCheck={false} required value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+              </label>
+              <label className="block">Password
+                <input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+              </label>
+              <Button type="submit" disabled={pending}>{pending ? "Signing in…" : "Sign in with password"}</Button>
+            </form>
+          )}
         </Card>
       )}
     </>
