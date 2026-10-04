@@ -107,8 +107,13 @@ if [[ -n "${SUPABASE_MIGRATIONS:-}" ]]; then
   SUPABASE_URL="${APP_SCHEME:-https}://$APP_HOST"
   SUPABASE_ANON_KEY="$(jwt anon)"
   SUPABASE_SERVICE_KEY="$(jwt service_role)"
-  # Password sign-in and the seeded account exist only on disposable previews.
+  # Password sign-in and the seeded account exist only on disposable previews,
+  # where that account is also the platform admin unless one is configured.
   PASSWORD_SIGN_IN="$preview"
+  if [[ "$preview" == true ]]; then
+    PLATFORM_ADMIN_EMAILS="${PLATFORM_ADMIN_EMAILS:-${PREVIEW_ADMIN_EMAIL:-admin@openjury.test}}"
+  fi
+  export PLATFORM_ADMIN_EMAILS="${PLATFORM_ADMIN_EMAILS:-}"
   export JWT_SECRET POSTGRES_PASSWORD REALTIME_SECRET_KEY_BASE SUPABASE_URL SUPABASE_ANON_KEY SUPABASE_SERVICE_KEY PASSWORD_SIGN_IN
   files+=(-f compose.supabase.yml)
   if [[ "$traefik_tls" == true ]]; then

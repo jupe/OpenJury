@@ -234,7 +234,9 @@ services:
     image: supabase/postgres:17.6.1.136
     profiles: [migrate]
     entrypoint: [bash, /migrate.sh]
-    environment: *db-env
+    environment:
+      <<: *db-env
+      PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
     volumes:
       - ./supabase/migrate.sh:/migrate.sh:ro
       - ${SUPABASE_MIGRATIONS:-./supabase/no-migrations}:/migrations:ro

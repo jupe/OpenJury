@@ -4,10 +4,12 @@ import Image from "next/image";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "@/components/AuthBoundary";
 import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
+import { failureMessage } from "@/lib/errors";
 import Breadcrumbs, { type Crumb } from "@/components/Breadcrumbs";
 import Button, { ButtonLink } from "@/components/Button";
 import Card from "@/components/Card";
 import { StatusBadge, nextTransition } from "@/components/CompetitionStatus";
+import { CompetitionRole, type CompetitionRoleName } from "@/components/Membership";
 
 const MAX_MEDIA_FILES = 5;
 const MAX_MEDIA_SIZE = 10 * 1024 * 1024;
@@ -26,6 +28,8 @@ type Competition = {
   results_publish_at: string | null;
   // A many-to-one embed is one object; untyped clients infer an array.
   groups?: { name: string } | { name: string }[] | null;
+  // Row-level security returns only the signed-in member's own role.
+  competition_participants?: { role: CompetitionRoleName }[] | null;
 };
 
 function competitionCrumbs(competitionId: string, competition: Competition, groupId: string | null): Crumb[] {
@@ -34,13 +38,6 @@ function competitionCrumbs(competitionId: string, competition: Competition, grou
     ...(groupId ? [{ label: [competition.groups].flat()[0]?.name || "Group", href: `/group/${encodeURIComponent(groupId)}` }] : []),
     { label: competition.name, href: `/competition/${encodeURIComponent(competitionId)}` },
   ];
-}
-
-// Supabase errors are plain objects, not Error instances.
-function failureMessage(failure: unknown) {
-  return failure && typeof failure === "object" && "message" in failure && typeof failure.message === "string"
-    ? failure.message
-    : "Please try again.";
 }
 
 function Deadlines({ competition }: { competition: Competition }) {
@@ -217,6 +214,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [role, setRole] = useState<CompetitionRoleName | null>(null);
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [blindEntries, setBlindEntries] = useState<BlindEntry[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -249,7 +247,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     setPublishedCategoryResults([]);
     try {
       const result = await client.from("competitions")
-        .select("id,group_id,name,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
+        .select("id,group_id,name,status,submission_deadline,voting_deadline,results_publish_at,groups(name),competition_participants(role)")
         .eq("id", competitionId)
         .maybeSingle();
       if (result.error || !result.data) {
@@ -266,18 +264,22 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         && (!result.data.voting_deadline
           || Date.parse(result.data.voting_deadline) > Date.now());
       setVotingOpen(isVotingOpen);
+      const myRole = result.data.competition_participants?.[0]?.role ?? null;
+      setRole(myRole);
+      // Only the audience votes, and only it may load the anonymous ballot.
+      const isBallotOpen = isVotingOpen && myRole === "audience";
       const [membership, mine, blind, categoryResult, savedBallot, finalResults, finalCategories] = await Promise.all([
         client.from("group_members").select("role")
           .eq("group_id", result.data.group_id).eq("user_id", session.user.id).maybeSingle(),
         client.rpc("get_my_submission", { p_competition_id: competitionId }),
-        isVotingOpen
+        isBallotOpen
           ? client.rpc("get_blind_voting_entries", { p_competition_id: competitionId })
           : Promise.resolve({ data: [], error: null }),
-        isVotingOpen
+        isBallotOpen
           ? client.from("categories").select("id,name,max_score")
             .eq("competition_id", competitionId).order("name")
           : Promise.resolve({ data: [], error: null }),
-        isVotingOpen
+        isBallotOpen
           ? client.rpc("get_my_ballot", { p_competition_id: competitionId })
           : Promise.resolve({ data: [], error: null }),
         result.data.status === "results_published"
@@ -354,7 +356,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     return () => window.clearTimeout(timer);
   }, [competition, load]);
 
-  const editable = competition?.status === "submission" && submissionOpen;
+  const editable = competition?.status === "submission" && submissionOpen && role === "participant";
   const activeMedia = (submission?.media_keys || []).filter((key) => !removedKeys.includes(key));
 
   function selectFiles(files: FileList | null) {
@@ -511,6 +513,16 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         )}
       </Card>
 
+      {["draft", "submission", "voting"].includes(competition.status) && (
+        <CompetitionRole
+          competitionId={competitionId}
+          status={competition.status}
+          role={role}
+          hasEntry={!!submission}
+          onChanged={() => void load()}
+        />
+      )}
+
       {editable && (
         <Card title={submission ? "Edit your submission" : "Submit an entry"}>
           <form onSubmit={save} className="space-y-4" aria-busy={saving}>
@@ -554,7 +566,12 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         <Button disabled={saving} onClick={() => void retryCleanup()}>Retry media cleanup</Button>
       )}
 
-      {competition.status === "voting" && votingOpen && (
+      {competition.status === "voting" && votingOpen && role === "participant" && (
+        <Card title="Voting in progress">
+          <p>The audience is voting on anonymous entries now. Participants do not vote.</p>
+        </Card>
+      )}
+      {competition.status === "voting" && votingOpen && role === "audience" && (
         <Card title="Anonymous entries">
           {blindEntries.length ? (
             <ol className="space-y-6">
@@ -614,7 +631,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
             </ol>
           ) : <p>No entries are available for blind voting.</p>}
           <p className="mt-4 text-sm text-slate-600">
-            Score each category for an entry. Your own entry is excluded; saved ballots can be revised until voting closes.
+            Score each category for an entry. Saved ballots can be revised until voting closes.
           </p>
         </Card>
       )}
@@ -680,6 +697,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
   const [attempt, setAttempt] = useState(0);
   const [entries, setEntries] = useState<AdminEntry[]>([]);
   const [attendees, setAttendees] = useState<CompetitionAttendee[]>([]);
+  const [competitionRoles, setCompetitionRoles] = useState<Record<string, CompetitionRoleName>>({});
   const [reviewResults, setReviewResults] = useState<AdminReviewResult[] | null>(null);
   const [reviewCategories, setReviewCategories] = useState<AdminCategoryResult[]>([]);
   const [competitionStatus, setCompetitionStatus] = useState("");
@@ -710,12 +728,13 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
     let active = true;
     void (async () => {
       try {
-        const [submissionResult, competitionResult, attendeeResult] = await Promise.all([
+        const [submissionResult, competitionResult, attendeeResult, roleResult] = await Promise.all([
           client.rpc("get_admin_submissions", { p_competition_id: competitionId }),
           client.from("competitions")
             .select("id,group_id,name,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
             .eq("id", competitionId).maybeSingle(),
           client.rpc("get_admin_competition_attendees", { p_competition_id: competitionId }),
+          client.rpc("get_competition_participants", { p_competition_id: competitionId }),
         ]);
         if (!active) return;
         if (submissionResult.error) {
@@ -732,6 +751,9 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
         }
         setGroupId(competitionResult.data.group_id);
         setAttendees((attendeeResult.data || []) as CompetitionAttendee[]);
+        // Roles only annotate the attendee list, so a failure leaves them out.
+        setCompetitionRoles(Object.fromEntries(((roleResult.data || []) as Array<{ user_id: string; role: CompetitionRoleName }>)
+          .map((row) => [row.user_id, row.role])));
         setCompetition(competitionResult.data);
         setPublishAt(localDateTime(competitionResult.data.results_publish_at));
         setEntries((submissionResult.data || []) as AdminEntry[]);
@@ -943,7 +965,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
         )}
       </Card>
       <Card title="Competition attendees">
-        <p>Group members and anyone who has submitted or voted in this competition.</p>
+        <p>Group members and anyone who has submitted or voted, with how each takes part in this competition.</p>
         {attendees.length ? (
           <ul className="space-y-3">
             {attendees.map((attendee) => (
@@ -951,6 +973,8 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
                 <p className="break-words font-semibold">{attendee.display_name || "Participant"}</p>
                 <p className="text-sm text-slate-600">
                   {attendee.role === "admin" ? "Admin" : attendee.role === "member" ? "Member" : "Former member"}
+                  {" · "}{competitionRoles[attendee.user_id] === "participant" ? "Participant"
+                    : competitionRoles[attendee.user_id] === "audience" ? "Audience" : "Not taking part"}
                   {" · "}{attendee.has_submission ? "Submitted" : "No submission"}
                   {" · "}{attendee.has_voted ? "Has voted" : "Has not voted"}
                 </p>

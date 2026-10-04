@@ -168,7 +168,7 @@ test("phone image upload, uncropped preview and removal work", async ({ page }) 
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
   const saves: Array<{ p_title: string; p_media_keys: string[] }> = [];
   await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
-    json: [{ id: secondId, group_id: groupId, name: "Phone photos", status: "submission", submission_deadline: null, voting_deadline: null }],
+    json: [{ id: secondId, group_id: groupId, name: "Phone photos", status: "submission", submission_deadline: null, voting_deadline: null, competition_participants: [{ role: "participant" }] }],
   }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/save_submission`, (route) => {
@@ -208,7 +208,7 @@ test("off-screen private voting media is deferred until scrolling", async ({ pag
   await page.setViewportSize({ width: 320, height: 568 });
   const downloads: string[] = [];
   await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
-    json: [{ id: secondId, group_id: groupId, name: "Photo jury", status: "voting", submission_deadline: null, voting_deadline: null }],
+    json: [{ id: secondId, group_id: groupId, name: "Photo jury", status: "voting", submission_deadline: null, voting_deadline: null, competition_participants: [{ role: "audience" }] }],
   }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_my_ballot`, (route) => route.fulfill({ json: [] }));
@@ -455,6 +455,7 @@ test("participants refetch authorized competition data after reconnect", async (
       status,
       submission_deadline: null,
       voting_deadline: null,
+      competition_participants: [{ role: "audience" }],
     }],
   }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) =>
@@ -546,7 +547,7 @@ test("empty memberships and failed group creation provide clear feedback", async
     status: 400, json: { message: "Group name rejected" },
   }));
   await page.goto("/dashboard");
-  await expect(page.getByText("You do not belong to any groups yet. Create your first group below.")).toBeVisible();
+  await expect(page.getByText("You do not belong to any groups yet. Open an invite link from a group admin, or create your first group below.")).toBeVisible();
   await page.getByRole("textbox", { name: "Group name" }).fill("New group");
   await page.getByRole("button", { name: "Create group", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Group name rejected" })).toBeVisible();
@@ -642,7 +643,7 @@ test("auth changes discard in-flight data from the previous user", async ({ page
   }, session("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "other@example.com"));
   await expect(page.getByText("Signed in as other@example.com")).toBeVisible();
   release();
-  await expect(page.getByText("You do not belong to any groups yet. Create your first group below.")).toBeVisible();
+  await expect(page.getByText("You do not belong to any groups yet. Open an invite link from a group admin, or create your first group below.")).toBeVisible();
   await expect(page.getByText("Old user's private group")).toHaveCount(0);
 });
 
@@ -659,6 +660,7 @@ test("voting cards load a private ballot and save score revisions", async ({ pag
       status: "voting",
       submission_deadline: null,
       voting_deadline: new Date(Date.now() + 60_000).toISOString(),
+      competition_participants: [{ role: "audience" }],
     }],
   }));
   await page.route(`${supabaseURL}/rest/v1/categories**`, (route) => route.fulfill({
@@ -685,7 +687,7 @@ test("voting cards load a private ballot and save score revisions", async ({ pag
   await expect(page.getByRole("heading", { name: "Entry 7" })).toBeVisible();
   await expect(page.getByLabel("Taste (1–5)")).toHaveValue("2");
   await expect(page.getByLabel("Presentation (1–3)")).toHaveValue("3");
-  await expect(page.getByText(/Your own entry is excluded/)).toBeVisible();
+  await expect(page.getByText(/Saved ballots can be revised until voting closes/)).toBeVisible();
   await expectPhoneLayout(page);
   await page.getByLabel("Taste (1–5)").selectOption("4");
   await page.getByRole("button", { name: "Save ballot" }).click();
@@ -812,13 +814,19 @@ test("competition admins see all attendees, including non-submitters and former 
       ],
     });
   });
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_competition_participants`, (route) => route.fulfill({
+    json: [
+      { user_id: userId, email: "alex@example.com", role: "participant", has_entry: true },
+      { user_id: secondId, email: "voter@example.com", role: "audience", has_entry: false },
+    ],
+  }));
   await page.goto(`/competition/${secondId}/admin`);
   await expect(page.getByRole("heading", { name: "Community bake-off" })).toBeVisible();
   const roster = page.getByRole("heading", { name: "Competition attendees" }).locator("..");
   await expect(roster.getByRole("listitem")).toHaveCount(4);
-  await expect(roster.getByRole("listitem").filter({ hasText: "Voter only" })).toContainText("Member · No submission · Has voted");
-  await expect(roster.getByRole("listitem").filter({ hasText: "Not started" })).toContainText("Member · No submission · Has not voted");
-  await expect(roster.getByRole("listitem").filter({ hasText: "Former entrant" })).toContainText("Former member · Submitted");
+  await expect(roster.getByRole("listitem").filter({ hasText: "Voter only" })).toContainText("Member · Audience · No submission · Has voted");
+  await expect(roster.getByRole("listitem").filter({ hasText: "Not started" })).toContainText("Member · Not taking part · No submission · Has not voted");
+  await expect(roster.getByRole("listitem").filter({ hasText: "Former entrant" })).toContainText("Former member · Not taking part · Submitted");
   await expect(page.getByText("Submitted by Alex Baker")).toBeVisible();
   await expect(page.locator("body")).not.toContainText(secondId);
   await expect(page.locator("body")).not.toContainText(userId);
@@ -978,4 +986,189 @@ test("rejected lifecycle changes are reported and keep the current status", asyn
   await page.getByRole("button", { name: "Open submissions" }).click();
   await expect(page.getByText("Unable to open submissions: Invalid competition status transition")).toBeVisible();
   await expect(page.getByText("Status: Draft")).toBeVisible();
+});
+
+test("members choose to take part as participant or audience before submitting", async ({ page }) => {
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  let role: string | null = null;
+  const joins: Array<Record<string, unknown>> = [];
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{
+      id: competitionId, group_id: groupId, name: "Autumn bake-off", status: "submission",
+      submission_deadline: null, voting_deadline: null,
+      competition_participants: role ? [{ role }] : [],
+    }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/join_competition`, (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    joins.push(body);
+    role = String(body.p_role);
+    return route.fulfill({ status: 204 });
+  });
+
+  await page.goto(`/competition/${competitionId}`);
+  await expect(page.getByRole("heading", { name: "Take part" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Entry title" })).toHaveCount(0);
+  await expectPhoneLayout(page);
+  await page.getByRole("button", { name: "Join as participant" }).click();
+  await expect(page.getByRole("textbox", { name: "Entry title" })).toBeVisible();
+  await expect(page.getByText(/taking part as a participant/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Switch to audience" }).click();
+  await expect(page.getByText(/taking part as audience/)).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Entry title" })).toHaveCount(0);
+  expect(joins).toEqual([
+    { p_competition_id: competitionId, p_role: "participant" },
+    { p_competition_id: competitionId, p_role: "audience" },
+  ]);
+});
+
+test("participants never load the anonymous ballot, and newcomers may only join the audience during voting", async ({ page }) => {
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  let role: string | null = "participant";
+  let ballotRequested = false;
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{
+      id: competitionId, group_id: groupId, name: "Autumn bake-off", status: "voting",
+      submission_deadline: null, voting_deadline: null,
+      competition_participants: role ? [{ role }] : [],
+    }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_blind_voting_entries`, (route) => {
+    ballotRequested = true;
+    return route.fulfill({ json: [] });
+  });
+
+  await page.goto(`/competition/${competitionId}`);
+  await expect(page.getByRole("heading", { name: "Voting in progress" })).toBeVisible();
+  await expect(page.getByText("Roles are fixed once voting starts.")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Switch to/ })).toHaveCount(0);
+  expect(ballotRequested).toBe(false);
+
+  role = null;
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Join as audience" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Join as participant" })).toHaveCount(0);
+});
+
+test("group admins manage members, email invites, and invite links", async ({ page }) => {
+  const calls: Array<{ name: string; body: Record<string, unknown> }> = [];
+  const otherId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  let links: Array<Record<string, unknown>> = [];
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/rpc/**`, (route) => {
+    const name = new URL(route.request().url()).pathname.split("/").at(-1)!;
+    const body = (route.request().postDataJSON() || {}) as Record<string, unknown>;
+    if (name === "get_group_members") return route.fulfill({ json: [
+      { user_id: userId, email: "member@example.com", role: "admin" },
+      { user_id: otherId, email: "friend@example.com", role: "member" },
+    ] });
+    if (name === "get_group_email_invites") return route.fulfill({ json: [{ email: "pending@example.com", created_at: "2026-10-04T10:00:00Z" }] });
+    if (name === "get_group_invite_links") return route.fulfill({ json: links });
+    calls.push({ name, body });
+    if (name === "create_group_invite") {
+      links = [{ id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", token: "a".repeat(64), created_at: "2026-10-04T10:00:00Z" }];
+      return route.fulfill({ json: "a".repeat(64) });
+    }
+    return route.fulfill({ status: 204 });
+  });
+
+  await page.goto(`/group/${groupId}`);
+  await expect(page.getByRole("heading", { name: "Members" })).toBeVisible();
+  await expect(page.getByText("member@example.com (you)")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove group admin role from member@example.com" })).toBeDisabled();
+  await page.getByRole("button", { name: "Make friend@example.com a group admin" }).click();
+  await expect.poll(() => calls.at(-1)).toEqual({
+    name: "set_group_member_role", body: { p_group_id: groupId, p_user_id: otherId, p_role: "admin" },
+  });
+
+  await page.getByRole("textbox", { name: "Email address" }).fill("new@example.com");
+  await page.getByRole("button", { name: "Invite", exact: true }).click();
+  await expect.poll(() => calls.at(-1)).toEqual({
+    name: "invite_group_member_by_email", body: { p_group_id: groupId, p_email: "new@example.com" },
+  });
+  await expect(page.getByText("pending@example.com · waiting to sign in")).toBeVisible();
+
+  await page.getByRole("button", { name: "Create invite link" }).click();
+  await expect(page.getByRole("textbox", { name: "Invite link" })).toHaveValue(new RegExp(`/invite/${"a".repeat(64)}$`));
+  await expectPhoneLayout(page);
+});
+
+test("invite links survive sign-in and let members join the group", async ({ page }) => {
+  const token = "b".repeat(64);
+  let accepted = false;
+  await configure(page, false);
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_group_invite`, (route) => route.fulfill({
+    json: [{ group_id: groupId, group_name: "Baking club", is_member: accepted }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/accept_group_invite`, (route) => {
+    accepted = true;
+    return route.fulfill({ json: groupId });
+  });
+
+  await page.goto(`/invite/${token}`);
+  await expect(page.getByRole("button", { name: "Send sign-in link" })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("openjury:pending-invite"))).toBe(token);
+
+  // The magic link returns to the dashboard, which resumes the invite.
+  await page.evaluate((value) => localStorage.setItem("sb-foundation-auth-token", JSON.stringify(value)), {
+    access_token: `test-token-${userId}`, refresh_token: "test-refresh", token_type: "bearer", expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    user: { id: userId, email: "member@example.com", aud: "authenticated", role: "authenticated", app_metadata: {}, user_metadata: {}, created_at: "2026-01-01T00:00:00Z" },
+  });
+  await page.goto("/dashboard");
+  await expect(page).toHaveURL(new RegExp(`/invite/${token}$`));
+  await expect(page.getByRole("heading", { name: "Join Baking club" })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("openjury:pending-invite"))).toBeNull();
+  await page.getByRole("button", { name: "Join group" }).click();
+  await expect(page).toHaveURL(new RegExp(`/group/${groupId}$`));
+});
+
+test("revoked invite links explain what to do", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_group_invite`, (route) => route.fulfill({ json: [] }));
+  await page.goto(`/invite/${"c".repeat(64)}`);
+  await expect(page.getByText(/invalid or has been revoked/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "Go to your groups" })).toHaveAttribute("href", "/dashboard");
+});
+
+test("platform admins see every group and can take one over", async ({ page }) => {
+  const otherGroup = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  let joined: Record<string, unknown> | undefined;
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/rpc/is_platform_admin`, (route) => route.fulfill({ json: true }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_platform_groups`, (route) => route.fulfill({ json: [
+    { id: groupId, name: "Baking club", member_count: 3, admin_count: 1, my_role: "admin" },
+    { id: otherGroup, name: "Chess club", member_count: 5, admin_count: 2, my_role: null },
+  ] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/platform_admin_join_group`, (route) => {
+    joined = route.request().postDataJSON() as Record<string, unknown>;
+    return route.fulfill({ status: 204 });
+  });
+
+  await page.goto("/dashboard");
+  await expect(page.getByRole("heading", { name: "All groups (platform admin)" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open Baking club" })).toHaveAttribute("href", `/group/${groupId}`);
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "Manage Chess club as admin" }).click();
+  await expect(page).toHaveURL(new RegExp(`/group/${otherGroup}$`));
+  expect(joined).toEqual({ p_group_id: otherGroup });
+});
+
+test("ordinary members do not see platform administration", async ({ page }) => {
+  let listed = false;
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/rpc/is_platform_admin`, (route) => route.fulfill({ json: false }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_platform_groups`, (route) => {
+    listed = true;
+    return route.fulfill({ json: [] });
+  });
+  await page.goto("/dashboard");
+  await expect(page.getByRole("link", { name: "Baking club" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "All groups (platform admin)" })).toHaveCount(0);
+  expect(listed).toBe(false);
 });
