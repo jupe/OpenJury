@@ -310,7 +310,7 @@ test("admins discard private review data after membership is revoked", async ({ 
     request.url().includes("/rest/v1/competitions"));
   realtime.broadcast(`user:${userId}`, "membership_changed");
   await refetch;
-  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByText(/Unable to load competition status/)).toBeVisible();
   await expect(page.getByText("Private admin entry")).toHaveCount(0);
 });
 
