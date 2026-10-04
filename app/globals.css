@@ -86,11 +86,11 @@
 
 @media (min-width: 640px) {
   .site-nav {
-    padding: 1rem 1.5rem;
+    padding: 1rem max(1.5rem, env(safe-area-inset-right)) 1rem max(1.5rem, env(safe-area-inset-left));
   }
 
   .site-main {
-    padding: 3rem 1.5rem;
+    padding: 3rem max(1.5rem, env(safe-area-inset-right)) max(3rem, env(safe-area-inset-bottom)) max(1.5rem, env(safe-area-inset-left));
   }
 }
 

@@ -43,17 +43,29 @@ async function configure(page: Page, signedIn = false) {
 }
 
 async function expectPhoneLayout(page: Page) {
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  const controls = page.locator("input, select, button, main a, nav a, summary");
-  for (const control of await controls.all()) {
-    if (!await control.isVisible()) continue;
-    const box = await control.boundingBox();
-    expect(box?.height).toBeGreaterThanOrEqual(44);
-    expect(box?.x).toBeGreaterThanOrEqual(0);
-    expect((box?.x || 0) + (box?.width || 0)).toBeLessThanOrEqual(page.viewportSize()!.width);
-    if (await control.evaluate((element) => element.matches("input, select"))) {
-      expect(await control.evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16);
-    }
+  const layout = await page.evaluate(() => ({
+    fits: document.documentElement.scrollWidth <= window.innerWidth,
+    width: window.innerWidth,
+    controls: Array.from(document.querySelectorAll("input, select, button, main a, nav a, summary"))
+      .map((element) => {
+        const box = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return {
+          height: box.height,
+          width: box.width,
+          x: box.x,
+          visible: style.visibility !== "hidden" && box.width > 0 && box.height > 0,
+          input: element.matches("input, select"),
+          fontSize: parseFloat(style.fontSize),
+        };
+      }),
+  }));
+  expect(layout.fits).toBe(true);
+  for (const control of layout.controls.filter((control) => control.visible)) {
+    expect(control.height).toBeGreaterThanOrEqual(44);
+    expect(control.x).toBeGreaterThanOrEqual(0);
+    expect(control.x + control.width).toBeLessThanOrEqual(layout.width);
+    if (control.input) expect(control.fontSize).toBeGreaterThanOrEqual(16);
   }
 }
 
