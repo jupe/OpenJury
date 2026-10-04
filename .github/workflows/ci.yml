@@ -53,6 +53,13 @@ jobs:
           APP_HOST: ci.example.invalid
           PULL_POLICY: never
 
+      - name: Validate Proxmox playbooks without accessing infrastructure
+        run: |
+          pipx run --spec "$(cat deploy/proxmox/requirements.txt)" ansible-playbook \
+            -i deploy/proxmox/inventory.example.yml deploy/proxmox/provision.yml --syntax-check
+          pipx run --spec "$(cat deploy/proxmox/requirements.txt)" ansible-playbook \
+            -i deploy/proxmox/inventory.example.yml deploy/proxmox/guests.yml --syntax-check
+
       - name: Build production image
         run: docker build --tag openjury:ci --label "org.opencontainers.image.revision=${{ github.sha }}" .
 

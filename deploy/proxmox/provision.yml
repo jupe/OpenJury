@@ -1,0 +1,41 @@
+---
+- name: Provision isolated OpenJury VMs on an existing Proxmox host
+  hosts: proxmox
+  gather_facts: false
+  become: true
+  any_errors_fatal: true
+  vars:
+    openjury_guest_names:
+      - openjury-dev
+      - openjury-staging
+      - openjury-production
+    openjury_backup_job_id: openjury-production
+    openjury_backup_marker: "openjury-managed-v1:production-backup"
+  tasks:
+    - name: Validate configuration and Proxmox prerequisites without mutations
+      ansible.builtin.import_tasks: tasks/provision-preflight.yml
+
+    - name: Inspect every target VM before changing any VM
+      ansible.builtin.include_tasks: tasks/provision-inspect.yml
+      loop: "{{ openjury_guest_names }}"
+      loop_control:
+        loop_var: openjury_guest_name
+
+    - name: Report check-mode plan
+      ansible.builtin.debug:
+        msg: >-
+          Preflight and existing VM ownership checks passed. A real run will
+          clone absent VMs, install/compile host-enforced firewall rules before
+          starting new VMs, and ensure the production-only PBS backup job.
+      when: ansible_check_mode
+
+    - name: Provision guests
+      ansible.builtin.include_tasks: tasks/provision-vm.yml
+      loop: "{{ openjury_guest_names }}"
+      loop_control:
+        loop_var: openjury_guest_name
+      when: not ansible_check_mode
+
+    - name: Ensure production-only backup job
+      ansible.builtin.import_tasks: tasks/provision-backup.yml
+      when: not ansible_check_mode

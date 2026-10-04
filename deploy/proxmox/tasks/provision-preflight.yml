@@ -1,0 +1,254 @@
+---
+- name: Require explicit operator approval and exactly the expected inventory
+  ansible.builtin.assert:
+    that:
+      - openjury_operator_confirmed is boolean and openjury_operator_confirmed
+      - openjury_template_confirmed_ubuntu_2404_amd64 is boolean and openjury_template_confirmed_ubuntu_2404_amd64
+      - openjury_backup_confirmed_offhost is boolean and openjury_backup_confirmed_offhost
+      - groups['proxmox'] | length == 1
+      - groups['openjury_guests'] | sort == openjury_guest_names | sort
+      - openjury_node is match('^[a-zA-Z0-9][a-zA-Z0-9-]*$')
+      - openjury_storage is match('^[a-zA-Z][a-zA-Z0-9_-]*$')
+      - openjury_backup_storage is match('^[a-zA-Z][a-zA-Z0-9_-]*$')
+      - openjury_template_vmid is integer and openjury_template_vmid >= 100
+      - openjury_admin_ssh_public_key is match('^ssh-(ed25519|rsa) [A-Za-z0-9+/]+=*( .*)?$')
+      - "'REPLACE' not in openjury_admin_ssh_public_key"
+      - "'\n' not in openjury_admin_ssh_public_key"
+      - openjury_backup_schedule | length > 0
+      - openjury_backup_retention is match('^keep-(last|daily|weekly|monthly|yearly)=[1-9][0-9]*(,keep-(last|daily|weekly|monthly|yearly)=[1-9][0-9]*)*$')
+    fail_msg: Review inventory and explicitly confirm the template, provisioning, and off-host PBS.
+
+- name: Validate explicit per-guest resources
+  ansible.builtin.assert:
+    that:
+      - hostvars[item].openjury_environment == item | regex_replace('^openjury-', '')
+      - hostvars[item].openjury_vmid is integer and hostvars[item].openjury_vmid >= 100
+      - hostvars[item].openjury_vmid != openjury_template_vmid
+      - hostvars[item].openjury_vlan is integer and 1 <= hostvars[item].openjury_vlan <= 4094
+      - hostvars[item].openjury_cores is integer and hostvars[item].openjury_cores >= 1
+      - hostvars[item].openjury_memory_mb is integer and hostvars[item].openjury_memory_mb >= 1024
+      - hostvars[item].openjury_disk_gb is integer and hostvars[item].openjury_disk_gb >= 8
+      - hostvars[item].openjury_bridge is match('^[a-zA-Z][a-zA-Z0-9_.-]*$')
+      - hostvars[item].openjury_admin_user is match('^[a-z_][a-z0-9_-]*$')
+      - hostvars[item].openjury_admin_user != 'root'
+  loop: "{{ openjury_guest_names }}"
+
+- name: Validate network isolation using the controller Python standard library
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - -c
+      - |
+        import ipaddress, json, sys
+        c = json.load(sys.stdin)
+        guests = c["guests"]
+        nets, ips = [], []
+        for g in guests:
+            ip = ipaddress.IPv4Address(g["ip"])
+            net = ipaddress.IPv4Network(f'{ip}/{g["prefix"]}', strict=False)
+            gw = ipaddress.IPv4Address(g["gateway"])
+            assert 1 <= g["prefix"] <= 30, "Use an explicit IPv4 subnet"
+            assert ip in net and gw in net and ip != gw, "Invalid address/gateway"
+            assert ip not in (net.network_address, net.broadcast_address)
+            assert gw not in (net.network_address, net.broadcast_address)
+            assert not any(net.overlaps(other) for other in nets), "Guest VLAN subnets overlap"
+            nets.append(net)
+            ips.append(ip)
+        for key in ("vmid", "vlan"):
+            assert len({g[key] for g in guests}) == 3, f"Duplicate {key}"
+        admin = ipaddress.IPv4Network(c["admin"])
+        management = [ipaddress.IPv4Network(n) for n in c["management"]]
+        assert management and any(admin.subnet_of(n) for n in management)
+        host = ipaddress.IPv4Address(c["host"])
+        assert any(host in n for n in management), "Management CIDRs must include Proxmox"
+        assert not any(n.overlaps(m) for n in nets for m in management)
+        forbidden = [ipaddress.IPv4Network(n) for n in
+                     ("0.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8",
+                      "169.254.0.0/16",
+                      "224.0.0.0/4", "240.0.0.0/4")]
+        assert c["dns"], "At least one approved DNS resolver is required"
+        for value in c["dns"] + [c["ntp"]]:
+            ip = ipaddress.IPv4Address(value)
+            assert not any(ip in n for n in forbidden + management + nets), \
+                "DNS/NTP must not bypass protected networks"
+        backup = ipaddress.IPv4Address(c["backup"])
+        assert backup != host and backup not in ips, "PBS must be off-host"
+        print("IPv4, distinct VMIDs/VLANs, and isolation configuration validated")
+    stdin: >-
+      {{ {
+        'guests': [
+          {'ip': hostvars['openjury-dev'].ansible_host,
+           'prefix': hostvars['openjury-dev'].openjury_prefix_length,
+           'gateway': hostvars['openjury-dev'].openjury_gateway,
+           'vmid': hostvars['openjury-dev'].openjury_vmid,
+           'vlan': hostvars['openjury-dev'].openjury_vlan},
+          {'ip': hostvars['openjury-staging'].ansible_host,
+           'prefix': hostvars['openjury-staging'].openjury_prefix_length,
+           'gateway': hostvars['openjury-staging'].openjury_gateway,
+           'vmid': hostvars['openjury-staging'].openjury_vmid,
+           'vlan': hostvars['openjury-staging'].openjury_vlan},
+          {'ip': hostvars['openjury-production'].ansible_host,
+           'prefix': hostvars['openjury-production'].openjury_prefix_length,
+           'gateway': hostvars['openjury-production'].openjury_gateway,
+           'vmid': hostvars['openjury-production'].openjury_vmid,
+           'vlan': hostvars['openjury-production'].openjury_vlan}
+        ],
+        'admin': openjury_management_admin_cidr,
+        'management': openjury_management_cidrs,
+        'dns': openjury_dns_servers,
+        'ntp': openjury_ntp_server,
+        'host': ansible_host,
+        'backup': openjury_backup_server
+      } | to_json }}
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  check_mode: false
+
+- name: Check host firewall service is active
+  ansible.builtin.command:
+    argv: [systemctl, is-active, pve-firewall]
+  changed_when: false
+  check_mode: false
+
+- name: Check legacy Proxmox firewall is enabled and running
+  ansible.builtin.command:
+    argv: [pve-firewall, status]
+  register: openjury_firewall_status
+  changed_when: false
+  check_mode: false
+
+- name: Require enabled running firewall
+  ansible.builtin.assert:
+    that: "'enabled/running' in openjury_firewall_status.stdout"
+    fail_msg: Enable the datacenter legacy pve-firewall before provisioning; nftables backend is not supported here.
+
+- name: Read host and cluster configuration
+  ansible.builtin.command:
+    argv: [pvesh, get, "{{ item }}", --output-format, json]
+  loop:
+    - /cluster/firewall/options
+    - /cluster/resources
+    - "/nodes/{{ openjury_node }}/status"
+    - "/nodes/{{ openjury_node }}/network"
+    - "/nodes/{{ openjury_node }}/qemu/{{ openjury_template_vmid }}/config"
+    - "/nodes/{{ openjury_node }}/qemu/{{ openjury_template_vmid }}/status/current"
+    - "/storage/{{ openjury_storage }}"
+    - "/nodes/{{ openjury_node }}/storage/{{ openjury_storage }}/status"
+    - "/storage/{{ openjury_backup_storage }}"
+    - "/nodes/{{ openjury_node }}/storage/{{ openjury_backup_storage }}/status"
+    - /cluster/backup
+    - "/nodes/{{ openjury_node }}/firewall/options"
+  register: openjury_preflight_reads
+  changed_when: false
+  check_mode: false
+
+- name: Decode preflight configuration
+  ansible.builtin.set_fact:
+    openjury_cluster_firewall: "{{ openjury_preflight_reads.results[0].stdout | from_json }}"
+    openjury_resources: "{{ openjury_preflight_reads.results[1].stdout | from_json }}"
+    openjury_host_status: "{{ openjury_preflight_reads.results[2].stdout | from_json }}"
+    openjury_networks: "{{ openjury_preflight_reads.results[3].stdout | from_json }}"
+    openjury_template: "{{ openjury_preflight_reads.results[4].stdout | from_json }}"
+    openjury_template_status: "{{ openjury_preflight_reads.results[5].stdout | from_json }}"
+    openjury_disk_storage: "{{ openjury_preflight_reads.results[6].stdout | from_json }}"
+    openjury_disk_storage_status: "{{ openjury_preflight_reads.results[7].stdout | from_json }}"
+    openjury_pbs: "{{ openjury_preflight_reads.results[8].stdout | from_json }}"
+    openjury_pbs_status: "{{ openjury_preflight_reads.results[9].stdout | from_json }}"
+    openjury_backup_jobs: "{{ openjury_preflight_reads.results[10].stdout | from_json }}"
+    openjury_host_firewall: "{{ openjury_preflight_reads.results[11].stdout | from_json }}"
+    openjury_existing_configs: {}
+
+- name: Verify KVM acceleration is available
+  ansible.builtin.stat:
+    path: /dev/kvm
+  register: openjury_kvm
+
+- name: Read host local addresses
+  ansible.builtin.command:
+    argv: [ip, -json, address, show]
+  register: openjury_host_addresses
+  changed_when: false
+  check_mode: false
+
+- name: Require suitable template, enabled datacenter firewall, and existing active PBS
+  ansible.builtin.assert:
+    that:
+      - openjury_cluster_firewall.enable | default(0) | int == 1
+      - openjury_host_firewall.nftables | default(0) | int == 0
+      - openjury_kvm.stat.exists and openjury_kvm.stat.ischr
+      - openjury_template.template | default(0) | int == 1
+      - openjury_template_status.status == 'stopped'
+      - openjury_template.arch | default('x86_64') == 'x86_64'
+      - openjury_template.ostype | default('') == 'l26'
+      - openjury_template.agent | default('') | string is search('(^|,)(enabled=)?1(,|$)')
+      - openjury_template.scsi0 is defined
+      - "'backup=0' not in openjury_template.scsi0.split(',')"
+      - openjury_template.ide2 | default('') is search('cloudinit')
+      - openjury_template.net0 is defined
+      - openjury_template.onboot | default(0) | int == 0
+      - openjury_template.keys() | select('match', '^net[1-9][0-9]*$') | list | length == 0
+      - openjury_template.keys() | select('match', '^(hostpci|usb)[0-9]+$') | list | length == 0
+      - openjury_template.hookscript is not defined
+      - openjury_template.cipassword is not defined
+      - openjury_template.args is not defined
+      - openjury_template.cicustom is not defined
+      - "'images' in openjury_disk_storage.content.split(',')"
+      - openjury_disk_storage_status.active | int == 1
+      - openjury_disk_storage_status.enabled | int == 1
+      - openjury_pbs.type == 'pbs'
+      - openjury_pbs.server == openjury_backup_server
+      - "'backup' in openjury_pbs.content.split(',')"
+      - openjury_pbs_status.active | int == 1
+      - openjury_pbs_status.enabled | int == 1
+      - openjury_backup_server not in (openjury_host_addresses.stdout | from_json | map(attribute='addr_info') | flatten | map(attribute='local') | list)
+      - (openjury_guest_names | map('extract', hostvars, 'openjury_memory_mb') | sum) * 1024 * 1024 < openjury_host_status.memory.total
+    fail_msg: Preflight failed; no VMs or firewall settings have been changed.
+
+- name: Validate every guest bridge and hardware capacity
+  ansible.builtin.assert:
+    that:
+      - openjury_networks | selectattr('iface', 'equalto', hostvars[item].openjury_bridge) | selectattr('type', 'equalto', 'bridge') | selectattr('active', 'defined') | selectattr('active', 'equalto', 1) | selectattr('bridge_vlan_aware', 'defined') | selectattr('bridge_vlan_aware', 'equalto', 1) | list | length == 1
+      - hostvars[item].openjury_cores <= openjury_host_status.cpuinfo.cpus
+      - hostvars[item].openjury_memory_mb * 1024 * 1024 < openjury_host_status.memory.total
+    fail_msg: Each bridge must already be active and VLAN-aware; requested resources must fit the host.
+  loop: "{{ openjury_guest_names }}"
+
+- name: Check existing backup job ownership before any mutation
+  ansible.builtin.assert:
+    that:
+      - item.comment | default('') == openjury_backup_marker
+      - item.vmid | default('') | string == hostvars['openjury-production'].openjury_vmid | string
+      - item.storage | default('') == openjury_backup_storage
+      - item.node | default('') == openjury_node
+      - not (item.all | default(false) | bool)
+      - item.pool | default('') == ''
+      - item.exclude | default('') == ''
+      - item['exclude-path'] | default([]) | length == 0
+      - item.script is not defined
+    fail_msg: Existing backup job is unknown or targets other guests; refusing to take it over.
+  loop: "{{ openjury_backup_jobs | selectattr('id', 'equalto', openjury_backup_job_id) | list }}"
+
+- name: Refuse existing schedules that would accidentally back up development
+  ansible.builtin.assert:
+    that:
+      - hostvars['openjury-dev'].openjury_vmid | string not in (item.vmid | default('') | string | regex_findall('[0-9]+'))
+      - not (item.all | default(false) | bool) or hostvars['openjury-dev'].openjury_vmid | string in (item.exclude | default('') | string | regex_findall('[0-9]+'))
+    fail_msg: >-
+      An existing enabled backup job would include development. Exclude its VMID
+      from that job before provisioning; this playbook will not alter unrelated jobs.
+  loop: "{{ openjury_backup_jobs }}"
+  when:
+    - item.enabled | default(1) | int == 1
+    - item.node | default(openjury_node, true) == openjury_node
+
+- name: Compile current firewall before any mutations
+  ansible.builtin.command:
+    argv: [pve-firewall, compile]
+  register: openjury_preflight_compile
+  changed_when: false
+  check_mode: false
+  failed_when: >-
+    openjury_preflight_compile.rc != 0 or
+    (openjury_preflight_compile.stdout ~ openjury_preflight_compile.stderr)
+    is search('(?i)(error|warning|failed|unable)')

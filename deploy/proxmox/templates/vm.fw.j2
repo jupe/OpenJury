@@ -1,0 +1,42 @@
+# openjury-managed-v1:{{ openjury_guest_name }}
+[OPTIONS]
+enable: 1
+policy_in: DROP
+policy_out: DROP
+dhcp: 0
+ndp: 0
+radv: 0
+ipfilter: 1
+macfilter: 1
+
+[IPSET ipfilter-net0]
+{{ openjury_guest.ansible_host }}
+
+[RULES]
+IN DROP -source ::/0
+OUT DROP -dest ::/0
+IN ACCEPT -source {{ openjury_management_admin_cidr }} -p tcp -dport 22
+IN ACCEPT -p tcp -dport 80
+IN ACCEPT -p tcp -dport 443
+{% for name in openjury_guest_names if name != openjury_guest_name %}
+OUT DROP -dest {{ hostvars[name].ansible_host }}/32
+{% endfor %}
+{% for cidr in openjury_management_cidrs %}
+OUT DROP -dest {{ cidr }}
+{% endfor %}
+{% for resolver in openjury_dns_servers %}
+OUT ACCEPT -dest {{ resolver }} -p udp -dport 53
+OUT ACCEPT -dest {{ resolver }} -p tcp -dport 53
+{% endfor %}
+OUT ACCEPT -dest {{ openjury_ntp_server }} -p udp -dport 123
+OUT DROP -dest 0.0.0.0/8
+OUT DROP -dest 10.0.0.0/8
+OUT DROP -dest 100.64.0.0/10
+OUT DROP -dest 127.0.0.0/8
+OUT DROP -dest 169.254.0.0/16
+OUT DROP -dest 172.16.0.0/12
+OUT DROP -dest 192.168.0.0/16
+OUT DROP -dest 224.0.0.0/4
+OUT DROP -dest 240.0.0.0/4
+OUT ACCEPT -p tcp -dport 80
+OUT ACCEPT -p tcp -dport 443

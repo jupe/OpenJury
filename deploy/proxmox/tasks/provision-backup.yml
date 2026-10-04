@@ -1,0 +1,66 @@
+---
+- name: Select existing managed production backup
+  ansible.builtin.set_fact:
+    openjury_current_backup: >-
+      {{ openjury_backup_jobs | selectattr('id', 'equalto', openjury_backup_job_id)
+         | first | default({}) }}
+
+- name: Normalize API retention object for idempotent comparison
+  ansible.builtin.set_fact:
+    openjury_current_retention: >-
+      {%- set retention = openjury_current_backup['prune-backups'] | default({}) -%}
+      {%- if retention is mapping -%}
+      {%- for key, value in retention | dictsort -%}
+      {{ ',' if not loop.first }}{{ key }}={{ value }}
+      {%- endfor -%}
+      {%- else -%}
+      {{ retention }}
+      {%- endif -%}
+
+- name: Create the production-only scheduled PBS backup job
+  ansible.builtin.command:
+    argv:
+      - pvesh
+      - create
+      - /cluster/backup
+      - --id
+      - "{{ openjury_backup_job_id }}"
+      - --comment
+      - "{{ openjury_backup_marker }}"
+      - --node
+      - "{{ openjury_node }}"
+      - --vmid
+      - "{{ hostvars['openjury-production'].openjury_vmid }}"
+      - --storage
+      - "{{ openjury_backup_storage }}"
+      - --schedule
+      - "{{ openjury_backup_schedule }}"
+      - --prune-backups
+      - "{{ openjury_backup_retention }}"
+      - --mode
+      - snapshot
+      - --enabled
+      - "1"
+  when: openjury_current_backup | length == 0
+
+- name: Update only an owned job's schedule and retention
+  ansible.builtin.command:
+    argv:
+      - pvesh
+      - set
+      - "/cluster/backup/{{ openjury_backup_job_id }}"
+      - --schedule
+      - "{{ openjury_backup_schedule }}"
+      - --prune-backups
+      - "{{ openjury_backup_retention }}"
+      - --mode
+      - snapshot
+      - --enabled
+      - "1"
+  when:
+    - openjury_current_backup | length > 0
+    - >-
+      openjury_current_backup.schedule | default('') != openjury_backup_schedule or
+      openjury_current_retention.split(',') | sort != openjury_backup_retention.split(',') | sort or
+      openjury_current_backup.mode | default('snapshot') != 'snapshot' or
+      openjury_current_backup.enabled | default(0) | int != 1

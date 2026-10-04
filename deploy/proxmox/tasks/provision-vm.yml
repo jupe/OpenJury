@@ -1,0 +1,135 @@
+---
+- name: Select guest and creation status
+  ansible.builtin.set_fact:
+    openjury_guest: "{{ hostvars[openjury_guest_name] }}"
+    openjury_new_vm: "{{ openjury_guest_name not in openjury_existing_configs }}"
+
+- name: Create a full independent QEMU clone without starting it
+  ansible.builtin.command:
+    argv:
+      - qm
+      - clone
+      - "{{ openjury_template_vmid }}"
+      - "{{ openjury_guest.openjury_vmid }}"
+      - --name
+      - "{{ openjury_guest_name }}"
+      - --description
+      - "openjury-managed-v1:{{ openjury_guest_name }}"
+      - --full
+      - "1"
+      - --storage
+      - "{{ openjury_storage }}"
+  when: openjury_new_vm
+
+- name: Configure only a newly cloned guest
+  when: openjury_new_vm
+  block:
+    - name: Write administrator public key to host-only staging file
+      ansible.builtin.copy:
+        content: "{{ openjury_admin_ssh_public_key }}\n"
+        dest: "/root/.openjury-{{ openjury_guest.openjury_vmid }}.pub"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Configure explicit CPU, RAM, static network, and cloud-init administrator
+      ansible.builtin.command:
+        argv:
+          - qm
+          - set
+          - "{{ openjury_guest.openjury_vmid }}"
+          - --cores
+          - "{{ openjury_guest.openjury_cores }}"
+          - --sockets
+          - "1"
+          - --memory
+          - "{{ openjury_guest.openjury_memory_mb }}"
+          - --balloon
+          - "0"
+          - --agent
+          - enabled=1
+          - --onboot
+          - "0"
+          - --ciuser
+          - "{{ openjury_guest.openjury_admin_user }}"
+          - --sshkeys
+          - "/root/.openjury-{{ openjury_guest.openjury_vmid }}.pub"
+          - --nameserver
+          - "{{ openjury_dns_servers | join(' ') }}"
+          - --net0
+          - "virtio,bridge={{ openjury_guest.openjury_bridge }},tag={{ openjury_guest.openjury_vlan }},firewall=1"
+          - --ipconfig0
+          - "ip={{ openjury_guest.ansible_host }}/{{ openjury_guest.openjury_prefix_length }},gw={{ openjury_guest.openjury_gateway }},ip6=manual"
+
+    - name: Grow the OS disk to its explicit absolute size
+      ansible.builtin.command:
+        argv: [qm, resize, "{{ openjury_guest.openjury_vmid }}", scsi0, "{{ openjury_guest.openjury_disk_gb }}G"]
+      when: openjury_guest.openjury_disk_gb > (openjury_template.scsi0 | regex_search('size=[0-9]+G') | regex_replace('[^0-9]', '') | int)
+
+    - name: Regenerate cloud-init configuration
+      ansible.builtin.command:
+        argv: [qm, cloudinit, update, "{{ openjury_guest.openjury_vmid }}"]
+  always:
+    - name: Remove public-key staging file
+      ansible.builtin.file:
+        path: "/root/.openjury-{{ openjury_guest.openjury_vmid }}.pub"
+        state: absent
+
+- name: Install VM firewall before permitting a first start
+  ansible.builtin.template:
+    src: vm.fw.j2
+    dest: "/etc/pve/firewall/{{ openjury_guest.openjury_vmid }}.fw"
+    owner: root
+    group: www-data
+    mode: "0640"
+  register: openjury_firewall_written
+
+- name: Compile installed firewall and fail closed on any diagnostic
+  ansible.builtin.command:
+    argv: [pve-firewall, compile]
+  register: openjury_vm_compile
+  changed_when: false
+  failed_when: >-
+    openjury_vm_compile.rc != 0 or
+    (openjury_vm_compile.stdout ~ openjury_vm_compile.stderr)
+    is search('(?i)(error|warning|failed|unable)')
+
+- name: Verify firewall daemon is still active before first start
+  ansible.builtin.command:
+    argv: [pve-firewall, status]
+  register: openjury_start_firewall_status
+  changed_when: false
+  failed_when: >-
+    openjury_start_firewall_status.rc != 0 or
+    'enabled/running' not in openjury_start_firewall_status.stdout
+
+- name: Wait for the daemon to install IPv4 and IPv6 DROP rules before first start
+  ansible.builtin.command:
+    argv:
+      - "{{ item.0 }}"
+      - --wait
+      - -C
+      - "tap{{ openjury_guest.openjury_vmid }}i0-{{ item.1 }}"
+      - -j
+      - DROP
+  loop: "{{ ['iptables', 'ip6tables'] | product(['IN', 'OUT']) | list }}"
+  register: openjury_active_firewall
+  changed_when: false
+  retries: 15
+  delay: 2
+  until: openjury_active_firewall.rc == 0
+
+- name: Enable safe host-boot startup only after firewall installation
+  ansible.builtin.command:
+    argv: [qm, set, "{{ openjury_guest.openjury_vmid }}", --onboot, "1"]
+  when: openjury_new_vm
+
+- name: Start only a newly provisioned VM
+  ansible.builtin.command:
+    argv: [qm, start, "{{ openjury_guest.openjury_vmid }}"]
+  when: openjury_new_vm
+
+- name: Preserve existing VM power state
+  ansible.builtin.debug:
+    msg: "{{ openjury_guest_name }} already exists; its configuration and power state were not changed."
+  when: not openjury_new_vm

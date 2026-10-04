@@ -1,0 +1,87 @@
+---
+- name: Select guest and matching cluster resources
+  ansible.builtin.set_fact:
+    openjury_guest: "{{ hostvars[openjury_guest_name] }}"
+    openjury_matches: >-
+      {{ openjury_resources | selectattr('vmid', 'defined')
+         | selectattr('vmid', 'equalto', hostvars[openjury_guest_name].openjury_vmid) | list }}
+    openjury_name_matches: >-
+      {{ openjury_resources | selectattr('name', 'defined')
+         | selectattr('name', 'equalto', openjury_guest_name) | list }}
+
+- name: Refuse VMID or name collisions anywhere in the cluster
+  ansible.builtin.assert:
+    that:
+      - openjury_matches | length <= 1
+      - openjury_name_matches | length <= 1
+      - openjury_matches | length == openjury_name_matches | length
+      - openjury_matches | length == 0 or (openjury_matches[0].type == 'qemu' and openjury_matches[0].node == openjury_node and openjury_matches[0].name == openjury_guest_name)
+      - openjury_name_matches | length == 0 or openjury_name_matches[0].vmid == openjury_guest.openjury_vmid
+      - openjury_template.scsi0 is search('(^|,)size=[0-9]+G(,|$)')
+      - openjury_guest.openjury_disk_gb >= (openjury_template.scsi0 | regex_search('size=[0-9]+G') | regex_replace('[^0-9]', '') | int)
+    fail_msg: Refusing a VMID/name collision or an unsupported/shrinking disk size.
+
+- name: Read existing target configuration
+  ansible.builtin.command:
+    argv: [pvesh, get, "/nodes/{{ openjury_node }}/qemu/{{ openjury_guest.openjury_vmid }}/config", --output-format, json]
+  register: openjury_existing_read
+  changed_when: false
+  check_mode: false
+  when: openjury_matches | length == 1
+
+- name: Record existing configuration
+  ansible.builtin.set_fact:
+    openjury_existing_configs: >-
+      {{ openjury_existing_configs | combine({
+        openjury_guest_name: (openjury_existing_read.stdout | from_json)
+      }) }}
+  when: openjury_matches | length == 1
+
+- name: Refuse unknown ownership or configuration drift on an existing VM
+  vars:
+    existing: "{{ openjury_existing_configs[openjury_guest_name] }}"
+  ansible.builtin.assert:
+    that:
+      - existing.description | default('') == 'openjury-managed-v1:' ~ openjury_guest_name
+      - existing.name == openjury_guest_name
+      - existing.template | default(0) | int == 0
+      - existing.lock is not defined
+      - existing.cores | int == openjury_guest.openjury_cores
+      - existing.memory | int == openjury_guest.openjury_memory_mb
+      - existing.ciuser | default('') == openjury_guest.openjury_admin_user
+      - existing.ipconfig0 | default('') == 'ip=' ~ openjury_guest.ansible_host ~ '/' ~ openjury_guest.openjury_prefix_length ~ ',gw=' ~ openjury_guest.openjury_gateway ~ ',ip6=manual'
+      - existing.net0 | default('') is match('^virtio=')
+      - "'bridge=' ~ openjury_guest.openjury_bridge in existing.net0.split(',')"
+      - "'tag=' ~ openjury_guest.openjury_vlan in existing.net0.split(',')"
+      - "'firewall=1' in existing.net0.split(',')"
+      - existing.keys() | select('match', '^net[1-9][0-9]*$') | list | length == 0
+      - existing.scsi0 is match('^' ~ openjury_storage ~ ':')
+      - "'backup=0' not in existing.scsi0.split(',')"
+      - "'size=' ~ openjury_guest.openjury_disk_gb ~ 'G' in existing.scsi0.split(',')"
+      - existing.agent | default('') | string is search('(^|,)(enabled=)?1(,|$)')
+      - existing.hookscript is not defined
+      - existing.args is not defined
+      - existing.cicustom is not defined
+      - existing.keys() | select('match', '^(hostpci|usb)[0-9]+$') | list | length == 0
+    fail_msg: >-
+      Existing VM is unowned, locked, or has configuration drift. It will not be
+      stopped, reset, resized, or reconfigured. Review and reconcile manually.
+  when: openjury_matches | length == 1
+
+- name: Inspect existing VM firewall file
+  ansible.builtin.stat:
+    path: "/etc/pve/firewall/{{ openjury_guest.openjury_vmid }}.fw"
+  register: openjury_existing_firewall_stat
+
+- name: Read existing VM firewall ownership
+  ansible.builtin.slurp:
+    src: "/etc/pve/firewall/{{ openjury_guest.openjury_vmid }}.fw"
+  register: openjury_existing_firewall
+  when: openjury_existing_firewall_stat.stat.exists
+
+- name: Refuse to overwrite an unmanaged firewall file
+  ansible.builtin.assert:
+    that:
+      - (openjury_existing_firewall.content | b64decode).split('\n')[0] == '# openjury-managed-v1:' ~ openjury_guest_name
+    fail_msg: An unmanaged firewall exists for this VMID; reconcile it manually.
+  when: openjury_existing_firewall_stat.stat.exists
