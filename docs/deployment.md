@@ -143,10 +143,12 @@ reviewers if desired. Permit PR merge refs (`refs/pull/<number>/merge`) in `dev`
 the reusable workflow retains the caller's event ref. `dev` supplies approval,
 variables, and secrets with `deployment: false`; do not configure custom
 deployment protection rules, which are incompatible with this setting.
-The preview job appears in the PR's CI checks. It explicitly records a
-`dev-pr-<number>` deployment for the PR head commit, with the URL
+The preview job appears in the PR's CI checks. It records each preview against
+the existing `dev` environment for the PR head commit, with the URL
 `https://pr-<number>.<DEV_BASE_DOMAIN>` in the PR deployment and workflow summary.
-These per-PR deployment records do not supply secrets or replace `dev` approval.
+The deployment description identifies its PR; cleanup deactivates only that PR's
+records, so previews do not deactivate each other or create per-PR environments.
+The `dev` environment supplies approval, variables, and secrets as configured.
 
 | Scope | Variable/secret | Value |
 | --- | --- | --- |

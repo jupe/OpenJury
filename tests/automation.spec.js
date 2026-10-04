@@ -150,8 +150,8 @@ test("preview registers an in-progress deployment for the exact PR head, without
     } } },
   });
   expect(calls[0]).toMatchObject({
-    ...repo, ref: sha, environment: "dev-pr-7", auto_merge: false,
-    required_contexts: [], transient_environment: true, production_environment: false,
+    ...repo, ref: sha, environment: "dev", auto_merge: false,
+    required_contexts: [], transient_environment: false, production_environment: false,
   });
   expect(outputs.id).toBe(99);
   expect(calls[1]).toMatchObject({ deployment_id: 99, state: "in_progress" });
@@ -180,12 +180,12 @@ test("preview reports health failures and removes closed, superseded, or cancell
       exec: { exec: async (command, args) => { commands.push([command, args]); } },
     });
     expect(commands.length).toBe(destroys ? 1 : 0);
-    expect(statuses[0]).toMatchObject({ deployment_id: 99, state: status, auto_inactive: true });
+    expect(statuses[0]).toMatchObject({ deployment_id: 99, state: status, auto_inactive: false });
     expect(statuses[0].environment_url).toBe(status === "success" ? "https://pr-7.example.com" : undefined);
   }
 });
 
-test("destroying an old preview deactivates prior transient records, but not its replacement", async () => {
+test("destroying an old preview deactivates this PR's records, but not its replacement or other PRs", async () => {
   const statuses = [];
   const queries = [];
   const commands = [];
@@ -196,14 +196,29 @@ test("destroying an old preview deactivates prior transient records, but not its
     github: {
       paginate: async (method, args) => method(args),
       rest: { repos: {
-        listDeployments: async (args) => { queries.push(args); return [{ id: 99 }, { id: 100 }]; },
+        listDeployments: async (args) => {
+          queries.push(args);
+          return args.environment === "dev"
+            ? [
+              { id: 98, description: "PR #8 preview" },
+              { id: 99, description: "PR #7 preview" },
+              { id: 100, description: "PR #7 preview" },
+            ]
+            : [{ id: 97, description: "PR #7 preview" }];
+        },
         createDeploymentStatus: async (args) => { statuses.push(args); },
       } },
     },
   });
   expect(commands).toEqual([["bash", ["deploy/stack.sh", "destroy"]]]);
-  expect(queries).toEqual([{ ...repo, environment: "dev-pr-7", per_page: 100 }]);
-  expect(statuses).toEqual([{ ...repo, deployment_id: 99, state: "inactive" }]);
+  expect(queries).toEqual([
+    { ...repo, environment: "dev", per_page: 100 },
+    { ...repo, environment: "dev-pr-7", per_page: 100 },
+  ]);
+  expect(statuses).toEqual([
+    { ...repo, deployment_id: 99, state: "inactive" },
+    { ...repo, deployment_id: 97, state: "inactive" },
+  ]);
 });
 
 test("preview cleanup deactivates only that PR's deployments and respects reopened PRs", async () => {
@@ -227,7 +242,15 @@ test("preview cleanup deactivates only that PR's deployments and respects reopen
         rest: {
           pulls: { get: async () => ({ data: { state } }) },
           repos: {
-            listDeployments: async (args) => { queries.push(args); return [{ id: 99 }, { id: 100 }]; },
+            listDeployments: async (args) => {
+              queries.push(args);
+              return args.environment === "dev"
+                ? [
+                  { id: 99, description: "PR #7 preview" },
+                  { id: 100, description: "PR #8 preview" },
+                ]
+                : [{ id: 98, description: "PR #7 preview" }];
+            },
             createDeploymentStatus: async (args) => { statuses.push(args); },
           },
         },
@@ -235,9 +258,15 @@ test("preview cleanup deactivates only that PR's deployments and respects reopen
       exec: { exec: async (command, args) => { commands.push([command, args]); } },
     });
     expect(commands.length).toBe(shouldClean ? 1 : 0);
-    expect(queries).toEqual(shouldClean ? [{ ...repo, environment: "dev-pr-7", per_page: 100 }] : []);
+    expect(queries).toEqual(shouldClean ? [
+      { ...repo, environment: "dev", per_page: 100 },
+      { ...repo, environment: "dev-pr-7", per_page: 100 },
+    ] : []);
     expect(statuses.map(({ deployment_id, state }) => ({ deployment_id, state }))).toEqual(
-      shouldClean ? [{ deployment_id: 99, state: "inactive" }, { deployment_id: 100, state: "inactive" }] : [],
+      shouldClean ? [
+        { deployment_id: 99, state: "inactive" },
+        { deployment_id: 98, state: "inactive" },
+      ] : [],
     );
   }
 });

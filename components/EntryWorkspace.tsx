@@ -4,8 +4,10 @@ import Image from "next/image";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "@/components/AuthBoundary";
 import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
-import Button from "@/components/Button";
+import Breadcrumbs, { type Crumb } from "@/components/Breadcrumbs";
+import Button, { ButtonLink } from "@/components/Button";
 import Card from "@/components/Card";
+import { StatusBadge, nextTransition } from "@/components/CompetitionStatus";
 
 const MAX_MEDIA_FILES = 5;
 const MAX_MEDIA_SIZE = 10 * 1024 * 1024;
@@ -21,7 +23,37 @@ type Competition = {
   status: string;
   submission_deadline: string | null;
   voting_deadline: string | null;
+  // A many-to-one embed is one object; untyped clients infer an array.
+  groups?: { name: string } | { name: string }[] | null;
 };
+
+function competitionCrumbs(competitionId: string, competition: Competition, groupId: string | null): Crumb[] {
+  return [
+    { label: "Dashboard", href: "/dashboard" },
+    ...(groupId ? [{ label: [competition.groups].flat()[0]?.name || "Group", href: `/group/${encodeURIComponent(groupId)}` }] : []),
+    { label: competition.name, href: `/competition/${encodeURIComponent(competitionId)}` },
+  ];
+}
+
+// Supabase errors are plain objects, not Error instances.
+function failureMessage(failure: unknown) {
+  return failure && typeof failure === "object" && "message" in failure && typeof failure.message === "string"
+    ? failure.message
+    : "Please try again.";
+}
+
+function Deadlines({ competition }: { competition: Competition }) {
+  return (
+    <>
+      {competition.submission_deadline && (
+        <p>Submissions close {new Date(competition.submission_deadline).toLocaleString()}</p>
+      )}
+      {competition.voting_deadline && (
+        <p>Voting closes {new Date(competition.voting_deadline).toLocaleString()}</p>
+      )}
+    </>
+  );
+}
 
 type Submission = { id: string; title: string; media_keys: string[] };
 type BlindEntry = { entry_number: number; media_keys: string[] };
@@ -157,6 +189,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   const { client, session } = useAuth();
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [blindEntries, setBlindEntries] = useState<BlindEntry[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -179,6 +212,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     setLoading(true);
     setError("");
     setCompetition(null);
+    setIsAdmin(false);
     setSubmission(null);
     setBlindEntries([]);
     setCategories([]);
@@ -186,7 +220,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     setPublishedResults([]);
     try {
       const result = await client.from("competitions")
-        .select("id,group_id,name,status,submission_deadline,voting_deadline")
+        .select("id,group_id,name,status,submission_deadline,voting_deadline,groups(name)")
         .eq("id", competitionId)
         .maybeSingle();
       if (result.error || !result.data) {
@@ -203,7 +237,9 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         && (!result.data.voting_deadline
           || Date.parse(result.data.voting_deadline) > Date.now());
       setVotingOpen(isVotingOpen);
-      const [mine, blind, categoryResult, savedBallot, finalResults] = await Promise.all([
+      const [membership, mine, blind, categoryResult, savedBallot, finalResults] = await Promise.all([
+        client.from("group_members").select("role")
+          .eq("group_id", result.data.group_id).eq("user_id", session.user.id).maybeSingle(),
         client.rpc("get_my_submission", { p_competition_id: competitionId }),
         isVotingOpen
           ? client.rpc("get_blind_voting_entries", { p_competition_id: competitionId })
@@ -219,6 +255,8 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           ? client.rpc("get_published_competition_results", { p_competition_id: competitionId })
           : Promise.resolve({ data: [], error: null }),
       ]);
+      // Only decides whether to offer the admin page; the server enforces access.
+      setIsAdmin(membership.data?.role === "admin");
       if (mine.error) {
         setError(`Unable to load your submission: ${mine.error.message}`);
         return;
@@ -260,7 +298,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [client, competitionId]);
+  }, [client, competitionId, session.user.id]);
 
   useRealtimeUpdates(client, session.user.id, groupId, load);
 
@@ -424,13 +462,15 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
 
   return (
     <div className="space-y-6">
+      <Breadcrumbs items={competitionCrumbs(competitionId, competition, groupId).map((crumb, index, all) =>
+        index === all.length - 1 ? { label: crumb.label } : crumb)} />
       <Card title={competition.name}>
-        <p>Status: {competition.status}</p>
-        {competition.submission_deadline && (
-          <p>Submissions close {new Date(competition.submission_deadline).toLocaleString()}</p>
-        )}
-        {competition.voting_deadline && (
-          <p>Voting closes {new Date(competition.voting_deadline).toLocaleString()}</p>
+        <p className="flex flex-wrap items-center gap-2">Status: <StatusBadge status={competition.status} /></p>
+        <Deadlines competition={competition} />
+        {isAdmin && (
+          <ButtonLink href={`/competition/${encodeURIComponent(competitionId)}/admin`}>
+            Manage competition
+          </ButtonLink>
         )}
       </Card>
 
@@ -572,7 +612,6 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
   const [attempt, setAttempt] = useState(0);
   const [entries, setEntries] = useState<AdminEntry[]>([]);
   const [attendees, setAttendees] = useState<CompetitionAttendee[]>([]);
-  const [competitionName, setCompetitionName] = useState("");
   const [reviewResults, setReviewResults] = useState<AdminReviewResult[] | null>(null);
   const [competitionStatus, setCompetitionStatus] = useState("");
   const [reasons, setReasons] = useState<Record<string, string>>({});
@@ -581,14 +620,17 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
+  const [competition, setCompetition] = useState<Competition | null>(null);
+  const [transitioning, setTransitioning] = useState(false);
+  const [transitionError, setTransitionError] = useState("");
   const refresh = useCallback(() => {
     setLoading(true);
     setError("");
     setEntries([]);
     setAttendees([]);
-    setCompetitionName("");
     setReviewResults(null);
     setCompetitionStatus("");
+    setCompetition(null);
     setAttempt((value) => value + 1);
   }, []);
 
@@ -598,7 +640,9 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
       try {
         const [submissionResult, competitionResult, attendeeResult] = await Promise.all([
           client.rpc("get_admin_submissions", { p_competition_id: competitionId }),
-          client.from("competitions").select("group_id,name,status").eq("id", competitionId).maybeSingle(),
+          client.from("competitions")
+            .select("id,group_id,name,status,submission_deadline,voting_deadline,groups(name)")
+            .eq("id", competitionId).maybeSingle(),
           client.rpc("get_admin_competition_attendees", { p_competition_id: competitionId }),
         ]);
         if (!active) return;
@@ -615,8 +659,8 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
           return;
         }
         setGroupId(competitionResult.data.group_id);
-        setCompetitionName(competitionResult.data.name);
         setAttendees((attendeeResult.data || []) as CompetitionAttendee[]);
+        setCompetition(competitionResult.data);
         setEntries((submissionResult.data || []) as AdminEntry[]);
         setCompetitionStatus(competitionResult.data.status);
         if (competitionResult.data.status === "review_pending") {
@@ -646,6 +690,25 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
     setReviewResults((data || []) as AdminReviewResult[]);
   }
 
+  async function advance() {
+    const step = nextTransition[competitionStatus];
+    if (!step || transitioning || !window.confirm(step.confirm)) return;
+    setTransitioning(true);
+    setTransitionError("");
+    try {
+      const { error: transitionFailure } = await client.rpc("transition_competition", {
+        p_competition_id: competitionId,
+        p_target_status: step.target,
+      });
+      if (transitionFailure) throw transitionFailure;
+      refresh();
+    } catch (failure) {
+      setTransitionError(`Unable to ${step.action.toLowerCase()}: ${failureMessage(failure)}`);
+    } finally {
+      setTransitioning(false);
+    }
+  }
+
   async function disqualify(entry: AdminReviewResult) {
     const reason = reasons[entry.entry_id]?.trim();
     if (!reason || workingEntry) return;
@@ -662,7 +725,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
       await refreshReviewResults();
       setReasons((current) => ({ ...current, [entry.entry_id]: "" }));
     } catch (reviewError) {
-      setError(`Unable to disqualify entry: ${reviewError instanceof Error ? reviewError.message : "Please try again."}`);
+      setError(`Unable to disqualify entry: ${failureMessage(reviewError)}`);
     } finally {
       setWorkingEntry("");
     }
@@ -682,7 +745,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
       setReviewResults(null);
       setActionMessage("Results published. Group members can now view the final rankings and identities.");
     } catch (publishError) {
-      setError(`Unable to publish results: ${publishError instanceof Error ? publishError.message : "Please try again."}`);
+      setError(`Unable to publish results: ${failureMessage(publishError)}`);
     } finally {
       setPublishing(false);
     }
@@ -690,13 +753,32 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
 
   if (loading) return <p role="status">Loading admin submissions…</p>;
   if (error) return <p role="alert">{error}</p>;
+  const step = nextTransition[competitionStatus];
 
   const attendeeName = (userId: string) =>
     attendees.find((attendee) => attendee.user_id === userId)?.display_name || "Participant";
 
   return (
     <div className="space-y-6">
-      <h2 className="break-words text-2xl font-semibold">{competitionName}</h2>
+      {competition && (
+        <Breadcrumbs items={[...competitionCrumbs(competitionId, competition, groupId), { label: "Manage" }]} />
+      )}
+      <Card title={competition?.name || "Competition status"}>
+        <p className="flex flex-wrap items-center gap-2">Status: <StatusBadge status={competitionStatus} /></p>
+        {competition && <Deadlines competition={competition} />}
+        {competitionStatus === "draft" && (
+          <p>Edit the draft from the group page. Opening submissions locks its settings.</p>
+        )}
+        {competitionStatus === "review_pending" && (
+          <p>Review the preliminary rankings below, then publish the final results.</p>
+        )}
+        {transitionError && <p role="alert">{transitionError}</p>}
+        {step && (
+          <Button disabled={transitioning} onClick={() => void advance()}>
+            {transitioning ? "Updating…" : step.action}
+          </Button>
+        )}
+      </Card>
       <Card title="Competition attendees">
         <p>Group members and anyone who has submitted or voted in this competition.</p>
         {attendees.length ? (

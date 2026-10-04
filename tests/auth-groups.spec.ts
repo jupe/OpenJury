@@ -411,7 +411,7 @@ test("group admins create and edit draft competitions with scoring criteria", as
   await page.getByRole("textbox", { name: "Competition name" }).fill("Autumn bake-off");
   await page.getByRole("textbox", { name: "Category name" }).fill("Taste");
   await page.getByRole("button", { name: "Create competition" }).click();
-  await expect(page.getByRole("link", { name: "Autumn bake-off" })).toHaveAttribute("href", `/competition/${competitionId}`);
+  await expect(page.getByRole("link", { name: "Autumn bake-off", exact: true })).toHaveAttribute("href", `/competition/${competitionId}`);
   expect(saves[0]).toMatchObject({
     p_competition_id: null,
     p_group_id: groupId,
@@ -468,14 +468,14 @@ test("participants refetch authorized competition data after reconnect", async (
 
   await page.goto(`/competition/${competitionId}`);
   await expect.poll(() => realtime.hasChannel(`group:${groupId}`)).toBe(true);
-  await expect(page.getByText("Status: submission")).toBeVisible();
+  await expect(page.getByText("Status: Open for entries")).toBeVisible();
   status = "voting";
   const refetch = page.waitForRequest((request) =>
     request.url().includes("/rest/v1/competitions"));
   realtime.broadcast(`group:${groupId}`, "data_changed");
   await refetch;
   await expect(page.getByRole("heading", { name: "Entry 7" })).toBeVisible();
-  await expect(page.getByText("Status: voting")).toBeVisible();
+  await expect(page.getByText("Status: Voting")).toBeVisible();
 
   status = "completed";
   await page.route(`${supabaseURL}/rest/v1/rpc/get_published_competition_results`, (route) =>
@@ -822,4 +822,140 @@ test("attendee authorization errors do not expose private admin data", async ({ 
   await expect(page.getByRole("alert").filter({ hasText: "Unable to load competition attendees" })).toBeVisible();
   await expect(page.getByText("Private entry", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Competition attendees" })).toHaveCount(0);
+});
+
+test("group lobby shows competition status and offers admins a manage button", async ({ page }) => {
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{
+      id: competitionId,
+      name: "Autumn bake-off",
+      event_type: "remote",
+      status: "submission",
+      submission_deadline: null,
+      voting_deadline: null,
+    }],
+  }));
+
+  await page.goto(`/group/${groupId}`);
+  const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
+  await expect(breadcrumb.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/dashboard");
+  await expect(breadcrumb.getByText("Baking club")).toHaveAttribute("aria-current", "page");
+  await expect(page.getByText("Open for entries")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Manage Autumn bake-off" }))
+    .toHaveAttribute("href", `/competition/${competitionId}/admin`);
+  await expectPhoneLayout(page);
+
+  await page.route(`${supabaseURL}/rest/v1/group_members**`, (route) => route.fulfill({
+    json: [{ role: "member" }],
+  }));
+  await page.reload();
+  await expect(page.getByText("Open for entries")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Manage Autumn bake-off" })).toHaveCount(0);
+});
+
+test("competition pages lead back to their group and admins to management", async ({ page }) => {
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{
+      id: competitionId,
+      group_id: groupId,
+      name: "Autumn bake-off",
+      status: "draft",
+      submission_deadline: null,
+      voting_deadline: null,
+      groups: { name: "Baking club" },
+    }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) =>
+    route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) =>
+    route.fulfill({ json: [] }));
+
+  await page.goto(`/competition/${competitionId}`);
+  const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
+  await expect(breadcrumb.getByRole("link", { name: "Baking club" })).toHaveAttribute("href", `/group/${groupId}`);
+  await expect(breadcrumb.getByText("Autumn bake-off")).toHaveAttribute("aria-current", "page");
+  await page.getByRole("link", { name: "Manage competition" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Competition admin");
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Autumn bake-off" }))
+    .toHaveAttribute("href", `/competition/${competitionId}`);
+
+  await page.route(`${supabaseURL}/rest/v1/group_members**`, (route) => route.fulfill({
+    json: [{ role: "member" }],
+  }));
+  await page.goto(`/competition/${competitionId}`);
+  await expect(page.getByText("Status: Draft")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Manage competition" })).toHaveCount(0);
+});
+
+test("admins move a competition through its lifecycle after confirming", async ({ page }) => {
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  let status = "draft";
+  const transitions: Array<Record<string, unknown>> = [];
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{
+      id: competitionId,
+      group_id: groupId,
+      name: "Autumn bake-off",
+      status,
+      submission_deadline: null,
+      voting_deadline: null,
+      groups: { name: "Baking club" },
+    }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) =>
+    route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/transition_competition`, (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    transitions.push(body);
+    status = String(body.p_target_status);
+    return route.fulfill({ json: status });
+  });
+
+  await page.goto(`/competition/${competitionId}/admin`);
+  await expect(page.getByText("Status: Draft")).toBeVisible();
+  await expectPhoneLayout(page);
+
+  page.once("dialog", (dialog) => void dialog.dismiss());
+  await page.getByRole("button", { name: "Open submissions" }).click();
+  expect(transitions).toEqual([]);
+
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "Open submissions" }).click();
+  await expect(page.getByText("Status: Open for entries")).toBeVisible();
+
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "Close submissions and start voting" }).click();
+  await expect(page.getByText("Status: Voting")).toBeVisible();
+
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "Close voting" }).click();
+  await expect.poll(() => transitions.length).toBe(3);
+  expect(transitions).toEqual([
+    { p_competition_id: competitionId, p_target_status: "submission" },
+    { p_competition_id: competitionId, p_target_status: "voting" },
+    { p_competition_id: competitionId, p_target_status: "review_pending" },
+  ]);
+});
+
+test("rejected lifecycle changes are reported and keep the current status", async ({ page }) => {
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{ id: competitionId, group_id: groupId, name: "Autumn bake-off", status: "draft", submission_deadline: null, voting_deadline: null }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) =>
+    route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/transition_competition`, (route) =>
+    route.fulfill({ status: 400, json: { code: "55000", message: "Invalid competition status transition" } }));
+
+  await page.goto(`/competition/${competitionId}/admin`);
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "Open submissions" }).click();
+  await expect(page.getByText("Unable to open submissions: Invalid competition status transition")).toBeVisible();
+  await expect(page.getByText("Status: Draft")).toBeVisible();
 });
