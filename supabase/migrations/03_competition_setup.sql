@@ -102,7 +102,7 @@ begin
     raise exception 'Competition name must contain 1 to 100 characters'
       using errcode = '22023';
   end if;
-  if p_event_type not in ('live', 'remote') then
+  if p_event_type is null or p_event_type not in ('live', 'remote') then
     raise exception 'Event type must be live or remote' using errcode = '22023';
   end if;
   if p_submission_deadline is not null
@@ -121,13 +121,13 @@ begin
     select value from jsonb_array_elements(p_categories)
   loop
     category_name := btrim(category_item ->> 'name');
-    if jsonb_typeof(category_item) <> 'object'
+    if jsonb_typeof(category_item) is distinct from 'object'
        or category_name is null
        or char_length(category_name) not between 1 and 100 then
       raise exception 'Category names must contain 1 to 100 characters'
         using errcode = '22023';
     end if;
-    if jsonb_typeof(category_item -> 'max_score') <> 'number'
+    if jsonb_typeof(category_item -> 'max_score') is distinct from 'number'
        or (category_item ->> 'max_score') !~ '^[1-5]$' then
       raise exception 'Category maximum scores must be from 1 to 5'
         using errcode = '22023';
@@ -151,6 +151,16 @@ begin
     )
     returning id into saved_competition_id;
   else
+    if exists (
+      select 1
+      from public.categories as category
+      join public.votes as vote on vote.category_id = category.id
+      where category.competition_id = p_competition_id
+    ) then
+      raise exception 'Scoring criteria with votes cannot be replaced'
+        using errcode = '55000';
+    end if;
+
     update public.competitions
       set name = normalized_name,
           event_type = p_event_type,

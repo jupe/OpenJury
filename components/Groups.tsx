@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthBoundary";
+import { CompetitionManager } from "@/components/Competitions";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
 
@@ -125,7 +126,7 @@ export function GroupDetails({ id }: { id: string }) {
   return (
     <>
       <Card title={group.name}><p>Group: {group.id}</p></Card>
-      <Card title="Competitions"><p>Group competitions are not available yet. Submission, voting, and administration remain closed.</p></Card>
+      <CompetitionManager groupId={id} />
     </>
   );
 }
