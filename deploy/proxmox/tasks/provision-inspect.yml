@@ -52,7 +52,7 @@
       - existing.ipconfig0 | default('') == 'ip=' ~ openjury_guest.ansible_host ~ '/' ~ openjury_guest.openjury_prefix_length ~ ',gw=' ~ openjury_guest.openjury_gateway ~ ',ip6=manual'
       - existing.net0 | default('') is match('^virtio=')
       - "'bridge=' ~ openjury_guest.openjury_bridge in existing.net0.split(',')"
-      - "'tag=' ~ openjury_guest.openjury_vlan in existing.net0.split(',')"
+      - not (openjury_vlans_enabled | default(true)) or ('tag=' ~ openjury_guest.openjury_vlan in existing.net0.split(','))
       - "'firewall=1' in existing.net0.split(',')"
       - existing.keys() | select('match', '^net[1-9][0-9]*$') | list | length == 0
       - existing.scsi0 is match('^' ~ openjury_storage ~ ':')

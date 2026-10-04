@@ -51,7 +51,7 @@ deployment. `stack.sh` refuses plain HTTP for staging and production.
   `proxmox-firewall` backend is not supported by these playbooks; do not change
   backends blindly on a live host. Keep a console session available while
   applying network changes.
-- An existing **Ubuntu Server 24.04 amd64 cloud-init QEMU template**, with
+- An existing **Ubuntu Server 26.04 amd64 cloud-init QEMU template**, with
   Python 3, `cloud-init`, `qemu-guest-agent`, and OpenSSH installed. Its root disk
   must be `scsi0`, its cloud-init drive attached, and it must have no runner
   registration, credentials, custom cloud-init snippets, extra NICs, or mounts.
@@ -59,6 +59,13 @@ deployment. `stack.sh` refuses plain HTTP for staging and production.
 - Separate VLANs on an existing VLAN-aware bridge, with routing/gateways
   configured by your network administrator. The playbooks do not reconfigure
   the physical switch, router, Proxmox management interface, or host firewall.
+  Set `openjury_vlans_enabled: false` to skip VLAN tagging entirely on a flat
+  network instead (no trunk port required). This drops Layer-2 isolation
+  between guests and the rest of your network; the per-VM Proxmox firewall
+  (`templates/vm.fw.j2`) remains the only isolation layer, and guest subnets
+  are then expected to overlap the management network rather than being
+  rejected by preflight. Revisit VLANs later by flipping the flag back once a
+  trunk port is configured — no other inventory changes are required.
 - An existing **off-host Proxmox Backup Server storage target**, already
   authenticated in Proxmox. Its server/storage must not depend on the same
   physical machine. Configure PBS retention verification, alerts, and restore

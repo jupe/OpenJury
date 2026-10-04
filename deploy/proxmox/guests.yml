@@ -19,12 +19,12 @@
           - openjury_environment in ['dev', 'staging', 'production']
           - inventory_hostname == 'openjury-' ~ openjury_environment
           - ansible_facts['distribution'] == 'Ubuntu'
-          - ansible_facts['distribution_version'] == '24.04'
+          - ansible_facts['distribution_version'] == '26.04'
           - ansible_facts['architecture'] == 'x86_64'
           - ansible_facts['virtualization_role'] == 'guest'
           - ansible_facts['virtualization_type'] == 'kvm'
           - openjury_acme_email | default('') is match('^[^@\s]+@[^@\s]+\.[^@\s]+$')
-        fail_msg: Configure the inventory and use only the provisioned Ubuntu 24.04 QEMU guests.
+        fail_msg: Configure the inventory and use only the provisioned Ubuntu 26.04 QEMU guests.
 
     - name: Detect Proxmox management filesystem
       ansible.builtin.stat:

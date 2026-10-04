@@ -3,6 +3,11 @@ all:
     # Shared by provisioning and guest configuration; replace placeholders first.
     openjury_operator_confirmed: false
     openjury_acme_email: ""
+    # Set to false only on a flat network with no VLAN-capable trunk port
+    # configured for the guest bridge. This drops per-guest VLAN tagging and
+    # the bridge_vlan_aware requirement; the per-VM Proxmox firewall (vm.fw.j2)
+    # remains the only guest-isolation layer. See docs/proxmox.md.
+    openjury_vlans_enabled: true
   children:
     proxmox:
       hosts:
@@ -14,11 +19,11 @@ all:
         # Replace every documentation address and review routing before confirming.
         # Use trusted administrator SSH; no Proxmox API tokens or storage secrets.
         openjury_template_vmid: 9000
-        # Existing stopped Ubuntu 24.04 amd64 cloud-init template: scsi0 OS disk,
+        # Existing stopped Ubuntu 26.04 amd64 cloud-init template: scsi0 OS disk,
         # ide2 cloud-init drive, net0, and installed/enabled qemu-guest-agent.
         # onboot=0; no passwords, hooks, custom cloud-init, passthrough, or extra
         # NICs. No secrets or reusable private keys may be baked into the image.
-        openjury_template_confirmed_ubuntu_2404_amd64: false
+        openjury_template_confirmed_ubuntu_2604_amd64: false
         openjury_storage: local-lvm
         openjury_admin_ssh_public_key: "ssh-ed25519 REPLACE_WITH_YOUR_PUBLIC_KEY"
         openjury_management_admin_cidr: 192.0.2.128/25

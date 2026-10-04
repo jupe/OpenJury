@@ -57,7 +57,10 @@
           - --nameserver
           - "{{ openjury_dns_servers | join(' ') }}"
           - --net0
-          - "virtio,bridge={{ openjury_guest.openjury_bridge }},tag={{ openjury_guest.openjury_vlan }},firewall=1"
+          - >-
+            {{ 'virtio,bridge=' ~ openjury_guest.openjury_bridge ~
+               (',tag=' ~ openjury_guest.openjury_vlan if openjury_vlans_enabled | default(true) else '') ~
+               ',firewall=1' }}
           - --ipconfig0
           - "ip={{ openjury_guest.ansible_host }}/{{ openjury_guest.openjury_prefix_length }},gw={{ openjury_guest.openjury_gateway }},ip6=manual"
 
