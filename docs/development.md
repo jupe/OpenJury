@@ -82,7 +82,9 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/04_secure_submissions.sql`,
 `supabase/migrations/05_transactional_lifecycle.sql`, and
 `supabase/migrations/06_secure_ballots.sql` and
-`supabase/migrations/07_admin_review_and_publication.sql`, once each, in that order.
+`supabase/migrations/07_admin_review_and_publication.sql`,
+`supabase/migrations/08_realtime_notifications.sql`, and
+`supabase/migrations/09_group_management.sql`, once each, in that order.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
 projects, apply only migrations not already applied, in sequence. Apply

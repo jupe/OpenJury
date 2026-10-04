@@ -94,6 +94,11 @@ deadlines when both are set. Category maxima are constrained to 1–5. Draft
 updates lock the competition row and are rejected after it leaves the draft
 status, so lifecycle transitions must use the same row lock.
 
+Migration `09_group_management.sql` adds `rename_group` and `delete_group` RPCs.
+Only group admins may rename or remove a group, and names are trimmed and limited
+to 1–100 characters. Removing a group deletes its group-owned data, but is
+blocked when disqualification audit records exist so the audit trail is retained.
+
 Migration `04_secure_submissions.sql` allows authenticated members to create
 and edit one submission per competition through `save_submission`. It locks the
 competition before validating its submission phase and deadline; direct entry
@@ -126,6 +131,7 @@ On a disposable Supabase database with all migrations applied, run:
 
 ```sh
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_access.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_management.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_setup.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/secure_submissions.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/transactional_lifecycle.sql
