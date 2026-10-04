@@ -1,0 +1,48 @@
+name: Merge reviewed minor PRs
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  schedule:
+    - cron: "17,47 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: minor-pr-merge
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    if: >-
+      vars.MINOR_PR_AUTOMERGE_ENABLED == 'true' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Restrict this environment to main so PR workflows cannot steal the App key.
+    environment: minor-pr-automation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+      - name: Create repository-scoped merge token
+        id: token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.MINOR_PR_APP_CLIENT_ID }}
+          private-key: ${{ secrets.MINOR_PR_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-actions: read
+          permission-administration: read
+      - name: Assess current diff, reviews, protections, and CI before merging
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: ${{ steps.token.outputs.token }}
+          script: |
+            const { mergeMinorPRs } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/minor-pr.mjs`);
+            await mergeMinorPRs({ github, context, core });

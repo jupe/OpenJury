@@ -97,3 +97,33 @@ jobs:
       image: ${{ needs.publish.outputs.image }}
       revision: ${{ needs.publish.outputs.revision }}
     secrets: inherit
+
+  notify:
+    needs: [publish, production]
+    if: >-
+      needs.production.result == 'success' &&
+      vars.DEPLOYMENT_NOTIFICATIONS_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.publish.outputs.revision }}
+          persist-credentials: false
+      - name: Notify feedback reporters after production smoke tests
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          DEPLOYED_REVISION: ${{ needs.publish.outputs.revision }}
+          PRODUCTION_RESULT: ${{ needs.production.result }}
+        with:
+          script: |
+            const { notifyDeployment } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/deployment-feedback.mjs`);
+            await notifyDeployment({
+              github, context, core,
+              revision: process.env.DEPLOYED_REVISION,
+              productionResult: process.env.PRODUCTION_RESULT
+            });
