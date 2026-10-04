@@ -87,8 +87,8 @@ jobs:
           docker compose -f deploy/compose.yml -f deploy/compose.tls.yml config --quiet
           docker compose -f deploy/compose.yml -f deploy/compose.tls.yml \
             -f deploy/compose.supabase.yml -f deploy/compose.supabase.tls.yml config --quiet
-          bash -n deploy/proxmox/dev-vm.sh deploy/proxmox/dev-bootstrap.sh deploy/supabase/migrate.sh
-          shellcheck deploy/proxmox/dev-vm.sh deploy/proxmox/dev-bootstrap.sh deploy/supabase/migrate.sh
+          bash -n deploy/proxmox/vm.sh deploy/proxmox/vm-bootstrap.sh deploy/supabase/migrate.sh
+          shellcheck deploy/proxmox/vm.sh deploy/proxmox/vm-bootstrap.sh deploy/supabase/migrate.sh
         env:
           COMPOSE_PROJECT_NAME: openjury-pr-1
           IMAGE: openjury:ci

@@ -23,13 +23,14 @@ or change GitHub settings. No Proxmox infrastructure is contacted by CI.
 ## Quick start: LAN-only dev VM
 
 For just a dev preview host on a home network, skip the playbooks below.
-`deploy/proxmox/dev-vm.sh` clones a cloud-init template into one VM (DHCP,
-default VM ID `201`), installs Docker and an **HTTP-only** Traefik ingress, and
-registers it as the `openjury-dev` runner. It needs root SSH to Proxmox and an
-authenticated `gh` with admin rights on the repository. It is safe to rerun.
+`deploy/proxmox/vm.sh` clones a cloud-init template into one VM (DHCP,
+default VM ID `201`, 4 GB RAM), installs Docker, 2 GB of swap, and an
+**HTTP-only** Traefik ingress, and registers it as the `openjury-dev` runner. It
+needs root SSH to Proxmox and an authenticated `gh` with admin rights on the
+repository. It is safe to rerun.
 
 ```sh
-PVE_HOST=root@192.168.1.3 TEMPLATE_ID=9000 ./deploy/proxmox/dev-vm.sh
+PVE_HOST=root@192.168.1.3 TEMPLATE_ID=9000 ./deploy/proxmox/vm.sh
 ```
 
 Override `VMID`, `CORES`, `MEMORY_MB`, `DISK_GB`, or `SSH_KEY` as needed. Reserve
@@ -47,6 +48,46 @@ This trades the isolation below for simplicity: there is no TLS, VLAN, or
 Proxmox VM firewall, so preview images can reach your LAN. Use it only for a
 private repository where you review every PR before approving its `dev`
 deployment. `stack.sh` refuses plain HTTP for staging and production.
+
+## Quick start: LAN staging and production VMs
+
+The same script builds staging (VM ID `202`) and production (`203`) VMs with
+2 GB RAM and 2 GB swap each; raise `MEMORY_MB` (or `qm set <id> --memory`)
+later if needed:
+
+```sh
+ENVIRONMENT=staging ./deploy/proxmox/vm.sh
+ENVIRONMENT=production ./deploy/proxmox/vm.sh
+```
+
+Each VM serves plain HTTP on port 80 and registers the `openjury-staging` or
+`openjury-production` runner. **HTTPS is terminated by your own proxy in front
+of the VM**: forward the public hostname to `http://<vm-ip>:80`, preserve the
+`Host` header, and allow WebSocket upgrades (Realtime). The deployment then runs
+a self-hosted Supabase stack beside the app, like a preview, but persistent:
+
+- Secrets are generated on the first deploy and kept on the VM in
+  `~openjury-runner/.local/state/openjury/openjury-<environment>/supabase.env`.
+  The database and storage live in Docker volumes that no script deletes.
+  **Back up both**; losing the secrets file makes the database unusable, and a
+  deploy refuses to continue when the file is missing but the volume exists.
+- Migrations from `main` are applied before the new app image starts. Each one
+  runs once and is recorded in `openjury_meta.applied_migrations`.
+- Password sign-in and the seeded preview account stay preview-only. Until you
+  set the `SMTP_*` variables, magic-link emails land in the VM's Mailpit, which
+  is reachable only through an SSH tunnel:
+  `ssh -L 8025:127.0.0.1:8025 ubuntu@<vm-ip>`, then `http://localhost:8025`.
+
+In each GitHub environment (`staging`, `production`) set `APP_HOST` to the
+public hostname, `TLS_TERMINATION=upstream`, and `SUPABASE_SELF_HOSTED=true`.
+Leave `SUPABASE_URL`/`SUPABASE_ANON_KEY` unset; the deployment derives them.
+Smoke tests run from GitHub-hosted runners through `https://<APP_HOST>`, so the
+hostnames must be reachable from the internet. Then set the repository variable
+`CD_ENABLED=true`.
+
+As with the dev quick start, these runners are repository-level runners on a
+single flat network, so this suits a private repository where every workflow
+change is reviewed; a PR that edits its workflows could target them.
 
 ## Prerequisites and trust boundaries
 

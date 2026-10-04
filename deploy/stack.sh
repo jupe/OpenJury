@@ -41,11 +41,22 @@ if [[ ! "$APP_HOST" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ || "$APP_HOST" != *.* ]]
   echo "APP_HOST must be a DNS hostname, without a scheme or path" >&2
   exit 1
 fi
+preview=false
+[[ "$COMPOSE_PROJECT_NAME" =~ ^openjury-pr-[1-9][0-9]*$ ]] && preview=true
 # Plain HTTP is only for the LAN-only dev VM, whose ingress has no TLS entrypoint.
+# APP_SCHEME is the public scheme; TLS_TERMINATION=upstream serves that HTTPS from
+# a proxy in front of the VM, so Traefik only listens on plain HTTP.
+traefik_tls=false
 case "${APP_SCHEME:-https}" in
-  https) files=(-f compose.yml -f compose.tls.yml) ;;
+  https)
+    case "${TLS_TERMINATION:-traefik}" in
+      traefik) files=(-f compose.yml -f compose.tls.yml); traefik_tls=true ;;
+      upstream) files=(-f compose.yml); export TRAEFIK_ENTRYPOINT=web ;;
+      *) echo "TLS_TERMINATION must be traefik or upstream" >&2; exit 1 ;;
+    esac
+    ;;
   http)
-    if [[ ! "$COMPOSE_PROJECT_NAME" =~ ^openjury-pr-[1-9][0-9]*$ ]]; then
+    if [[ "$preview" != true ]]; then
       echo "Plain HTTP is only allowed for PR previews" >&2
       exit 1
     fi
@@ -55,10 +66,11 @@ case "${APP_SCHEME:-https}" in
   *) echo "APP_SCHEME must be http or https" >&2; exit 1 ;;
 esac
 
-# A PR preview with migrations gets its own disposable Supabase backend.
+# SUPABASE_MIGRATIONS bundles a self-hosted Supabase backend: disposable for PR
+# previews, persistent (secrets kept on the host, data in volumes) otherwise.
 if [[ -n "${SUPABASE_MIGRATIONS:-}" ]]; then
-  if [[ ! "$COMPOSE_PROJECT_NAME" =~ ^openjury-pr-[1-9][0-9]*$ || ! -d "$SUPABASE_MIGRATIONS" ]]; then
-    echo "SUPABASE_MIGRATIONS must be a directory and is only allowed for PR previews" >&2
+  if [[ ! -d "$SUPABASE_MIGRATIONS" ]]; then
+    echo "SUPABASE_MIGRATIONS must be a directory" >&2
     exit 1
   fi
   b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
@@ -66,26 +78,49 @@ if [[ -n "${SUPABASE_MIGRATIONS:-}" ]]; then
     local header payload now
     now="$(date +%s)"
     header="$(printf '{"alg":"HS256","typ":"JWT"}' | b64url)"
-    payload="$(printf '{"role":"%s","iss":"supabase","iat":%d,"exp":%d}' "$1" "$now" $((now + 31536000)) | b64url)"
+    # Keys are re-signed on every deploy; ten years keeps a quiet environment working.
+    payload="$(printf '{"role":"%s","iss":"supabase","iat":%d,"exp":%d}' "$1" "$now" $((now + 315360000)) | b64url)"
     printf '%s.%s.%s' "$header" "$payload" \
       "$(printf '%s.%s' "$header" "$payload" | openssl dgst -sha256 -hmac "$JWT_SECRET" -binary | b64url)"
   }
-  JWT_SECRET="$(openssl rand -hex 32)"
-  POSTGRES_PASSWORD="$(openssl rand -hex 24)"
-  REALTIME_SECRET_KEY_BASE="$(openssl rand -hex 32)"
+  new_secrets() {
+    printf 'JWT_SECRET=%s\nPOSTGRES_PASSWORD=%s\nREALTIME_SECRET_KEY_BASE=%s\n' \
+      "$(openssl rand -hex 32)" "$(openssl rand -hex 24)" "$(openssl rand -hex 32)"
+  }
+  if [[ "$preview" == true ]]; then
+    eval "$(new_secrets)"
+  else
+    # The database only takes its password when first initialized, so persistent
+    # environments generate secrets once and refuse to reinvent them for old data.
+    state="${OPENJURY_STATE_DIR:-$HOME/.local/state/openjury}/$COMPOSE_PROJECT_NAME/supabase.env"
+    if [[ ! -f "$state" ]]; then
+      if docker volume inspect "${COMPOSE_PROJECT_NAME}_db-data" >/dev/null 2>&1; then
+        echo "$state is missing but the database volume exists; restore the file" >&2
+        exit 1
+      fi
+      install -d -m 0700 "$(dirname "$state")"
+      (umask 077 && new_secrets > "$state.tmp" && mv "$state.tmp" "$state")
+    fi
+    # shellcheck source=/dev/null
+    source "$state"
+  fi
   SUPABASE_URL="${APP_SCHEME:-https}://$APP_HOST"
   SUPABASE_ANON_KEY="$(jwt anon)"
   SUPABASE_SERVICE_KEY="$(jwt service_role)"
-  export JWT_SECRET POSTGRES_PASSWORD REALTIME_SECRET_KEY_BASE SUPABASE_URL SUPABASE_ANON_KEY SUPABASE_SERVICE_KEY
+  # Password sign-in and the seeded account exist only on disposable previews.
+  PASSWORD_SIGN_IN="$preview"
+  export JWT_SECRET POSTGRES_PASSWORD REALTIME_SECRET_KEY_BASE SUPABASE_URL SUPABASE_ANON_KEY SUPABASE_SERVICE_KEY PASSWORD_SIGN_IN
   files+=(-f compose.supabase.yml)
-  if [[ "${APP_SCHEME:-https}" == https ]]; then
+  if [[ "$traefik_tls" == true ]]; then
     files+=(-f compose.supabase.tls.yml)
   fi
+  # Migrate before switching the app, so a new image never meets an old schema.
+  docker compose "${files[@]}" up --detach --wait --wait-timeout 300 db auth rest realtime storage
+  docker compose "${files[@]}" run --rm migrate
 fi
 
 docker compose "${files[@]}" up --detach --wait --wait-timeout 300 --remove-orphans
-if [[ -n "${SUPABASE_MIGRATIONS:-}" ]]; then
-  docker compose "${files[@]}" run --rm migrate
+if [[ -n "${SUPABASE_MIGRATIONS:-}" && "$preview" == true ]]; then
   # Optional fixed preview account, so sign-in needs no email round trip.
   if [[ -n "${PREVIEW_ADMIN_PASSWORD:-}" ]]; then
     PREVIEW_ADMIN_EMAIL="${PREVIEW_ADMIN_EMAIL:-admin@openjury.test}" python3 -c 'import json, os; print(json.dumps({
