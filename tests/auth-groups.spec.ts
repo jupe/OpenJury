@@ -102,6 +102,76 @@ test("phone sign-in controls support zoom and comfortable touch targets", async 
   expect(viewport).not.toMatch(/user-scalable=no|maximum-scale=1/);
 });
 
+test("phone image upload, uncropped preview and removal work", async ({ page }) => {
+  await configure(page, true);
+  await page.setViewportSize({ width: 320, height: 568 });
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
+  const saves: Array<{ p_title: string; p_media_keys: string[] }> = [];
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{ id: secondId, group_id: groupId, name: "Phone photos", status: "submission", submission_deadline: null, voting_deadline: null }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/save_submission`, (route) => {
+    saves.push(route.request().postDataJSON());
+    return route.fulfill({ json: groupId });
+  });
+  await page.route(`${supabaseURL}/storage/v1/object/**`, (route) => {
+    if (route.request().method() === "POST") return route.fulfill({ json: { Key: "uploaded.png" } });
+    if (route.request().method() === "DELETE") return route.fulfill({ json: [] });
+    return route.fulfill({ contentType: "image/png", body: png });
+  });
+  await page.goto(`/competition/${secondId}`);
+  await page.getByRole("textbox", { name: "Entry title" }).fill("My phone photo");
+  await page.getByLabel("Images (JPEG").setInputFiles({ name: "phone.png", mimeType: "image/png", buffer: png });
+  await expect(page.getByText("1 new image(s) selected.")).toBeVisible();
+  await expectPhoneLayout(page);
+  await page.getByRole("button", { name: "Save submission" }).click();
+  await expect(page.getByRole("heading", { name: "Edit your submission" })).toBeVisible();
+  expect(saves[1].p_title).toBe("My phone photo");
+  expect(saves[1].p_media_keys).toHaveLength(1);
+  const preview = page.getByRole("img", { name: "Your submission image 1", exact: true });
+  await preview.scrollIntoViewIfNeeded();
+  await expect(preview).toBeVisible();
+  await expect.poll(() => preview.evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBe(1);
+  await page.locator("summary").click();
+  await expect(page.getByRole("img", { name: "Your submission image 1, full view" })).toBeVisible();
+  await expectPhoneLayout(page);
+  await page.locator("summary").click();
+  await expect(page.getByRole("img", { name: "Your submission image 1, full view" })).not.toBeVisible();
+  await page.getByRole("button", { name: "Remove image 1" }).click();
+  await page.getByRole("button", { name: "Save submission" }).click();
+  await expect.poll(() => saves.at(-1)?.p_media_keys).toEqual([]);
+});
+
+test("off-screen private voting media is deferred until scrolling", async ({ page }) => {
+  await configure(page, true);
+  await page.setViewportSize({ width: 320, height: 568 });
+  const downloads: string[] = [];
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{ id: secondId, group_id: groupId, name: "Photo jury", status: "voting", submission_deadline: null, voting_deadline: null }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_ballot`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/categories**`, (route) => route.fulfill({
+    json: Array.from({ length: 10 }, (_, index) => ({ id: `category-${index}`, name: `Criterion ${index}`, max_score: 5 })),
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_blind_voting_entries`, (route) => route.fulfill({
+    json: [{ entry_number: 1, media_keys: ["first.png"] }, { entry_number: 2, media_keys: ["second.png"] }],
+  }));
+  await page.route(`${supabaseURL}/storage/v1/object/**`, (route) => {
+    downloads.push(route.request().url().split("/").at(-1)!);
+    return route.fulfill({ contentType: "image/png", body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64") });
+  });
+  await page.goto(`/competition/${secondId}`);
+  await page.getByRole("heading", { name: "Entry 1", exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole("img", { name: "Anonymous entry 1 image 1", exact: true })).toBeVisible();
+  expect(downloads).toEqual(["first.png"]);
+  await page.getByRole("heading", { name: "Entry 2", exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole("img", { name: "Anonymous entry 2 image 1", exact: true })).toBeVisible();
+  expect(downloads).toEqual(["first.png", "second.png"]);
+  await expectPhoneLayout(page);
+});
+
 async function mockRealtime(page: Page) {
   const channels = new Map<string, { socket: import("@playwright/test").WebSocketRoute; joinRef: string }>();
   await page.routeWebSocket("wss://foundation.supabase.co/realtime/v1/websocket**", (socket) => {
@@ -521,6 +591,7 @@ test("voting cards load a private ballot and save score revisions", async ({ pag
   await expect(page.getByLabel("Taste (1–5)")).toHaveValue("2");
   await expect(page.getByLabel("Presentation (1–3)")).toHaveValue("3");
   await expect(page.getByText(/Your own entry is excluded/)).toBeVisible();
+  await expectPhoneLayout(page);
   await page.getByLabel("Taste (1–5)").selectOption("4");
   await page.getByRole("button", { name: "Save ballot" }).click();
   await expect(page.getByRole("status")).toContainText("You can revise it until voting closes");
@@ -596,6 +667,7 @@ test("admins disqualify and publish while group members see only final identitie
 
   await page.goto(`/competition/${competitionId}/admin`);
   await expect(page.getByRole("heading", { name: "Preliminary rankings (admins only)" })).toBeVisible();
+  await expectPhoneLayout(page);
   await page.getByLabel("Disqualification reason").fill("Rule violation");
   await page.getByRole("button", { name: "Disqualify" }).click();
   await expect(page.getByText("Disqualified: Rule violation")).toBeVisible();
@@ -612,4 +684,5 @@ test("admins disqualify and publish while group members see only final identitie
   await expect(page.getByRole("heading", { name: "Published results" })).toBeVisible();
   await expect(page.getByText("Submitted by aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")).toBeVisible();
   await expect(page.getByText("82.50% · 2 complete ballots")).toBeVisible();
+  await expectPhoneLayout(page);
 });

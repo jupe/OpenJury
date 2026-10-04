@@ -80,6 +80,10 @@
   padding: 1.5rem max(1rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
 }
 
+.site-main a {
+  overflow-wrap: anywhere;
+}
+
 @media (min-width: 640px) {
   .site-nav {
     padding: 1rem 1.5rem;

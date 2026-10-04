@@ -23,6 +23,19 @@ and infrastructure tooling. Entry and vote tables remain inaccessible directly;
 private operations use guarded database functions described in the
 [security guide](docs/security.md).
 
+## Mobile experience
+
+The interface is mobile-first, with safe-area spacing, large touch targets,
+zoom-friendly form fields, and responsive participant and admin screens.
+Private image galleries download only when near the viewport; tap **View image**
+to inspect an uncropped image and tap again to close it. Uploads support JPEG,
+PNG, and WebP (up to five images, 10 MB each).
+
+`npm run test:e2e` exercises the workflows in desktop Chromium, Android Chromium,
+and iPhone WebKit, including narrow screens and landscape forms. Browser
+emulation does not replace testing on physical phones, particularly for camera
+uploads, email-link handoff, on-screen keyboards, and low-memory performance.
+
 ## Tech stack
 
 - **Next.js App Router**, React, and TypeScript for pages and application structure.
