@@ -27,11 +27,13 @@ deployment. The PR's own `supabase/migrations` are applied to it, and its API is
 served on the preview host under `/auth/v1`, `/rest/v1`, `/realtime/v1`, and
 `/storage/v1`. Every revision starts empty, and closing the PR deletes the
 database and storage volumes. It needs about 0.5 GB RAM per preview. Magic-link
-emails go to the dev VM's shared Mailpit (`http://mail.<DEV_BASE_DOMAIN>`), and
-previews also offer password sign-in for an optional seeded account
-(`PREVIEW_ADMIN_EMAIL`, default `admin@openjury.test`, and the
-`PREVIEW_ADMIN_PASSWORD` secret). Staging and production never enable password
-sign-in. Never point dev at staging or production. Persistent Supabase projects, backups, and
+emails go to the dev VM's shared Mailpit (`http://mail.<DEV_BASE_DOMAIN>`).
+Disposable previews seed a password account by default so admins can sign in
+without opening email: `admin@openjury.test` / `openjury-preview`. Set
+`PREVIEW_ADMIN_EMAIL` or the `PREVIEW_ADMIN_PASSWORD` secret to override those
+defaults. These shared default credentials are only for disposable previews;
+staging and production never enable password sign-in or seed this account. Never
+point dev at staging or production. Persistent Supabase projects, backups, and
 schema migrations are managed separately; this frontend deployment does not
 reset or migrate them, unless an environment opts into the
 [self-hosted stack](proxmox.md#quick-start-lan-staging-and-production-vms).
@@ -151,8 +153,8 @@ These per-PR deployment records do not supply secrets or replace `dev` approval.
 | Repository variable | `PREVIEW_CD_ENABLED` | `true` to deploy PR previews |
 | Repository variable | `CD_ENABLED` | `true` to deploy staging then production |
 | `dev` variable | `DEV_BASE_DOMAIN` | e.g. `dev.example.com`, without a scheme |
-| `dev` variable | `PREVIEW_ADMIN_EMAIL` | Optional seeded preview account; defaults to `admin@openjury.test` |
-| `dev` secret | `PREVIEW_ADMIN_PASSWORD` | Optional; when set, every preview seeds that account with this password |
+| `dev` variable | `PREVIEW_ADMIN_EMAIL` | Seeded preview account; defaults to `admin@openjury.test` |
+| `dev` secret | `PREVIEW_ADMIN_PASSWORD` | Seeded preview password; defaults to `openjury-preview` |
 | `dev` variable | `APP_SCHEME` | Optional; `http` only for a [LAN-only dev VM](proxmox.md#quick-start-lan-only-dev-vm), defaults to `https` |
 | `staging` / `production` variable | `APP_HOST` | Environment hostname, without a scheme |
 | Each environment variable | `PROXY_NETWORK` | Optional; defaults to `openjury-proxy` |
