@@ -101,7 +101,8 @@ network access, credentials, cloud metadata access, or shared Docker daemon.
 Restrict egress and isolate previews from sensitive services. Container
 hardening is defense in depth, not a VM security boundary. Never run this dev
 runner on a persistent trusted machine. Restrict **all deployment runner groups**
-to the trusted deployment workflow paths on `refs/heads/main`; labels alone are
+to the trusted deployment workflow paths on `refs/heads/main` (or the exact
+approved preview workflow commit described below); labels alone are
 not an access control. Otherwise a PR can change its own workflow to request a
 production runner without using these deployment gates. If your GitHub plan or
 repository cannot enforce that restriction, do not attach trusted self-hosted
@@ -110,10 +111,15 @@ separate trusted deployment repository first. For public repositories, assess
 GitHub's self-hosted-runner risks and use isolated disposable dev VMs/hosts.
 GitHub's fork-workflow approval is separate from dev deployment approval.
 
-The PR's `CI` workflow calls `.github/workflows/preview.yml@main` as a reusable
-workflow; it has no separate `workflow_run` trigger. Keep the dev runner group
-restricted to this reusable workflow on `refs/heads/main`, not the PR-controlled
-caller. Preview orchestration always checks out trusted `main` scripts, never PR
+The PR's `CI` workflow calls `.github/workflows/preview.yml` at the immutable
+commit `25646215ded255adb6c02aa80c161dd56b14557b` as a reusable workflow; it has
+no separate `workflow_run` trigger. This revision already has `workflow_call`,
+so CI can resolve it even before this change reaches `main`. Keep the dev runner
+group restricted to
+`jupe/OpenJury/.github/workflows/preview.yml@25646215ded255adb6c02aa80c161dd56b14557b`,
+not the PR-controlled caller. Keep staging/production runner policies restricted
+to their trusted workflows on `main`. Preview orchestration always checks out
+trusted `main` scripts, never PR
 scripts, and pulls the tested image by digest from
 `ghcr.io/jupe/openjury-preview` using the artifact from the same CI run.
 Fork PRs build and test but do not deploy: their read-only token cannot create
@@ -157,20 +163,27 @@ exists, grant this repository Actions access in its package settings.
 
 Enable the flags independently after infrastructure and environment protections
 are ready. Push a new PR revision/main commit (or rerun its CI) to start delivery.
-The reusable preview workflow and the Release `workflow_run` workflow must exist
-on the default branch (`main`) before they can be used. Do not approve an old
+The pinned reusable preview workflow must exist at its referenced commit; the
+Release `workflow_run` workflow must exist on the default branch (`main`).
+Do not approve an old
 deployment after its three-day image artifact expires; rerun CI instead.
 
 ### Migrating from the separate PR preview workflow
 
-Disable `PREVIEW_CD_ENABLED` before rolling out this change. The new CI caller
-requires the reusable `preview.yml` on `main`; an older copy with only a
-`workflow_run` trigger cannot be called. Merge this workflow update first, then
-update open PR branches from `main` so they include the new CI preview job.
-Re-enable the flag and rerun CI on a reviewed same-repository PR to verify
-approval, the preview check, and the deployment URL on its head commit.
-Do not switch the reusable call to a PR-controlled workflow to bypass this
-rollout requirement.
+GitHub resolves reusable workflows before evaluating job conditions; disabling
+`PREVIEW_CD_ENABLED` cannot fix a call to a workflow without `workflow_call`.
+The immutable pin avoids that bootstrap failure without loading orchestration
+from the PR's current revision. Review and allow the exact pinned workflow in
+the dev runner policy before enabling preview CD. Until this change is merged,
+disable preview CD to avoid also triggering the legacy `workflow_run` preview
+on `main`. After merging, update open PR branches from `main`, re-enable the flag,
+and rerun CI on a reviewed same-repository PR to verify approval, the preview
+check, and the deployment URL on its head commit.
+
+When changing preview orchestration later, update the caller's pin and the dev
+runner allowlist to an existing reviewed commit with `workflow_call`; changes
+to the working copy alone do not change the pinned workflow. Do not use a local
+PR-controlled reusable workflow or a moving PR branch as a shortcut.
 
 ## Cleanup, failures, and recovery
 

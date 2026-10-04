@@ -46,7 +46,7 @@ A failed staging deployment **or smoke test blocks production**.
 
 The optional `PR preview` job is part of the PR's `CI` workflow, so deployment
 progress and approval appear alongside its checks. It calls trusted preview
-orchestration from `main`, downloads the tested image from that same run, and
+orchestration pinned to an immutable commit, downloads the tested image from that same run, and
 records a `dev-pr-<number>` deployment against the PR head SHA (not the synthetic
 merge commit), with the preview URL. The required `checks` job remains independent
 of preview approval. Fork PRs still build and test, but skip deployment because
