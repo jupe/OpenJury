@@ -9,7 +9,10 @@ no group access. Group creation uses the `create_group` RPC, which creates the
 group and its initial admin membership in one transaction. Its security-definer
 function has an empty search path, explicitly checks `auth.uid()`, and is
 executable only by authenticated clients. Direct group and membership writes
-are revoked; users cannot join arbitrary groups or promote themselves.
+are revoked; users cannot join arbitrary groups or promote themselves. Migration
+`09_group_management.sql` adds admin-only rename and removal RPCs; removal
+cascades through group-owned data, but groups with disqualification audit records
+cannot be removed so those records remain intact.
 
 Migration `03_competition_setup.sql` grants authenticated group members read
 access to their competitions and categories. Competition creation and draft

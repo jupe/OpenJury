@@ -103,6 +103,33 @@ test("small phone forms, long names and landscape stay usable", async ({ page })
   }
 });
 
+test("group admins can rename and remove groups", async ({ page }) => {
+  await configure(page, true);
+  const renames: unknown[] = [];
+  const removals: unknown[] = [];
+  await page.route(`${supabaseURL}/rest/v1/rpc/rename_group`, async (route) => {
+    renames.push(route.request().postDataJSON());
+    await route.fulfill({ status: 204 });
+  });
+  await page.route(`${supabaseURL}/rest/v1/rpc/delete_group`, async (route) => {
+    removals.push(route.request().postDataJSON());
+    await route.fulfill({ status: 204 });
+  });
+
+  await page.goto(`/group/${groupId}`);
+  const groupName = page.getByRole("textbox", { name: "Group name" });
+  await expect(groupName).toHaveValue("Baking club");
+  await groupName.fill("New baking club");
+  await page.getByRole("button", { name: "Rename group" }).click();
+  await expect(page.getByRole("status")).toContainText("Group name updated.");
+  expect(renames).toEqual([{ p_group_id: groupId, p_name: "New baking club" }]);
+
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Remove group" }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  expect(removals).toEqual([{ p_group_id: groupId }]);
+});
+
 test("phone sign-in controls support zoom and comfortable touch targets", async ({ page }) => {
   await configure(page);
   await page.setViewportSize({ width: 320, height: 568 });

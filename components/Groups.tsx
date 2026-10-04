@@ -105,14 +105,21 @@ export function GroupList() {
 
 export function GroupDetails({ id }: { id: string }) {
   const { client, session } = useAuth();
+  const router = useRouter();
   const [group, setGroup] = useState<Group | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [saveMessage, setSaveMessage] = useState("");
   const [attempt, setAttempt] = useState(0);
   const refresh = useCallback(() => {
     setLoading(true);
     setError("");
     setGroup(null);
+    setIsAdmin(false);
     setAttempt((value) => value + 1);
   }, []);
 
@@ -124,18 +131,69 @@ export function GroupDetails({ id }: { id: string }) {
     void (async () => {
       try {
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return;
-        const { data, error } = await client.from("groups").select("id,name").eq("id", id).abortSignal(controller.signal).maybeSingle();
-        if (!active) return;
-        if (error) setError(`Unable to load group: ${error.message}`);
-        else setGroup(data);
-      } catch {
-        if (active) setError("Unable to load group. Please try again.");
-      } finally {
-        if (active) setLoading(false);
+      const [groupResult, membershipResult] = await Promise.all([
+        client.from("groups").select("id,name").eq("id", id).abortSignal(controller.signal).maybeSingle(),
+        client.from("group_members").select("role").eq("group_id", id).eq("user_id", session.user.id).abortSignal(controller.signal).maybeSingle(),
+      ]);
+      if (!active) return;
+      if (groupResult.error) setError(`Unable to load group: ${groupResult.error.message}`);
+      else if (membershipResult.error) setError(`Unable to check group access: ${membershipResult.error.message}`);
+      else {
+        setGroup(groupResult.data);
+        setName(groupResult.data?.name ?? "");
+        setIsAdmin(membershipResult.data?.role === "admin");
       }
+    } catch {
+      if (active) setError("Unable to load group. Please try again.");
+    } finally {
+      if (active) setLoading(false);
+    }
     })();
     return () => { active = false; controller.abort(); };
-  }, [client, id, attempt]);
+  }, [client, id, session.user.id, attempt]);
+
+  async function renameGroup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving || !name.trim() || !group) return;
+    setSaving(true);
+    setSaveError("");
+    setSaveMessage("");
+    try {
+      const { error: rpcError } = await client.rpc("rename_group", {
+        p_group_id: group.id,
+        p_name: name.trim(),
+      });
+      if (rpcError) setSaveError(`Unable to rename group: ${rpcError.message}`);
+      else {
+        setGroup({ ...group, name: name.trim() });
+        setName(name.trim());
+        setSaveMessage("Group name updated.");
+      }
+    } catch {
+      setSaveError("Unable to rename group. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteGroup() {
+    if (saving || !group) return;
+    if (!window.confirm(`Remove “${group.name}” and permanently delete its competitions and group data? This cannot be undone.`)) return;
+    setSaving(true);
+    setSaveError("");
+    setSaveMessage("");
+    try {
+      const { error: rpcError } = await client.rpc("delete_group", {
+        p_group_id: group.id,
+      });
+      if (rpcError) setSaveError(`Unable to remove group: ${rpcError.message}`);
+      else router.push("/dashboard");
+    } catch {
+      setSaveError("Unable to remove group. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   if (loading) return <p role="status">Loading group…</p>;
   if (error) return <Card title="Group unavailable"><p role="alert">{error}</p><Button onClick={() => { setLoading(true); setGroup(null); setError(""); setAttempt((value) => value + 1); }}>Retry group</Button></Card>;
@@ -143,6 +201,26 @@ export function GroupDetails({ id }: { id: string }) {
   return (
     <>
       <Card title={group.name}><p>Group: {group.id}</p></Card>
+      {isAdmin && (
+        <Card title="Group settings">
+          <form onSubmit={renameGroup} className="space-y-4" aria-busy={saving}>
+            <label className="block">Group name
+              <input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+            </label>
+            <Button type="submit" disabled={saving || !name.trim() || name.trim() === group.name}>
+              {saving ? "Saving…" : "Rename group"}
+            </Button>
+          </form>
+          <div className="mt-6 border-t border-slate-200 pt-4">
+            <Button className="bg-red-700 hover:bg-red-800 active:bg-red-900" disabled={saving} onClick={deleteGroup}>
+              {saving ? "Working…" : "Remove group"}
+            </Button>
+            <p className="mt-2 text-sm">Removing a group permanently deletes its competitions and other group data.</p>
+          </div>
+          {saveError && <p role="alert" className="mt-4">{saveError}</p>}
+          {saveMessage && <p role="status" className="mt-4">{saveMessage}</p>}
+        </Card>
+      )}
       <CompetitionManager groupId={id} />
     </>
   );
