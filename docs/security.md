@@ -35,6 +35,14 @@ a row-locked RPC and an own-ballot-only projection. PostgreSQL rejects self-vote
 checks every category and score, excludes each voter's own entry from the blind
 projection, and permits revisions only before the voting deadline. Members have
 no RPC to read other ballots or preliminary results.
+Migration `07_admin_review_and_publication.sql` makes preliminary results and
+disqualification available only to group admins during review. The disqualification
+RPC records a reason/admin/timestamp event and does not delete the entry or its
+votes. Direct reads of audit and published snapshot tables are
+revoked. A row-locked publication RPC validates complete ballots and the minimum
+vote count, snapshots rankings, and completes the competition atomically. The
+published-results RPC reveals entry titles and creator IDs only to group members
+after completion; the lifecycle RPC cannot bypass publication.
 The browser session gates protect the UI experience, not the database: all
 private reads and writes must remain authorized by PostgreSQL. Pages are public
 shells and do not render private data on the server.
@@ -43,8 +51,7 @@ Remaining security work:
 
 1. Implement invitations and authorized membership management, including admin
    authorization. An initial admin role alone does not grant competition access.
-2. Implement result aggregation and publication, moderation, and Realtime updates
-   with equivalent database authorization.
+2. Implement Realtime updates with equivalent database authorization.
 
 The `competition-submissions` Storage bucket is private, limits uploads to
 JPEG/PNG/WebP images up to 10 MiB, and uses random UUID filenames without user
@@ -64,7 +71,9 @@ criteria after submission opens, submission ownership and deadline enforcement,
 media validation, separate admin/blind projections, and continued denial of
 direct entry and vote access, lifecycle authorization, vote limits, stable entry
 numbers, ballot revisions and self-vote protection, and idempotent deadline
-processing. Fixtures roll back.
+processing. The admin review/publication test covers role-gated preliminary
+results, disqualification audit retention, ballot aggregation/ties/minimums, and
+post-publication identity access. Fixtures roll back.
 
 Operational safeguards are covered alongside the procedures they protect:
 [public client configuration](development.md#2-configure-supabase),

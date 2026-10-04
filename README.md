@@ -14,8 +14,9 @@ remote events use deadlines.
 
 The implementation supports **magic-link sign-in, group creation, draft
 competition and category management, private submissions, and anonymous
-category-based voting with ballot revisions**. Invitations, moderation, and
-result aggregation and publication remain unimplemented.
+category-based voting with ballot revisions, admin review and disqualification,
+and atomic result publication**. Invitations and membership management remain
+unimplemented.
 
 It includes shared UI components, database-enforced authorization, and CI/CD
 and infrastructure tooling. Entry and vote tables remain inaccessible directly;

@@ -347,3 +347,82 @@ test("voting cards load a private ballot and save score revisions", async ({ pag
   });
   await page.screenshot({ path: "/tmp/openjury-voting-ballot.png", fullPage: true });
 });
+
+test("admins disqualify and publish while group members see only final identities", async ({ page }) => {
+  const competitionId = "66666666-6666-4666-8666-666666666666";
+  let status = "review_pending";
+  let reviewRows: Array<Record<string, unknown>> = [{
+    entry_id: "77777777-7777-4777-8777-777777777777",
+    creator_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    title: "Reviewed entry",
+    is_disqualified: false,
+    rank: 1,
+    score: 82.5,
+    vote_count: 2,
+    disqualification_reason: null,
+    disqualified_by: null,
+    disqualified_at: null,
+  }];
+  let disqualification: Record<string, unknown> | undefined;
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{ id: competitionId, name: "Finals", status, submission_deadline: null, voting_deadline: null }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) =>
+    route.fulfill({ json: [{
+      id: reviewRows[0].entry_id,
+      creator_id: reviewRows[0].creator_id,
+      title: reviewRows[0].title,
+      media_keys: [],
+    }] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_review_results`, (route) =>
+    route.fulfill({ json: reviewRows }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/disqualify_competition_entry`, async (route) => {
+    const nextDisqualification = route.request().postDataJSON() as Record<string, unknown>;
+    disqualification = nextDisqualification;
+    reviewRows = reviewRows.map((entry) => ({
+      ...entry,
+      is_disqualified: true,
+      rank: null,
+      score: null,
+      vote_count: 0,
+      disqualification_reason: nextDisqualification.p_reason,
+      disqualified_by: userId,
+      disqualified_at: "2026-10-04T11:00:00.000Z",
+    }));
+    await route.fulfill({ status: 204 });
+  });
+  await page.route(`${supabaseURL}/rest/v1/rpc/publish_competition_results`, async (route) => {
+    status = "completed";
+    await route.fulfill({ status: 204 });
+  });
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) =>
+    route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_published_competition_results`, (route) =>
+    route.fulfill({ json: [{
+      rank: 1,
+      score: 82.5,
+      vote_count: 2,
+      title: "Reviewed entry",
+      creator_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    }] }));
+
+  await page.goto(`/competition/${competitionId}/admin`);
+  await expect(page.getByRole("heading", { name: "Preliminary rankings (admins only)" })).toBeVisible();
+  await page.getByLabel("Disqualification reason").fill("Rule violation");
+  await page.getByRole("button", { name: "Disqualify" }).click();
+  await expect(page.getByText("Disqualified: Rule violation")).toBeVisible();
+  await expect(page.getByText(/Admin aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/)).toBeVisible();
+  expect(disqualification).toMatchObject({
+    p_competition_id: competitionId,
+    p_entry_id: "77777777-7777-4777-8777-777777777777",
+    p_reason: "Rule violation",
+  });
+  await page.getByRole("button", { name: "Publish final results" }).click();
+  await expect(page.getByRole("status")).toContainText("Results published");
+
+  await page.goto(`/competition/${competitionId}`);
+  await expect(page.getByRole("heading", { name: "Published results" })).toBeVisible();
+  await expect(page.getByText("Submitted by aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")).toBeVisible();
+  await expect(page.getByText("82.50% · 2 complete ballots")).toBeVisible();
+});

@@ -76,11 +76,13 @@ begin
   ) <> 'review_pending' then
     raise exception 'Admin could not start live review';
   end if;
-  if public.transition_competition(
-    '00000000-0000-0000-0000-000000000042', 'completed'
-  ) <> 'completed' then
-    raise exception 'Admin could not complete the live lifecycle';
-  end if;
+  begin
+    perform public.transition_competition(
+      '00000000-0000-0000-0000-000000000042', 'completed'
+    );
+    raise exception 'Competition completed without publishing results';
+  exception when object_not_in_prerequisite_state then null;
+  end;
 
   begin
     perform public.transition_competition(
@@ -494,11 +496,25 @@ reset role;
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000031', true);
 do $$
+declare
+  unvoted_entry_id uuid;
 begin
-  if public.transition_competition(
-    '00000000-0000-0000-0000-000000000041', 'completed'
-  ) <> 'completed' then
-    raise exception 'Admin could not complete a reviewed competition';
+  select id into unvoted_entry_id
+  from lifecycle_entry_number_snapshot
+  where creator_id = '00000000-0000-0000-0000-000000000032';
+  perform public.disqualify_competition_entry(
+    '00000000-0000-0000-0000-000000000041',
+    unvoted_entry_id,
+    'No complete ballots'
+  );
+  if public.publish_competition_results(
+    '00000000-0000-0000-0000-000000000041'
+  ) <> 1 then
+    raise exception 'Admin could not atomically publish reviewed results';
+  end if;
+  if (select status from public.competitions
+      where id = '00000000-0000-0000-0000-000000000041') <> 'completed' then
+    raise exception 'Publication did not complete the competition';
   end if;
 
   begin
