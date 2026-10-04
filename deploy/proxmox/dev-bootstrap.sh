@@ -13,10 +13,23 @@ traefik_image=traefik:v3.7.13
 token=""
 read -r token || true
 
+# CI records image IDs from the classic image store; containerd-store IDs differ,
+# so previews could not start the tested image by ID.
+daemon_json='{"features": {"containerd-snapshotter": false}}'
+restart_docker=false
+if [[ "$(cat /etc/docker/daemon.json 2>/dev/null)" != "$daemon_json" ]]; then
+  install -d /etc/docker
+  echo "$daemon_json" > /etc/docker/daemon.json
+  restart_docker=true
+fi
+
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install --yes ca-certificates curl git qemu-guest-agent docker.io docker-compose-v2
 systemctl enable --now qemu-guest-agent docker
+if [[ "$restart_docker" == true ]]; then
+  systemctl restart docker
+fi
 
 if ! id "$runner_user" >/dev/null 2>&1; then
   useradd --create-home --shell /bin/bash "$runner_user"

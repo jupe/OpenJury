@@ -34,9 +34,11 @@ PVE_HOST=root@192.168.1.3 TEMPLATE_ID=9000 ./deploy/proxmox/dev-vm.sh
 
 Override `VMID`, `CORES`, `MEMORY_MB`, `DISK_GB`, or `SSH_KEY` as needed. Reserve
 the printed address for the VM's MAC in your router, then set the `dev`
-environment variables `DEV_BASE_DOMAIN=<ip>.nip.io` and `APP_SCHEME=http` and
-the repository variable `PREVIEW_CD_ENABLED=true`. Previews are served at
-`http://pr-<number>.<ip>.nip.io`. Some routers' DNS rebinding protection blocks
+environment variables `DEV_BASE_DOMAIN=<ip-with-dashes>.nip.io` (for example
+`192-168-1-114.nip.io`; nip.io resolves the dotted `pr-21.192.168.1.114` to
+`21.192.168.1`) and
+`APP_SCHEME=http` and the repository variable `PREVIEW_CD_ENABLED=true`.
+Previews are served at `http://pr-<number>.<ip-with-dashes>.nip.io`. Some routers' DNS rebinding protection blocks
 private nip.io answers; allow `nip.io` there or use another resolver.
 
 This trades the isolation below for simplicity: there is no TLS, VLAN, or
