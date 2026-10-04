@@ -23,9 +23,8 @@ services:
       - traefik.enable=true
       - traefik.docker.network=${PROXY_NETWORK:-openjury-proxy}
       - traefik.http.routers.${COMPOSE_PROJECT_NAME}.rule=Host(`${APP_HOST:?APP_HOST is required}`)
-      - traefik.http.routers.${COMPOSE_PROJECT_NAME}.entrypoints=websecure
-      - traefik.http.routers.${COMPOSE_PROJECT_NAME}.tls=true
-      - traefik.http.routers.${COMPOSE_PROJECT_NAME}.tls.certresolver=${TLS_RESOLVER:-letsencrypt}
+      # TLS labels live in compose.tls.yml, which stack.sh adds unless APP_SCHEME=http.
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
       - traefik.http.routers.${COMPOSE_PROJECT_NAME}.service=${COMPOSE_PROJECT_NAME}
       - traefik.http.services.${COMPOSE_PROJECT_NAME}.loadbalancer.server.port=3000
 

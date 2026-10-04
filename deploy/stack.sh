@@ -40,4 +40,17 @@ if [[ ! "$APP_HOST" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ || "$APP_HOST" != *.* ]]
   echo "APP_HOST must be a DNS hostname, without a scheme or path" >&2
   exit 1
 fi
-docker compose -f compose.yml up --detach --wait --wait-timeout 180 --remove-orphans
+# Plain HTTP is only for the LAN-only dev VM, whose ingress has no TLS entrypoint.
+case "${APP_SCHEME:-https}" in
+  https) files=(-f compose.yml -f compose.tls.yml) ;;
+  http)
+    if [[ ! "$COMPOSE_PROJECT_NAME" =~ ^openjury-pr-[1-9][0-9]*$ ]]; then
+      echo "Plain HTTP is only allowed for PR previews" >&2
+      exit 1
+    fi
+    files=(-f compose.yml)
+    export TRAEFIK_ENTRYPOINT=web
+    ;;
+  *) echo "APP_SCHEME must be http or https" >&2; exit 1 ;;
+esac
+docker compose "${files[@]}" up --detach --wait --wait-timeout 180 --remove-orphans

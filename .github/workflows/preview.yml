@@ -74,6 +74,8 @@ jobs:
     env:
       COMPOSE_PROJECT_NAME: openjury-pr-${{ needs.identify.outputs.pr }}
       APP_HOST: pr-${{ needs.identify.outputs.pr }}.${{ vars.DEV_BASE_DOMAIN }}
+      # `http` only for a LAN-only dev VM without TLS (see docs/proxmox.md).
+      APP_SCHEME: ${{ vars.APP_SCHEME || 'https' }}
       PROXY_NETWORK: ${{ vars.PROXY_NETWORK }}
       TLS_RESOLVER: ${{ vars.TLS_RESOLVER }}
       PULL_POLICY: never
@@ -121,9 +123,9 @@ jobs:
           export IMAGE="$image_id"
           bash deploy/stack.sh deploy
           curl --fail --silent --show-error --retry 12 --retry-all-errors \
-            --retry-delay 5 --max-time 10 "https://$APP_HOST/api/health"
-          echo "url=https://$APP_HOST" >> "$GITHUB_OUTPUT"
-          printf '### PR preview\nhttps://%s\n\nRecreated from scratch; no data is preserved.\n' "$APP_HOST" >> "$GITHUB_STEP_SUMMARY"
+            --retry-delay 5 --max-time 10 "$APP_SCHEME://$APP_HOST/api/health"
+          echo "url=$APP_SCHEME://$APP_HOST" >> "$GITHUB_OUTPUT"
+          printf '### PR preview\n%s://%s\n\nRecreated from scratch; no data is preserved.\n' "$APP_SCHEME" "$APP_HOST" >> "$GITHUB_STEP_SUMMARY"
       - name: Remove failed, closed, or superseded deployments
         if: always() && steps.current.outputs.current == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
