@@ -43,7 +43,7 @@ disqualification available only to group admins during review. The disqualificat
 RPC records a reason/admin/timestamp event and does not delete the entry or its
 votes. Direct reads of audit and published snapshot tables are
 revoked. A row-locked publication RPC validates complete ballots and the minimum
-vote count, snapshots rankings, and completes the competition atomically. The
+vote count, snapshots rankings, and marks results `results_published` atomically. The
 published-results RPC reveals entry titles and internal creator IDs only to group members
 after completion; the lifecycle RPC cannot bypass publication.
 Migration `10_competition_attendees.sql` adds an admin-only attendee RPC with an
@@ -55,6 +55,13 @@ participation flags, never scores or ballot contents. Trimmed metadata names
 fall back to email only in this admin projection, then to `Participant`, never
 to UUIDs. The published-results RPC appends metadata-only `creator_name` labels
 with a `Participant` fallback; no email fallback is exposed to members.
+Migration `11_review_enhancements.sql` adds admin-only category review projections,
+disqualification dispositions, audited reinstatement, and an admin-editable
+publication schedule. Content removal clears the entry's title and media references,
+then authorizes the admin to delete those private Storage objects during review;
+the entry, votes, and audit remain for accountability. Scheduled publication is
+service-role-only and uses the same locked atomic publication function as manual
+publication. Category and overall snapshots remain inaccessible until publication.
 Direct profile, entry, vote, audit, and result-table access is not granted.
 The browser session gates protect the UI experience, not the database: all
 private reads and writes must remain authorized by PostgreSQL. Pages are public
@@ -69,6 +76,9 @@ a fixed version marker. Entries, votes, audit events, and result rows are not
 added to the Realtime publication. Clients refetch their existing RLS/RPC
 projections on notifications, reconnection, network recovery, tab visibility,
 and local deadlines; token refresh/sign-out remains managed by Supabase Auth.
+A trusted scheduled service must invoke
+`process_scheduled_competition_publications()` periodically using the service-role
+credential; never expose that credential to the browser.
 
 Remaining security work:
 

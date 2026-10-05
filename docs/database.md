@@ -30,7 +30,7 @@ scale.
 The lifecycle is:
 
 ```text
-draft → submission → voting → review_pending → completed
+draft → submission → voting → review_pending → results_published
 ```
 
 Authenticated group admins advance competitions one phase at a time through
@@ -41,7 +41,7 @@ respective deadlines pass; live competitions use admin transitions. A trusted
 scheduled caller or service-role process should invoke
 `process_remote_competition_deadlines()` periodically. It locks eligible remote
 competitions, skips rows already being processed, and is safe to call repeatedly.
-The move from review to completed is only available through atomic result
+The move from review to `results_published` is only available through atomic result
 publication.
 
 Members submit or revise complete category ballots through `save_ballot`. It
@@ -60,8 +60,12 @@ revoked.
 After voting closes, group admins can access preliminary rankings and
 disqualification controls only while a competition is in `review_pending`.
 Disqualification requires a 1–500 character reason, records the acting admin
-and timestamp, and marks the entry without deleting its submission or votes.
-Disqualified entries are omitted from rankings and publication.
+and timestamp. Admins can exclude an entry from results, retain it at the bottom
+with a disqualification label, or remove its title and media while retaining the
+entry, votes, and moderation audit. Removed media is deleted from private Storage.
+An admin can reinstate a disqualified entry during review unless its content was
+removed; reinstatement is also recorded in the audit. Preliminary overall and
+category rankings recalculate after moderation.
 
 A ballot counts for an entry only when it contains a score for every category.
 Partial single-score votes and entries without complete ballots do not affect
@@ -76,7 +80,7 @@ meet that minimum; publication otherwise fails without changing competition
 status or writing a partial snapshot.
 
 `publish_competition_results` locks the competition, validates the minimum
-ballot rule, stores the final rankings, and marks the competition completed in
+ballot rule, stores the final rankings, and marks the competition `results_published` in
 one transaction. Only then can group members read final results, which include
 entry titles, internal creator IDs, and `creator_name` labels. Names use the first
 nonblank trimmed metadata `display_name`, `full_name`, or `name`, falling back to
@@ -84,6 +88,18 @@ nonblank trimmed metadata `display_name`, `full_name`, or `name`, falling back t
 Preliminary rankings and disqualification audit
 data remain admin-only; direct access to result and audit tables is revoked.
 Disqualification audit rows prevent deletion of the associated entries.
+
+Admins can set, replace, or clear `results_publish_at` at any time while review is
+pending. Times must be in the future. Manual publishing remains available and
+publishes immediately. A trusted service-role scheduler must invoke
+`process_scheduled_competition_publications()` periodically; it publishes due
+competitions atomically and clients use private Realtime change notifications to
+refetch the published projections. If a device misses a notification, it refetches
+on reconnect and when the page becomes visible.
+
+Category scores use the same complete ballots and category-max normalization as
+overall scores. Ties share category rank. Category rankings are snapshotted with
+the overall results and exposed to members only after publication.
 
 ## Admin competition attendees
 
@@ -138,6 +154,9 @@ own-ballot projection, excludes the voter's own entry, and applies the same
 self-voting prohibition to the single-score `cast_vote` RPC. Migration
 `07_admin_review_and_publication.sql` adds admin-only preliminary results,
 reasoned disqualification with audit retention, and atomic publication.
+`11_review_enhancements.sql` adds category winner snapshots, reversible and
+configurable moderation, the editable publication schedule, and a service-role
+scheduled publisher.
 
 The `02_group_access.sql` migration grants authenticated
 users membership-scoped group reads and reads of their own membership rows,
@@ -168,7 +187,8 @@ against a production database. The lifecycle test covers role authorization,
 legal transitions, ballot creation and revision, self-voting and membership
 denial, stable numbering, and idempotent remote deadline processing. The
 review/publication test covers admin-only access, complete-ballot aggregation,
-tie ranking, minimum votes, retained audit data, and atomic publication.
+category winners, ties, minimum votes, schedule replacement/cancellation, moderation
+outcomes and reinstatement, retained audit data, and atomic publication.
 The attendee test covers admin-only authorization, tenant isolation, inactive and
 departed participants, name fallbacks, email-free published labels, revoked
 membership, and continued denial of direct sensitive-table access.

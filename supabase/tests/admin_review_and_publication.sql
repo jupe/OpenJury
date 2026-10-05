@@ -94,6 +94,11 @@ begin
   exception when insufficient_privilege then null;
   end;
   begin
+    perform public.get_admin_review_category_results('00000000-0000-0000-0000-000000000071');
+    raise exception 'A member read preliminary category results';
+  exception when insufficient_privilege then null;
+  end;
+  begin
     perform public.disqualify_competition_entry(
       '00000000-0000-0000-0000-000000000071',
       '00000000-0000-0000-0000-000000000076',
@@ -108,6 +113,13 @@ begin
   exception when insufficient_privilege then null;
   end;
   begin
+    perform public.set_competition_results_schedule(
+      '00000000-0000-0000-0000-000000000071', now() + interval '1 hour'
+    );
+    raise exception 'A member changed the publication schedule';
+  exception when insufficient_privilege then null;
+  end;
+  begin
     perform public.get_published_competition_results('00000000-0000-0000-0000-000000000071');
     raise exception 'Results were visible before publication';
   exception when insufficient_privilege then null;
@@ -115,6 +127,11 @@ begin
   begin
     select count(*) from public.published_competition_results;
     raise exception 'Authenticated users read the publication table directly';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    select count(*) from public.published_competition_category_results;
+    raise exception 'Authenticated users read category snapshots directly';
   exception when insufficient_privilege then null;
   end;
 end;
@@ -126,6 +143,8 @@ set local role authenticated;
 do $$
 declare
   result_record record;
+  first_schedule timestamptz := now() + interval '1 hour';
+  replacement_schedule timestamptz := now() + interval '2 hours';
 begin
   if (select count(*) from public.get_admin_review_results(
     '00000000-0000-0000-0000-000000000071'
@@ -165,6 +184,33 @@ begin
     raise exception 'An incomplete ballot contributed to preliminary results';
   end if;
 
+  perform public.set_competition_results_schedule(
+    '00000000-0000-0000-0000-000000000071', first_schedule
+  );
+  perform public.set_competition_results_schedule(
+    '00000000-0000-0000-0000-000000000071', replacement_schedule
+  );
+  if (select results_publish_at from public.competitions
+      where id = '00000000-0000-0000-0000-000000000071') <> replacement_schedule then
+    raise exception 'Admin could not overwrite the publication schedule';
+  end if;
+  perform public.set_competition_results_schedule(
+    '00000000-0000-0000-0000-000000000071', null
+  );
+  if (select results_publish_at from public.competitions
+      where id = '00000000-0000-0000-0000-000000000071') is not null then
+    raise exception 'Admin could not cancel the publication schedule';
+  end if;
+
+  if (select count(*) from public.get_admin_review_category_results(
+      '00000000-0000-0000-0000-000000000071'
+      )) <> 6
+     or (select count(*) from public.get_admin_review_category_results(
+       '00000000-0000-0000-0000-000000000071'
+       ) as category_result where category_result.rank = 1) < 2 then
+    raise exception 'Preliminary category scores or winners were not calculated';
+  end if;
+
   begin
     perform public.publish_competition_results('00000000-0000-0000-0000-000000000071');
     raise exception 'An entry below the minimum complete-ballot count was published';
@@ -179,7 +225,8 @@ begin
   perform public.disqualify_competition_entry(
     '00000000-0000-0000-0000-000000000071',
     '00000000-0000-0000-0000-000000000076',
-    'Incomplete ballot minimum not met'
+    'Incomplete ballot minimum not met',
+    'bottom'
   );
   select * into result_record
   from public.get_admin_review_results('00000000-0000-0000-0000-000000000071')
@@ -189,12 +236,38 @@ begin
      or result_record.disqualified_at is null then
     raise exception 'Disqualification audit was not retained for review';
   end if;
+  if result_record.rank <> 4 or result_record.disqualification_display <> 'bottom' then
+    raise exception 'Bottom-displayed disqualification was not ranked last';
+  end if;
+
+  perform public.reinstate_competition_entry(
+    '00000000-0000-0000-0000-000000000071',
+    '00000000-0000-0000-0000-000000000076',
+    'Disqualification reviewed'
+  );
+  perform public.disqualify_competition_entry(
+    '00000000-0000-0000-0000-000000000071',
+    '00000000-0000-0000-0000-000000000076',
+    'Incomplete ballot minimum not met',
+    'bottom'
+  );
+  perform public.disqualify_competition_entry(
+    '00000000-0000-0000-0000-000000000071',
+    '00000000-0000-0000-0000-000000000078',
+    'Content was inappropriate',
+    'remove_content'
+  );
+  if public.can_read_submission_media(
+    '00000000-0000-0000-0000-000000000071/00000000-0000-0000-0000-000000000078/00000000-0000-0000-0000-000000000079.jpg'
+  ) then
+    raise exception 'Removed entry media remained readable to admins';
+  end if;
 
   if public.publish_competition_results('00000000-0000-0000-0000-000000000071') <> 3 then
     raise exception 'Publication did not snapshot all eligible entries';
   end if;
   if (select status from public.competitions
-      where id = '00000000-0000-0000-0000-000000000071') <> 'completed' then
+      where id = '00000000-0000-0000-0000-000000000071') <> 'results_published' then
     raise exception 'Publication did not complete the competition';
   end if;
   if (select count(*) from public.get_published_competition_results(
@@ -202,8 +275,14 @@ begin
       ) as result where result.rank = 1) <> 2
      or (select count(*) from public.get_published_competition_results(
        '00000000-0000-0000-0000-000000000071'
-       ) as result where result.rank = 3) <> 1 then
+       ) as result where result.rank = 3 and result.is_disqualified
+         and result.score is null) <> 1 then
     raise exception 'Published ties or disqualification filtering failed';
+  end if;
+  if (select count(*) from public.get_published_competition_category_results(
+      '00000000-0000-0000-0000-000000000071'
+      ) as category_result where category_result.rank = 1) < 2 then
+    raise exception 'Published category winners were not available to group members';
   end if;
 end;
 $$;
@@ -250,8 +329,14 @@ begin
          where vote.entry_id = '00000000-0000-0000-0000-000000000076') <> 1
      or (select count(*) from public.entry_disqualification_events as event
          where event.entry_id = '00000000-0000-0000-0000-000000000076'
-           and event.actor_id = '00000000-0000-0000-0000-000000000061') <> 1 then
-    raise exception 'Disqualification removed entry, ballot, or audit data';
+           and event.actor_id = '00000000-0000-0000-0000-000000000061') <> 3 then
+    raise exception 'Disqualification, reinstatement, or audit retention failed';
+  end if;
+  if (select title from public.entries
+     where id = '00000000-0000-0000-0000-000000000078') <> 'Content removed'
+     or (select cardinality(media_keys) from public.entries
+        where id = '00000000-0000-0000-0000-000000000078') <> 0 then
+    raise exception 'Content-removal moderation did not sanitize the entry';
   end if;
   if (select count(*) from public.published_competition_results
       where competition_id = '00000000-0000-0000-0000-000000000071') <> 3 then

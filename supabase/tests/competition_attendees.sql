@@ -43,9 +43,9 @@ from (values
 insert into public.group_members (group_id, user_id, role) values
   ('00000000-0000-0000-0000-000000000232', '00000000-0000-0000-0000-000000000210', 'admin');
 insert into public.competitions (id, group_id, name, event_type, status) values
-  ('00000000-0000-0000-0000-000000000221', '00000000-0000-0000-0000-000000000231', 'Attendee competition', 'live', 'completed'),
+  ('00000000-0000-0000-0000-000000000221', '00000000-0000-0000-0000-000000000231', 'Attendee competition', 'live', 'results_published'),
   ('00000000-0000-0000-0000-000000000222', '00000000-0000-0000-0000-000000000231', 'Other group competition', 'live', 'voting'),
-  ('00000000-0000-0000-0000-000000000223', '00000000-0000-0000-0000-000000000232', 'Other tenant competition', 'live', 'completed'),
+  ('00000000-0000-0000-0000-000000000223', '00000000-0000-0000-0000-000000000232', 'Other tenant competition', 'live', 'results_published'),
   ('00000000-0000-0000-0000-000000000224', '00000000-0000-0000-0000-000000000231', 'Empty draft competition', 'live', 'draft');
 insert into public.categories (id, competition_id, name) values
   ('00000000-0000-0000-0000-000000000241', '00000000-0000-0000-0000-000000000221', 'Quality'),
