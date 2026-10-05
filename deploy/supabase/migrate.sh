@@ -43,4 +43,17 @@ for migration in /migrations/*.sql; do
   psql --quiet --variable ON_ERROR_STOP=1 --variable name="$name" \
     <<< "insert into openjury_meta.applied_migrations (name) values (:'name')"
 done
+# Platform administrators are deployment configuration: replace the list on
+# every deploy, so removing an address from PLATFORM_ADMIN_EMAILS revokes it.
+if psql --tuples-only --no-align --command "select to_regclass('public.platform_admins') is not null" | grep -qx t; then
+  psql --quiet --variable ON_ERROR_STOP=1 --variable emails="${PLATFORM_ADMIN_EMAILS:-}" <<'SQL'
+begin;
+delete from public.platform_admins;
+insert into public.platform_admins (email)
+select distinct lower(btrim(item))
+from unnest(string_to_array(:'emails', ',')) as item
+where btrim(item) <> '';
+commit;
+SQL
+fi
 psql --quiet --command "notify pgrst, 'reload schema'"

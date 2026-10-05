@@ -163,6 +163,7 @@ The `dev` environment supplies approval, variables, and secrets as configured.
 | Each environment variable | `TLS_RESOLVER` | Optional; defaults to `letsencrypt` |
 | `staging` / `production` variable | `SUPABASE_URL` | That environment's public Supabase URL (hosted Supabase only) |
 | `staging` / `production` secret | `SUPABASE_ANON_KEY` | That environment's **public anon** key only (hosted Supabase only) |
+| `staging` / `production` variable | `PLATFORM_ADMIN_EMAILS` | Self-hosted Supabase only: comma-separated emails of [platform admins](architecture.md#roles), synced on every deploy (removing one revokes it). Previews default to the seeded preview account |
 | `staging` / `production` variable | `SUPABASE_SELF_HOSTED` | `true` to run a persistent Supabase stack on the host instead ([LAN VMs](proxmox.md#quick-start-lan-staging-and-production-vms)) |
 | `staging` / `production` variable | `TLS_TERMINATION` | `upstream` when your own proxy terminates HTTPS in front of the host; defaults to `traefik` |
 | `staging` / `production` variables | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_ADMIN_EMAIL`, `SMTP_SENDER_NAME` | Self-hosted Supabase only: magic-link mail server; unset sends mail to the host's Mailpit |

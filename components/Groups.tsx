@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthBoundary";
 import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
 import { CompetitionManager } from "@/components/Competitions";
+import { GroupMembers } from "@/components/Membership";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
@@ -43,6 +44,9 @@ export function GroupList() {
     let active = true;
     void (async () => {
       try {
+        // Joins groups that invited this account's email; failures only delay that.
+        await client.rpc("claim_group_invites").abortSignal(controller.signal).then(() => undefined, () => undefined);
+        if (!active) return;
         const { data, error } = await client.from("groups").select("id,name").order("name").abortSignal(controller.signal);
         if (!active) return;
         if (error) setError(`Unable to load groups: ${error.message}`);
@@ -87,7 +91,7 @@ export function GroupList() {
           <><p role="alert">{error}</p><Button onClick={() => { setLoading(true); setError(""); setAttempt((value) => value + 1); }}>Retry groups</Button></>
         ) : groups.length ? (
           <ul className="space-y-2">{groups.map((group) => <li key={group.id}><Link className="break-words underline" href={`/group/${group.id}`}>{group.name}</Link></li>)}</ul>
-        ) : <p>You do not belong to any groups yet. Create your first group below.</p>}
+        ) : <p>You do not belong to any groups yet. Open an invite link from a group admin, or create your first group below.</p>}
       </Card>
       <Card title="Build your community">
         <form onSubmit={createGroup} className="space-y-4" aria-busy={creating}>
@@ -223,6 +227,7 @@ export function GroupDetails({ id }: { id: string }) {
           {saveMessage && <p role="status" className="mt-4">{saveMessage}</p>}
         </Card>
       )}
+      {isAdmin && <GroupMembers groupId={id} />}
       <CompetitionManager groupId={id} />
     </>
   );

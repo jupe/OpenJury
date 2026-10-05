@@ -101,6 +101,31 @@ Category scores use the same complete ballots and category-max normalization as
 overall scores. Ties share category rank. Category rankings are snapshotted with
 the overall results and exposed to members only after publication.
 
+## Roles and invitations
+
+Migration `12_roles_and_invites.sql` adds the [roles](architecture.md#roles):
+
+- `platform_admins` holds the deployment's `PLATFORM_ADMIN_EMAILS`, replaced on
+  every self-hosted deploy. `is_platform_admin()` matches the signed-in user's
+  confirmed email. Platform admins list every group with `get_platform_groups()`
+  and become a group admin with `platform_admin_join_group()`; all other admin
+  checks are unchanged.
+- `group_invites` holds revocable link tokens; `accept_group_invite(token)` joins
+  as a member. `group_email_invites` holds addresses that
+  `claim_group_invites()` turns into memberships once that confirmed address
+  signs in. Invitations never reveal whether an account exists.
+- Group admins list members with `get_group_members()`, change roles with
+  `set_group_member_role()`, and remove members with `remove_group_member()`.
+  A group always keeps at least one admin.
+- `competition_participants` records each member's `participant` or `audience`
+  role, set through `join_competition()`. `save_submission` requires
+  participant; `save_ballot` and `get_blind_voting_entries` require audience.
+  The legacy `cast_vote` RPC is no longer executable. Existing entry creators
+  and voters were backfilled as participants and audience.
+
+None of these tables are directly writable; members read only their own
+competition role rows.
+
 ## Admin competition attendees
 
 Migration `10_competition_attendees.sql` adds the admin-only

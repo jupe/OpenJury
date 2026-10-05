@@ -63,6 +63,8 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           # Self-hosted Supabase on the host, migrated from this trusted revision.
           SUPABASE_MIGRATIONS: ${{ vars.SUPABASE_SELF_HOSTED == 'true' && format('{0}/supabase/migrations', github.workspace) || '' }}
+          # Comma-separated emails of users who may administer every group.
+          PLATFORM_ADMIN_EMAILS: ${{ vars.PLATFORM_ADMIN_EMAILS }}
           SMTP_HOST: ${{ vars.SMTP_HOST }}
           SMTP_PORT: ${{ vars.SMTP_PORT }}
           SMTP_USER: ${{ vars.SMTP_USER }}
