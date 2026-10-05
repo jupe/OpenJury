@@ -106,10 +106,16 @@ test("mobile layout and main navigation", async ({ page }) => {
   for (const path of ["/", "/dashboard", `/group/${"a".repeat(100)}`, `/competition/${"b".repeat(100)}`, `/competition/${"b".repeat(100)}/admin`]) {
     await page.goto(path);
     await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Mobile navigation" })).toBeVisible();
+    const mobileNavigation = page.getByRole("navigation", { name: "Mobile navigation" });
+    await expect(mobileNavigation.getByRole("link", { name: "Groups" })).toHaveAttribute("href", "/dashboard");
+    await expect(mobileNavigation).toHaveCSS("position", "fixed");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
-  await page.getByRole("navigation").getByRole("link", { name: "Dashboard", exact: true }).click();
+  const mobileNavigation = page.getByRole("navigation", { name: "Mobile navigation" });
+  await mobileNavigation.getByRole("link", { name: "Groups" }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(mobileNavigation.getByRole("link", { name: "Groups" })).toHaveAttribute("aria-current", "page");
   await page.getByRole("navigation").getByRole("link", { name: "OpenJury" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Competitions for every community");
 });
