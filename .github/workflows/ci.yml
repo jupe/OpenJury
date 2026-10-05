@@ -49,7 +49,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.build == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     outputs:
       preview-artifact: ${{ steps.preview-image.outcome == 'success' && format('image-ref-{0}', github.run_id) || format('image-{0}', github.run_id) }}
     permissions:
