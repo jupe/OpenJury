@@ -62,48 +62,54 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - name: Prepare prebuilt CI images
+        id: ci-images
+        uses: ./.github/actions/ci-images
         with:
-          node-version-file: .nvmrc
-          package-manager-cache: false
-
-      - name: Set up npm
-        run: npm install --global npm@12.2.0
-
-      - name: Install dependencies
-        run: npm ci
+          dependencies: 'true'
 
       - name: Lint
-        run: npm run lint
+        env:
+          CI_TOOLS: ${{ steps.ci-images.outputs.tools }}
+        run: docker run --rm --volume "$PWD:/workspace" "$CI_TOOLS" npm run lint
 
       - name: Type check
-        run: npm run typecheck
+        env:
+          CI_TOOLS: ${{ steps.ci-images.outputs.tools }}
+        run: docker run --rm --volume "$PWD:/workspace" "$CI_TOOLS" npm run typecheck
 
       - name: Validate deployment configuration
         run: |
           bash -n deploy/stack.sh
-          shellcheck deploy/stack.sh
+          docker run --rm --volume "$PWD:/workspace" "$CI_TOOLS" shellcheck deploy/stack.sh
           docker compose -f deploy/compose.yml -f deploy/compose.tls.yml config --quiet
           docker compose -f deploy/compose.yml -f deploy/compose.tls.yml \
             -f deploy/compose.supabase.yml -f deploy/compose.supabase.tls.yml config --quiet
           bash -n deploy/proxmox/vm.sh deploy/proxmox/vm-bootstrap.sh deploy/supabase/migrate.sh
-          shellcheck deploy/proxmox/vm.sh deploy/proxmox/vm-bootstrap.sh deploy/supabase/migrate.sh
+          docker run --rm --volume "$PWD:/workspace" "$CI_TOOLS" \
+            shellcheck deploy/proxmox/vm.sh deploy/proxmox/vm-bootstrap.sh deploy/supabase/migrate.sh
         env:
+          CI_TOOLS: ${{ steps.ci-images.outputs.tools }}
           COMPOSE_PROJECT_NAME: openjury-pr-1
           IMAGE: openjury:ci
           APP_HOST: ci.example.invalid
           PULL_POLICY: never
 
       - name: Validate Proxmox playbooks without accessing infrastructure
+        env:
+          CI_TOOLS: ${{ steps.ci-images.outputs.tools }}
         run: |
-          pipx run --spec "$(cat deploy/proxmox/requirements.txt)" ansible-playbook \
+          docker run --rm --volume "$PWD:/workspace" "$CI_TOOLS" ansible-playbook \
             -i deploy/proxmox/inventory.example.yml deploy/proxmox/provision.yml --syntax-check
-          pipx run --spec "$(cat deploy/proxmox/requirements.txt)" ansible-playbook \
+          docker run --rm --volume "$PWD:/workspace" "$CI_TOOLS" ansible-playbook \
             -i deploy/proxmox/inventory.example.yml deploy/proxmox/guests.yml --syntax-check
 
       - name: Build production image
-        run: docker build --tag openjury:ci --label "org.opencontainers.image.revision=${{ github.sha }}" .
+        env:
+          DEPENDENCIES_IMAGE: ${{ steps.ci-images.outputs.dependencies }}
+        run: |
+          docker build --build-arg "DEPENDENCIES_IMAGE=$DEPENDENCIES_IMAGE" \
+            --tag openjury:ci --label "org.opencontainers.image.revision=${{ github.sha }}" .
 
       - name: Start production image
         run: |
@@ -126,12 +132,13 @@ jobs:
           echo "::error::Production container did not become healthy"
           exit 1
 
-      - name: Install Chromium and WebKit
-        run: npx playwright install --with-deps chromium webkit
-
       - name: Test production image
-        run: npm run test:e2e
+        run: |
+          docker run --rm --init --network host --ipc host \
+            --volume "$PWD:/workspace" --env PLAYWRIGHT_BASE_URL \
+            "$CI_TOOLS" npm run test:e2e
         env:
+          CI_TOOLS: ${{ steps.ci-images.outputs.tools }}
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
 
       # Previews pull by digest, downloading only layers the dev VM lacks. Fork PRs

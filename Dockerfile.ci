@@ -1,0 +1,32 @@
+ARG NODE_VERSION=26.10.0
+
+# Keep production dependencies on the same libc as the Alpine runtime.
+FROM node:${NODE_VERSION}-alpine AS dependencies
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm install --global "$(node -p 'require("./package.json").packageManager')" \
+    && npm ci --no-audit --no-fund
+
+FROM node:${NODE_VERSION}-bookworm AS tool-node
+
+FROM ubuntu:24.04 AS tools
+COPY --from=tool-node /usr/local/ /usr/local/
+LABEL org.opencontainers.image.source="https://github.com/jupe/OpenJury"
+ENV CI=true \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/playwright \
+    PATH="/opt/ansible/bin:${PATH}"
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends \
+        ca-certificates curl git libatomic1 libstdc++6 shellcheck python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+COPY deploy/proxmox/requirements.txt /opt/ansible-requirements.txt
+RUN python3 -m venv /opt/ansible \
+    && /opt/ansible/bin/pip install --no-cache-dir -r /opt/ansible-requirements.txt
+WORKDIR /opt/openjury
+COPY package.json package-lock.json ./
+RUN npm install --global "$(node -p 'require("./package.json").packageManager')" \
+    && npm ci --no-audit --no-fund \
+    && npx --no-install playwright install --with-deps chromium webkit \
+    && rm -rf /var/lib/apt/lists/* /root/.npm
+WORKDIR /workspace

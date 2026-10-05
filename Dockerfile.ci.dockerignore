@@ -1,0 +1,7 @@
+**
+!Dockerfile.ci
+!package.json
+!package-lock.json
+!deploy/
+!deploy/proxmox/
+!deploy/proxmox/requirements.txt
