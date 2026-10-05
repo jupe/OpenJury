@@ -4,9 +4,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "@/components/AuthBoundary";
 import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
+import AddButton from "@/components/AddButton";
 import Button, { ButtonLink } from "@/components/Button";
 import { StatusBadge } from "@/components/CompetitionStatus";
 import Card from "@/components/Card";
+import type { CompetitionRoleName } from "@/components/Membership";
 
 type Competition = {
   id: string;
@@ -15,7 +17,55 @@ type Competition = {
   status: string;
   submission_deadline: string | null;
   voting_deadline: string | null;
+  results_publish_at: string | null;
+  // Row-level security returns only the signed-in user's own role row.
+  competition_participants?: { role: CompetitionRoleName }[] | null;
 };
+
+const roleBadges: Record<CompetitionRoleName, { tip: string; className: string; icon: string }> = {
+  participant: {
+    tip: "You are a participant: you submit an entry",
+    className: "border-violet-200 bg-violet-50 text-violet-700",
+    icon: "M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4ZM13.5 6.5l4 4",
+  },
+  audience: {
+    tip: "You are in the audience: you score the entries",
+    className: "border-amber-200 bg-amber-50 text-amber-700",
+    icon: "m12 3 2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 16.8l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8L12 3Z",
+  },
+};
+
+/** The signed-in user's own role in a competition, as an icon with a tooltip shown on hover, tap or focus. */
+function RoleBadge({ role }: { role: CompetitionRoleName }) {
+  const badge = roleBadges[role];
+  return (
+    // The tooltip positions against the surrounding badge row, so it stays inside the card.
+    <span className="group inline-flex">
+      <span
+        role="img"
+        tabIndex={0}
+        aria-label={badge.tip}
+        className={`flex h-7 w-7 cursor-help items-center justify-center rounded-full border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 ${badge.className}`}
+      >
+        <svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+          <path d={badge.icon} />
+        </svg>
+      </span>
+      <span
+        aria-hidden
+        className="pointer-events-none absolute top-full right-0 z-20 mt-1.5 w-max max-w-56 rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        {badge.tip}
+      </span>
+    </span>
+  );
+}
+
+/** The competition's latest scheduled date; undated competitions sort last. */
+function latestDate(competition: Competition) {
+  const date = competition.voting_deadline ?? competition.submission_deadline ?? competition.results_publish_at;
+  return date ? Date.parse(date) : Number.MIN_SAFE_INTEGER;
+}
 
 type CategoryDraft = { name: string; max_score: number };
 type CompetitionDraft = {
@@ -85,7 +135,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             .abortSignal(controller.signal)
             .maybeSingle(),
           client.from("competitions")
-            .select("id,name,event_type,status,submission_deadline,voting_deadline")
+            .select("id,name,event_type,status,submission_deadline,voting_deadline,results_publish_at,competition_participants(role)")
             .eq("group_id", groupId)
             .order("name")
             .abortSignal(controller.signal),
@@ -95,7 +145,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         else if (result.error) setError(`Unable to load competitions: ${result.error.message}`);
         else {
           setIsAdmin(membership.data?.role === "admin");
-          setCompetitions(result.data || []);
+          setCompetitions([...(result.data || [])].sort((a, b) => latestDate(b) - latestDate(a)));
         }
       } catch {
         if (active) setError("Unable to load competitions. Please try again.");
@@ -105,6 +155,13 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
     })();
     return () => { active = false; controller.abort(); };
   }, [client, groupId, session.user.id, attempt]);
+
+  // Links such as the mobile Competitions tab land on this list once it has loaded.
+  useEffect(() => {
+    if (!loading && window.location.hash === "#competitions") {
+      document.getElementById("competitions")?.scrollIntoView({ block: "start" });
+    }
+  }, [loading]);
 
   async function editCompetition(competition: Competition) {
     setLoadingEdit(true);
@@ -181,7 +238,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
 
   return (
     <>
-      <Card title="Competitions">
+      <Card id="competitions" title="Competitions">
         {loading ? <p role="status">Loading competitions…</p> : error ? (
           <>
             <p role="alert">{error}</p>
@@ -190,39 +247,38 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         ) : competitions.length ? (
           <ul className="space-y-4">
             {competitions.map((competition) => (
-              <li key={competition.id} className="rounded border border-slate-200 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0 space-y-1">
-                    <Link className="inline-flex min-h-11 items-center font-semibold underline" href={`/competition/${encodeURIComponent(competition.id)}`}>
-                      {competition.name}
-                    </Link>
-                    <p className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                      <StatusBadge status={competition.status} />
-                      {competition.event_type === "live" ? "Live" : "Remote"}
-                    </p>
-                  </div>
-                  {isAdmin && (
-                    <div className="flex flex-wrap gap-3">
-                      {competition.status === "draft" && (
-                        <Button disabled={loadingEdit} onClick={() => void editCompetition(competition)}>
-                          {loadingEdit ? "Loading…" : "Edit draft"}
-                        </Button>
-                      )}
-                      <ButtonLink
-                        href={`/competition/${encodeURIComponent(competition.id)}/admin`}
-                        aria-label={`Manage ${competition.name}`}
-                      >
-                        Manage
-                      </ButtonLink>
-                    </div>
-                  )}
+              <li key={competition.id} className="space-y-1 rounded border border-slate-200 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-x-3">
+                  <Link className="inline-flex min-h-11 min-w-0 flex-[1_1_10rem] items-center font-semibold break-words underline" href={`/competition/${encodeURIComponent(competition.id)}`}>
+                    {competition.name}
+                  </Link>
+                  <p className="relative ml-auto flex min-h-11 shrink-0 items-center gap-2 text-sm text-slate-600">
+                    {competition.competition_participants?.[0] && <RoleBadge role={competition.competition_participants[0].role} />}
+                    <StatusBadge status={competition.status} />
+                    {competition.event_type === "live" ? "Live" : "Remote"}
+                  </p>
                 </div>
                 {(competition.submission_deadline || competition.voting_deadline) && (
-                  <p className="mt-2 text-sm text-slate-600">
+                  <p className="text-sm text-slate-600">
                     {competition.submission_deadline && `Submissions close ${new Date(competition.submission_deadline).toLocaleString()}`}
                     {competition.submission_deadline && competition.voting_deadline && " · "}
                     {competition.voting_deadline && `Voting closes ${new Date(competition.voting_deadline).toLocaleString()}`}
                   </p>
+                )}
+                {isAdmin && (
+                  <div className="mt-3 flex flex-wrap gap-3">
+                    {competition.status === "draft" && (
+                      <Button disabled={loadingEdit} onClick={() => void editCompetition(competition)}>
+                        {loadingEdit ? "Loading…" : "Edit draft"}
+                      </Button>
+                    )}
+                    <ButtonLink
+                      href={`/competition/${encodeURIComponent(competition.id)}/admin`}
+                      aria-label={`Manage ${competition.name}`}
+                    >
+                      Manage
+                    </ButtonLink>
+                  </div>
                 )}
               </li>
             ))}
@@ -236,13 +292,13 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             <label className="block">Competition name
               <input required maxLength={100} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
-            <label className="block">Event type
-              <select value={draft.eventType} onChange={(event) => setDraft({ ...draft, eventType: event.target.value as "live" | "remote" })} className="mt-1 block w-full rounded border border-slate-300 p-2">
-                <option value="remote">Remote</option>
-                <option value="live">Live</option>
-              </select>
-            </label>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-[minmax(8rem,10rem)_minmax(0,1fr)_minmax(0,1fr)]">
+              <label className="block sm:col-span-2 md:col-span-1">Event type
+                <select value={draft.eventType} onChange={(event) => setDraft({ ...draft, eventType: event.target.value as "live" | "remote" })} className="mt-1 block w-full rounded border border-slate-300 p-2">
+                  <option value="remote">Remote</option>
+                  <option value="live">Live</option>
+                </select>
+              </label>
               <label className="block">Submission deadline
                 <input type="datetime-local" value={draft.submissionDeadline} onChange={(event) => setDraft({ ...draft, submissionDeadline: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
               </label>
@@ -251,10 +307,17 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
               </label>
             </div>
             <fieldset className="space-y-3">
-              <legend className="font-semibold">Scoring categories (maximum score 1–5)</legend>
+              <legend className="sr-only">Scoring categories</legend>
+              <div className="flex items-center justify-between gap-3">
+                <p aria-hidden className="font-semibold">Scoring categories <span className="font-normal text-slate-500">(maximum score 1–5)</span></p>
+                <AddButton aria-label="Add category" onClick={() => setDraft({
+                  ...draft,
+                  categories: [...draft.categories, { name: "", max_score: 5 }],
+                })} />
+              </div>
               {draft.categories.map((category, index) => (
-                <div key={index} className="grid gap-3 sm:grid-cols-[1fr_8rem_auto]">
-                  <label className="block">Category name
+                <div key={index} className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 sm:grid-cols-[1fr_8rem_auto]">
+                  <label className="col-span-2 block sm:col-span-1">Category name
                     <input required maxLength={100} value={category.name} onChange={(event) => setDraft({
                       ...draft,
                       categories: draft.categories.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item),
@@ -266,21 +329,17 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
                       categories: draft.categories.map((item, itemIndex) => itemIndex === index ? { ...item, max_score: Number(event.target.value) } : item),
                     })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
                   </label>
-                  <Button type="button" disabled={draft.categories.length === 1} onClick={() => setDraft({
+                  <Button type="button" variant="secondary" disabled={draft.categories.length === 1} onClick={() => setDraft({
                     ...draft,
                     categories: draft.categories.filter((_, itemIndex) => itemIndex !== index),
                   })}>Remove</Button>
                 </div>
               ))}
-              <Button type="button" onClick={() => setDraft({
-                ...draft,
-                categories: [...draft.categories, { name: "", max_score: 5 }],
-              })}>Add category</Button>
             </fieldset>
             {saveError && <p role="alert">{saveError}</p>}
-            <div className="flex flex-wrap gap-3">
-              <Button type="submit" disabled={saving}>{saving ? "Saving…" : editing ? "Save draft" : "Create competition"}</Button>
-              {editing && <Button type="button" disabled={saving} onClick={() => { setEditing(false); setDraft(emptyDraft()); setSaveError(""); }}>Cancel edit</Button>}
+            <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
+              {editing && <Button type="button" variant="secondary" disabled={saving} onClick={() => { setEditing(false); setDraft(emptyDraft()); setSaveError(""); }}>Cancel edit</Button>}
+              <Button type="submit" disabled={saving} className="sm:min-w-56 sm:text-base">{saving ? "Saving…" : editing ? "Save draft" : "Create competition"}</Button>
             </div>
           </form>
         </Card>

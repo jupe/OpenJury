@@ -1,6 +1,5 @@
 import AuthBoundary from "@/components/AuthBoundary";
 import { EntryWorkspace } from "@/components/EntryWorkspace";
-import { DemoCompetition } from "@/components/DemoViews";
 
 export default async function CompetitionPage({
   params,
@@ -12,7 +11,7 @@ export default async function CompetitionPage({
   return (
     <>
       <h1 className="text-3xl font-bold">Competition</h1>
-      <AuthBoundary demo={<DemoCompetition id={id} />}>
+      <AuthBoundary>
         <EntryWorkspace competitionId={id} />
       </AuthBoundary>
     </>

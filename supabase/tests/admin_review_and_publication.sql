@@ -50,6 +50,22 @@ insert into public.entries (
   ('00000000-0000-0000-0000-000000000075', '00000000-0000-0000-0000-000000000071', '00000000-0000-0000-0000-000000000063', 'Entry Beta', 2),
   ('00000000-0000-0000-0000-000000000076', '00000000-0000-0000-0000-000000000071', '00000000-0000-0000-0000-000000000064', 'Entry Gamma', 3),
   ('00000000-0000-0000-0000-000000000078', '00000000-0000-0000-0000-000000000071', '00000000-0000-0000-0000-000000000067', 'Entry Delta', 4);
+-- Media for the published-results gallery checks.
+update public.entries
+set media_keys = array['00000000-0000-0000-0000-000000000071/00000000-0000-0000-0000-000000000074/00000000-0000-0000-0000-000000000081.jpg']
+where id = '00000000-0000-0000-0000-000000000074';
+update public.entries
+set media_keys = array['00000000-0000-0000-0000-000000000071/00000000-0000-0000-0000-000000000076/00000000-0000-0000-0000-000000000082.jpg']
+where id = '00000000-0000-0000-0000-000000000076';
+
+-- Since competition roles, only the audience may vote.
+insert into public.competition_participants (competition_id, user_id, role) values
+  ('00000000-0000-0000-0000-000000000071', '00000000-0000-0000-0000-000000000062', 'participant'),
+  ('00000000-0000-0000-0000-000000000071', '00000000-0000-0000-0000-000000000063', 'participant'),
+  ('00000000-0000-0000-0000-000000000071', '00000000-0000-0000-0000-000000000064', 'participant'),
+  ('00000000-0000-0000-0000-000000000071', '00000000-0000-0000-0000-000000000067', 'participant'),
+  ('00000000-0000-0000-0000-000000000071', '00000000-0000-0000-0000-000000000065', 'audience'),
+  ('00000000-0000-0000-0000-000000000071', '00000000-0000-0000-0000-000000000066', 'audience');
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000065', true);
@@ -61,10 +77,16 @@ select public.save_ballot(
   '00000000-0000-0000-0000-000000000071', 2,
   '[{"category_id":"00000000-0000-0000-0000-000000000072","score":4},{"category_id":"00000000-0000-0000-0000-000000000073","score":2}]'
 );
-select public.cast_vote(
-  '00000000-0000-0000-0000-000000000071', 3,
-  '00000000-0000-0000-0000-000000000072', 5
+-- An incomplete ballot (one of two categories). cast_vote is no longer
+-- callable by members, so the partial vote is written directly.
+reset role;
+insert into public.votes (entry_id, voter_id, category_id, score) values (
+  '00000000-0000-0000-0000-000000000076',
+  '00000000-0000-0000-0000-000000000065',
+  '00000000-0000-0000-0000-000000000072',
+  5
 );
+set local role authenticated;
 
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000066', true);
 select public.save_ballot(
@@ -270,12 +292,14 @@ begin
       where id = '00000000-0000-0000-0000-000000000071') <> 'results_published' then
     raise exception 'Publication did not complete the competition';
   end if;
+  -- Bottom-displayed disqualifications follow the highest eligible rank,
+  -- matching the admin preview: two entries tied at 1, then the disqualified one at 2.
   if (select count(*) from public.get_published_competition_results(
       '00000000-0000-0000-0000-000000000071'
       ) as result where result.rank = 1) <> 2
      or (select count(*) from public.get_published_competition_results(
        '00000000-0000-0000-0000-000000000071'
-       ) as result where result.rank = 3 and result.is_disqualified
+       ) as result where result.rank = 2 and result.is_disqualified
          and result.score is null) <> 1 then
     raise exception 'Published ties or disqualification filtering failed';
   end if;
@@ -305,6 +329,24 @@ begin
     ) as result where result.creator_id = '00000000-0000-0000-0000-000000000063'
   ) then
     raise exception 'Published results did not reveal authorized creator identities';
+  end if;
+  if (select result.media_keys from public.get_published_competition_results(
+      '00000000-0000-0000-0000-000000000071'
+    ) as result where result.creator_id = '00000000-0000-0000-0000-000000000062')
+    <> array['00000000-0000-0000-0000-000000000071/00000000-0000-0000-0000-000000000074/00000000-0000-0000-0000-000000000081.jpg']
+     or not public.can_read_submission_media(
+       '00000000-0000-0000-0000-000000000071/00000000-0000-0000-0000-000000000074/00000000-0000-0000-0000-000000000081.jpg'
+     ) then
+    raise exception 'Published entry media was not available to group members';
+  end if;
+  if exists (
+    select 1 from public.get_published_competition_results(
+      '00000000-0000-0000-0000-000000000071'
+    ) as result where result.is_disqualified and cardinality(result.media_keys) > 0
+  ) or public.can_read_submission_media(
+    '00000000-0000-0000-0000-000000000071/00000000-0000-0000-0000-000000000076/00000000-0000-0000-0000-000000000082.jpg'
+  ) then
+    raise exception 'Disqualified entry media was published';
   end if;
 end;
 $$;

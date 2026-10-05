@@ -8,8 +8,13 @@ import { failureMessage } from "@/lib/errors";
 import Breadcrumbs, { type Crumb } from "@/components/Breadcrumbs";
 import Button, { ButtonLink } from "@/components/Button";
 import Card from "@/components/Card";
+import ImageLightbox from "@/components/ImageLightbox";
+import Toast, { type ToastMessage } from "@/components/Toast";
 import { StatusBadge, nextTransition } from "@/components/CompetitionStatus";
 import { CompetitionRole, type CompetitionRoleName } from "@/components/Membership";
+
+/** Scores are percentages of the maximum; whole numbers read better than the stored precision. */
+const formatPercent = (score: number) => `${Math.round(score)}%`;
 
 const MAX_MEDIA_FILES = 5;
 const MAX_MEDIA_SIZE = 10 * 1024 * 1024;
@@ -73,6 +78,7 @@ type PublishedResult = {
   creator_id: string;
   creator_name: string;
   is_disqualified: boolean;
+  media_keys?: string[] | null;
 };
 type PublishedCategoryResult = {
   category_id: string;
@@ -124,6 +130,7 @@ function MediaGallery({
   const [images, setImages] = useState<Array<{ key: string; url: string }>>([]);
   const [error, setError] = useState("");
   const [visible, setVisible] = useState(false);
+  const [openAt, setOpenAt] = useState<number | null>(null);
   const gallery = useRef<HTMLDivElement>(null);
   const keyList = mediaKeys.join("\n");
 
@@ -174,36 +181,35 @@ function MediaGallery({
     };
   }, [client, keyList, visible]);
 
+  const shown = images.filter(({ key }) => mediaKeys.includes(key));
   return (
-    <div ref={gallery} className={mediaKeys.length ? "min-h-32" : ""}>
+    <div ref={gallery} className={mediaKeys.length ? "min-h-24 sm:min-h-28" : ""}>
       {error && mediaKeys.length > 0 && <p role="alert">{error}</p>}
-      {images.some(({ key }) => mediaKeys.includes(key)) && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {images.filter(({ key }) => mediaKeys.includes(key)).map(({ key, url }, index) => (
-            <details key={key} className="min-w-0 rounded-xl border border-slate-200 p-2 open:col-span-full">
-              <summary className="cursor-pointer text-sm font-medium text-indigo-700">
-                View image {index + 1}
+      {shown.length > 0 && (
+        <ul className="flex snap-x gap-2 overflow-x-auto pb-1">
+          {shown.map(({ key, url }, index) => (
+            <li key={key} className="shrink-0 snap-start">
+              <button
+                type="button"
+                title="Open gallery"
+                onClick={() => setOpenAt(index)}
+                className="block cursor-zoom-in overflow-hidden rounded-lg border border-slate-200 hover:border-indigo-400"
+              >
                 <Image
                   src={url}
                   alt={`${label} ${index + 1}`}
-                  width={128}
-                  height={128}
+                  width={224}
+                  height={224}
                   unoptimized
-                  className="mt-2 aspect-square w-full rounded-lg object-cover"
+                  className="h-24 w-24 object-cover sm:h-28 sm:w-28"
                 />
-              </summary>
-              <Image
-                src={url}
-                alt={`${label} ${index + 1}, full view`}
-                width={1024}
-                height={1024}
-                unoptimized
-                className="mt-3 h-auto max-h-[70dvh] w-full rounded-lg object-contain"
-              />
-              <p className="mt-2 text-sm">Tap “View image {index + 1}” again to close.</p>
-            </details>
+              </button>
+            </li>
           ))}
-        </div>
+        </ul>
+      )}
+      {openAt !== null && shown.length > 0 && (
+        <ImageLightbox images={shown} label={label} start={Math.min(openAt, shown.length - 1)} onClose={() => setOpenAt(null)} />
       )}
     </div>
   );
@@ -219,8 +225,13 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   const [blindEntries, setBlindEntries] = useState<BlindEntry[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [ballotScores, setBallotScores] = useState<Record<number, Record<string, string>>>({});
-  const [ballotFeedback, setBallotFeedback] = useState<Record<number, string>>({});
-  const [savingBallot, setSavingBallot] = useState<number | null>(null);
+  // Scores as last saved on the server; an entry listed here has been voted on.
+  const [savedBallots, setSavedBallots] = useState<Record<number, Record<string, string>>>({});
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const dismissToast = useCallback(() => setToast(null), []);
+  // Slider moves are saved after a short pause; saves for one entry run in order.
+  const pendingBallots = useRef(new Map<number, { timer: number; save: () => void }>());
+  const ballotQueue = useRef(new Map<number, Promise<void>>());
   const [publishedResults, setPublishedResults] = useState<PublishedResult[]>([]);
   const [publishedCategoryResults, setPublishedCategoryResults] = useState<PublishedCategoryResult[]>([]);
   const [submissionOpen, setSubmissionOpen] = useState(false);
@@ -243,6 +254,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     setBlindEntries([]);
     setCategories([]);
     setBallotScores({});
+    setSavedBallots({});
     setPublishedResults([]);
     setPublishedCategoryResults([]);
     try {
@@ -322,7 +334,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       setCategories((categoryResult.data || []) as Category[]);
       setPublishedResults((finalResults.data || []) as PublishedResult[]);
       setPublishedCategoryResults((finalCategories.data || []) as PublishedCategoryResult[]);
-      setBallotScores((savedBallot.data || []).reduce(
+      const saved = (savedBallot.data || []).reduce(
         (scores: Record<number, Record<string, string>>, score: SavedScore) => ({
           ...scores,
           [score.entry_number]: {
@@ -331,7 +343,9 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           },
         }),
         {},
-      ));
+      );
+      setBallotScores(saved);
+      setSavedBallots(saved);
     } catch {
       setError("Unable to load competition submissions. Please try again.");
     } finally {
@@ -458,42 +472,58 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     else setError("");
   }
 
-  async function saveBallot(event: FormEvent<HTMLFormElement>, entry: BlindEntry) {
-    event.preventDefault();
-    if (savingBallot !== null || !votingOpen || categories.length === 0) return;
-    const scores = ballotScores[entry.entry_number] || {};
-    if (categories.some((category) => !scores[category.id])) {
-      setBallotFeedback((current) => ({
-        ...current,
-        [entry.entry_number]: "Choose a score for every category.",
-      }));
-      return;
-    }
+  // Leaving the page saves any slider move still waiting for its pause.
+  useEffect(() => {
+    const pending = pendingBallots.current;
+    return () => {
+      for (const { timer, save } of [...pending.values()]) {
+        window.clearTimeout(timer);
+        save();
+      }
+    };
+  }, []);
 
-    setSavingBallot(entry.entry_number);
-    setBallotFeedback((current) => ({ ...current, [entry.entry_number]: "" }));
-    try {
-      const { error: ballotError } = await client.rpc("save_ballot", {
-        p_competition_id: competitionId,
-        p_entry_number: entry.entry_number,
-        p_scores: categories.map((category) => ({
-          category_id: category.id,
-          score: Number(scores[category.id]),
-        })),
-      });
-      if (ballotError) throw ballotError;
-      setBallotFeedback((current) => ({
-        ...current,
-        [entry.entry_number]: "Ballot saved. You can revise it until voting closes.",
-      }));
-    } catch {
-      setBallotFeedback((current) => ({
-        ...current,
-        [entry.entry_number]: "Unable to save this ballot. Please try again.",
-      }));
-    } finally {
-      setSavingBallot(null);
-    }
+  /** The slider value for a category: the chosen score, or the middle of the scale before voting. */
+  function ballotScore(entryNumber: number, category: Category) {
+    return ballotScores[entryNumber]?.[category.id] || String(Math.ceil(category.max_score / 2));
+  }
+
+  function saveBallot(entryNumber: number, scores: Record<string, string>) {
+    const previous = ballotQueue.current.get(entryNumber) ?? Promise.resolve();
+    const next = previous.then(async () => {
+      try {
+        const { error: ballotError } = await client.rpc("save_ballot", {
+          p_competition_id: competitionId,
+          p_entry_number: entryNumber,
+          p_scores: categories.map((category) => ({
+            category_id: category.id,
+            score: Number(scores[category.id]),
+          })),
+        });
+        if (ballotError) throw ballotError;
+        setSavedBallots((current) => ({ ...current, [entryNumber]: scores }));
+        setToast({ id: Date.now(), text: `Vote recorded · Entry ${entryNumber}`, tone: "success" });
+      } catch {
+        setToast({ id: Date.now(), text: `Couldn't save your vote for Entry ${entryNumber}. Move a slider to try again.`, tone: "error" });
+      }
+    });
+    ballotQueue.current.set(entryNumber, next);
+  }
+
+  function changeScore(entryNumber: number, categoryId: string, value: string) {
+    if (!votingOpen) return;
+    const scores = {
+      ...Object.fromEntries(categories.map((category) => [category.id, ballotScore(entryNumber, category)])),
+      [categoryId]: value,
+    };
+    setBallotScores((current) => ({ ...current, [entryNumber]: scores }));
+    const pending = pendingBallots.current;
+    window.clearTimeout(pending.get(entryNumber)?.timer);
+    const save = () => {
+      pending.delete(entryNumber);
+      saveBallot(entryNumber, scores);
+    };
+    pending.set(entryNumber, { timer: window.setTimeout(save, 400), save });
   }
 
   if (loading) return <p role="status">Loading competition…</p>;
@@ -575,64 +605,48 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         <Card title="Anonymous entries">
           {blindEntries.length ? (
             <ol className="space-y-6">
-              {blindEntries.map((entry) => (
-                <li key={entry.entry_number} className="space-y-2">
-                  <h2 className="font-semibold">Entry {entry.entry_number}</h2>
-                  <MediaGallery
-                    client={client}
-                    mediaKeys={entry.media_keys}
-                    label={`Anonymous entry ${entry.entry_number} image`}
-                  />
-                  <form
-                    onSubmit={(event) => void saveBallot(event, entry)}
-                    className="space-y-3"
-                  >
-                    {categories.map((category) => (
-                      <label key={category.id} className="block">
-                        {category.name} (1–{category.max_score})
-                        <select
-                          required
-                          value={ballotScores[entry.entry_number]?.[category.id] || ""}
-                          onChange={(event) => {
-                            setBallotScores((current) => ({
-                              ...current,
-                              [entry.entry_number]: {
-                                ...current[entry.entry_number],
-                                [category.id]: event.target.value,
-                              },
-                            }));
-                            setBallotFeedback((current) => ({
-                              ...current,
-                              [entry.entry_number]: "",
-                            }));
-                          }}
-                          className="mt-1 block w-full rounded border border-slate-300 p-2"
-                        >
-                          <option value="">Choose a score</option>
-                          {Array.from({ length: category.max_score }, (_, index) => index + 1)
-                            .map((score) => <option key={score} value={score}>{score}</option>)}
-                        </select>
-                      </label>
-                    ))}
-                    {ballotFeedback[entry.entry_number] && (
-                      <p role="status">{ballotFeedback[entry.entry_number]}</p>
-                    )}
-                    <Button
-                      type="submit"
-                      disabled={savingBallot !== null || categories.length === 0}
-                    >
-                      {savingBallot === entry.entry_number
-                        ? "Saving ballot…"
-                        : "Save ballot"}
-                    </Button>
-                  </form>
-                </li>
-              ))}
+              {blindEntries.map((entry) => {
+                return (
+                  <li key={entry.entry_number} className="space-y-3">
+                    <h2 className="flex flex-wrap items-center gap-2 font-semibold">
+                      Entry {entry.entry_number}
+                      {savedBallots[entry.entry_number] && (
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">Voted</span>
+                      )}
+                    </h2>
+                    <MediaGallery
+                      client={client}
+                      mediaKeys={entry.media_keys}
+                      label={`Anonymous entry ${entry.entry_number} image`}
+                    />
+                    <div className="space-y-1">
+                      {categories.map((category) => {
+                        const id = `ballot-${entry.entry_number}-${category.id}`;
+                        const score = ballotScore(entry.entry_number, category);
+                        return (
+                          <div key={category.id} className="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)_auto] items-center gap-3">
+                            <label htmlFor={id} className="truncate">{category.name}</label>
+                            <input
+                              id={id}
+                              type="range"
+                              min={1}
+                              max={category.max_score}
+                              step={1}
+                              value={score}
+                              onChange={(event) => changeScore(entry.entry_number, category.id, event.target.value)}
+                              className="h-11 w-full cursor-pointer accent-indigo-600"
+                            />
+                            <span aria-hidden className="w-12 text-right font-semibold tabular-nums">{score}/{category.max_score}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </li>
+                );
+              })}
             </ol>
           ) : <p>No entries are available for blind voting.</p>}
-          <p className="mt-4 text-sm text-slate-600">
-            Score each category for an entry. Saved ballots can be revised until voting closes.
-          </p>
+          <Toast toast={toast} onDismiss={dismissToast} />
         </Card>
       )}
       {competition.status === "voting" && !votingOpen && (
@@ -653,12 +667,15 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           {publishedResults.length ? (
             <ol className="space-y-3">
               {publishedResults.map((result) => (
-                <li key={`${result.rank}:${result.creator_id}`} className="rounded border border-slate-200 p-3">
+                <li key={`${result.rank}:${result.creator_id}`} className="space-y-2 rounded border border-slate-200 p-3">
                   <h2 className="font-semibold">Rank {result.rank}: {result.title}</h2>
                   <p>Submitted by {result.creator_name || "Participant"}</p>
+                  {result.media_keys && result.media_keys.length > 0 && (
+                    <MediaGallery client={client} mediaKeys={result.media_keys} label={`${result.title} image`} />
+                  )}
                   {result.is_disqualified
                     ? <p>Disqualified</p>
-                    : <p>{result.score?.toFixed(4) ?? "—"}% · {result.vote_count} complete ballots</p>}
+                    : <p>{result.score === null ? "—" : formatPercent(result.score)} · {result.vote_count} complete ballots</p>}
                 </li>
               ))}
             </ol>
@@ -676,7 +693,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                     {publishedCategoryResults.filter((result) => result.category_id === categoryId).map((result, index) => (
                       <li key={`${categoryId}:${index}`}>
                         {result.rank === 1 ? "Winner: " : ""}{result.title} ({result.creator_name})
-                        {" — "}{result.score.toFixed(4)}%
+                        {" — "}{formatPercent(result.score)}
                       </li>
                     ))}
                   </ol>
@@ -692,6 +709,12 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
 }
 
 export function AdminSubmissions({ competitionId }: { competitionId: string }) {
+  const { session } = useAuth();
+  // Remount for each account so a switched user (e.g. a demo persona) never sees stale admin data.
+  return <AdminSubmissionsView key={session.user.id} competitionId={competitionId} />;
+}
+
+function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
   const { client, session } = useAuth();
   const [groupId, setGroupId] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -709,6 +732,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
   const [publishing, setPublishing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [forbidden, setForbidden] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [transitioning, setTransitioning] = useState(false);
@@ -737,6 +761,10 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
           client.rpc("get_competition_participants", { p_competition_id: competitionId }),
         ]);
         if (!active) return;
+        if (submissionResult.error?.code === "42501") {
+          setForbidden(true);
+          return;
+        }
         if (submissionResult.error) {
           setError(`Unable to load admin submissions: ${submissionResult.error.message}`);
           return;
@@ -925,6 +953,14 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
   }
 
   if (loading) return <p role="status">Loading admin submissions…</p>;
+  if (forbidden) {
+    return (
+      <Card title="Admin access required">
+        <p>Only group administrators can manage this competition.</p>
+        <ButtonLink href={`/competition/${encodeURIComponent(competitionId)}`}>View competition</ButtonLink>
+      </Card>
+    );
+  }
   if (error && !competition) return <p role="alert">{error}</p>;
   const step = nextTransition[competitionStatus];
 
@@ -1007,7 +1043,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
                 </h2>
                 <p className="break-words text-sm text-slate-600">Submitted by {attendeeName(entry.creator_id)}</p>
                 {!entry.is_disqualified && (
-                  <p>{entry.score === null ? "No complete ballots" : `${entry.score.toFixed(4)}%`}
+                  <p>{entry.score === null ? "No complete ballots" : formatPercent(entry.score)}
                     {" · "}{entry.vote_count} complete ballots</p>
                 )}
                 {entry.is_disqualified && (
@@ -1018,8 +1054,8 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
                   </p>
                 )}
                 {entry.is_disqualified && !entry.content_removed && (
-                  <div className="mt-3 flex flex-wrap items-end gap-3">
-                    <label className="min-w-0 basis-full sm:basis-56 sm:flex-1">Reason for reinstatement
+                  <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
+                    <label className="min-w-0">Reason for reinstatement
                       <input
                         maxLength={488}
                         value={reasons[entry.entry_id] || ""}
@@ -1043,8 +1079,8 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
                   </Button>
                 )}
                 {!entry.is_disqualified && (
-                  <div className="mt-3 flex flex-wrap items-end gap-3">
-                    <label className="min-w-0 basis-full sm:basis-56 sm:flex-1">Disqualification reason
+                  <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,14rem)_auto]">
+                    <label className="col-span-2 min-w-0 sm:col-span-1">Disqualification reason
                       <input
                         maxLength={500}
                         value={reasons[entry.entry_id] || ""}
@@ -1054,14 +1090,14 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
                         className="mt-1 block w-full rounded border border-slate-300 p-2"
                       />
                     </label>
-                    <label>Result handling
+                    <label className="min-w-0">Result handling
                       <select
                         value={dispositions[entry.entry_id] || "exclude"}
                         onChange={(event) => setDispositions((current) => ({
                           ...current,
                           [entry.entry_id]: event.target.value as "exclude" | "bottom" | "remove_content",
                         }))}
-                        className="mt-1 block rounded border border-slate-300 p-2"
+                        className="mt-1 block min-h-11 w-full rounded border border-slate-300 p-2"
                       >
                         <option value="exclude">Exclude from results</option>
                         <option value="bottom">Show as disqualified at bottom</option>
@@ -1084,7 +1120,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
               <h2 className="text-lg font-semibold">Preliminary category winners</h2>
               {reviewCategories.filter((category) => category.rank === 1).map((winner) => (
                 <p key={`${winner.category_id}:${winner.entry_id}`}>
-                  {winner.category_name}: {winner.title} ({attendeeName(winner.creator_id)}) — {winner.score.toFixed(4)}%
+                  {winner.category_name}: {winner.title} ({attendeeName(winner.creator_id)}) — {formatPercent(winner.score)}
                 </p>
               ))}
             </section>

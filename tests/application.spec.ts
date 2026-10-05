@@ -1,5 +1,8 @@
 import { expect, test } from "@playwright/test";
 
+// The demo runs Postgres in the browser, which is slow in WebKit and under parallel load.
+const demoExpect = expect.configure({ timeout: 30_000 });
+
 test("health endpoint @smoke", async ({ request }) => {
   const response = await request.get("/api/health");
   expect(response.status()).toBe(200);
@@ -8,96 +11,97 @@ test("health endpoint @smoke", async ({ request }) => {
 });
 
 test("landing and preview navigation @smoke", async ({ page }) => {
+  test.setTimeout(120_000);
   const privateRequests: string[] = [];
   page.on("request", (request) => {
     if (/\/rest\/v1\//.test(request.url())) privateRequests.push(request.url());
   });
   await page.goto("/");
-  await expect(page).toHaveTitle("OpenJury");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+  await demoExpect(page).toHaveTitle("OpenJury");
+  await demoExpect(page.getByRole("heading", { level: 1 })).toHaveText(
     "Competitions for every community",
   );
   const signIn = page.getByRole("heading", { name: "Sign in to OpenJury" });
-  const setup = page.getByRole("heading", { name: "Setup required" });
-  await expect(signIn.or(setup)).toBeVisible();
+  // Without Supabase configuration the app runs on an in-browser demo database.
+  const demo = page.getByRole("complementary", { name: "Demo mode" });
+  await demoExpect(signIn.or(demo)).toBeVisible();
   const configured = await signIn.isVisible();
   if (configured) {
-    await expect(page.getByRole("textbox", { name: "Email address" })).toBeVisible();
-    await page.getByRole("navigation").getByRole("link", { name: "Dashboard", exact: true }).click();
-  } else {
-    await expect(page.getByText(/Demo mode · fictional sample content/)).toBeVisible();
-    await page.getByRole("link", { name: "Open demo dashboard" }).click();
-  }
-  await expect(page).toHaveURL(/\/dashboard$/);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your groups");
-  if (configured) {
-    await expect(signIn).toBeVisible();
-    await expect(page.getByRole("link", { name: "Preview a group" })).toHaveCount(0);
-    await page.goto("/group/demo");
-  } else {
-    await expect(page.getByRole("link", { name: "Northside Makers", exact: true })).toBeVisible();
-    await page.getByRole("link", { name: "Northside Makers", exact: true }).click();
-  }
-  await expect(page).toHaveURL(/\/group\/demo$/);
-  if (configured) {
-    await expect(signIn).toBeVisible();
-    await expect(page.getByRole("link", { name: "Preview a competition" })).toHaveCount(0);
-    await page.goto("/competition/demo");
-  } else {
-    await expect(page.getByRole("heading", { name: "Northside Makers" })).toBeVisible();
-    await page.getByRole("link", { name: "Spring Bake-off" }).click();
-  }
-  await expect(page).toHaveURL(/\/competition\/demo$/);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Competition");
-  if (configured) {
-    await expect(signIn).toBeVisible();
-    await page.goto("/competition/demo/admin");
-    await expect(signIn).toBeVisible();
-    expect(privateRequests).toEqual([]);
+    await demoExpect(page.getByRole("textbox", { name: "Email address" })).toBeVisible();
+    for (const path of ["/dashboard", "/group/demo", "/competition/demo", "/competition/demo/admin"]) {
+      await page.goto(path);
+      await demoExpect(signIn).toBeVisible();
+    }
+    demoExpect(privateRequests).toEqual([]);
     return;
   }
-  await expect(page.getByRole("heading", { name: "Anonymous voting view example" })).toBeVisible();
-  await page.getByRole("link", { name: "Admin review" }).first().click();
-  await expect(page).toHaveURL(/\/competition\/demo\/admin$/);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Competition admin");
-  await expect(page.getByRole("heading", { name: "Preliminary rankings example" })).toBeVisible();
-  expect(privateRequests).toEqual([]);
+  await page.getByRole("button", { name: /^Account/ }).click({ timeout: 60_000 });
+  await page.getByRole("link", { name: "Your groups" }).click();
+  await demoExpect(page).toHaveURL(/\/dashboard$/);
+  await demoExpect(page.getByRole("heading", { level: 1 })).toHaveText("Your groups");
+  await page.getByRole("link", { name: "Northside Makers", exact: true }).click();
+  await demoExpect(page).toHaveURL(/\/group\/[^/]+$/);
+  await page.getByRole("link", { name: "Spring Bake-off", exact: true }).click();
+  await demoExpect(page).toHaveURL(/\/competition\/[^/]+$/);
+  await demoExpect(page.getByRole("heading", { level: 1 })).toHaveText("Competition");
+  await demoExpect(page.getByRole("heading", { name: "Anonymous entries" })).toBeVisible();
+  await page.getByRole("link", { name: "Manage competition" }).click();
+  await demoExpect(page).toHaveURL(/\/competition\/[^/]+\/admin$/);
+  await demoExpect(page.getByRole("heading", { level: 1 })).toHaveText("Competition admin");
+  await demoExpect(page.getByRole("heading", { name: "Competition attendees" })).toBeVisible();
+  demoExpect(privateRequests).toEqual([]);
 });
 
-test("demo views show fictional, read-only examples", async ({ page }) => {
-  await page.goto("/competition/demo");
-  await expect(page.getByText(/Demo mode · fictional sample content/)).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Submission view example" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Anonymous voting view example" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Published results view example" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Save submission" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Save ballot" }).first()).toBeDisabled();
-  await expect(page.getByLabel("Presentation").first()).toBeDisabled();
-  await page.getByRole("link", { name: "Admin review" }).first().click();
-  await expect(page.getByRole("heading", { name: "Private submission review example" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Competition attendees" })).toBeVisible();
-  await expect(page.getByText("Sample member C", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Preliminary rankings example" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Disqualify" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Publish final results" })).toBeDisabled();
+test("demo personas vote on fictional data saved in the browser", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto("/dashboard");
+  const demo = page.getByRole("complementary", { name: "Demo mode" });
+  const isDemo = await demo.waitFor({ timeout: 60_000 }).then(() => true, () => false);
+  test.skip(!isDemo, "Supabase is configured");
+  await demo.getByLabel("Viewing as").selectOption({ label: "Robin Park · Member" }, { timeout: 60_000 });
+  await demoExpect(page.getByRole("button", { name: "Account (robin@demo.openjury.app)" })).toBeVisible();
+  await page.getByRole("link", { name: "Northside Makers", exact: true }).click();
+  await page.getByRole("link", { name: "Spring Bake-off", exact: true }).click();
+  // Robin's seeded ballots are already saved; moving a slider updates them.
+  await demoExpect(page.getByText("Voted", { exact: true })).toHaveCount(2, { timeout: 30_000 });
+  // Anonymous entries are listed in a different order on each load, so follow one by number.
+  const entry = () => page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: /^Entry 1\b/ }) });
+  await entry().getByRole("slider", { name: "Taste" }).fill("1");
+  await demoExpect(page.getByRole("status").filter({ hasText: "Vote recorded · Entry 1" })).toBeVisible();
+  await page.reload();
+  await demoExpect(entry().getByRole("slider", { name: "Taste" })).toHaveValue("1", { timeout: 60_000 });
 });
 
 test("database identifiers stay hidden but are preserved by navigation links", async ({ page }) => {
+  test.setTimeout(120_000);
   const id = "db68a1af-c7e9-437b-99bf-2641263c498e";
   await page.goto(`/group/${encodeURIComponent(id)}`);
-  await expect(page.locator("body")).not.toContainText(id);
+  await demoExpect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await demoExpect(page.locator("body")).not.toContainText(id);
   await page.goto(`/competition/${encodeURIComponent(id)}`);
-  await expect(page.locator("body")).not.toContainText(id);
-  await expect(page.getByRole("link", { name: "Admin review" }).first()).toHaveAttribute(
+  await demoExpect(page.locator("body")).not.toContainText(id);
+  const demo = page.getByRole("complementary", { name: "Demo mode" });
+  if (!(await demo.waitFor({ timeout: 60_000 }).then(() => true, () => false))) return;
+  // In the demo, real identifiers appear only in link targets.
+  await page.goto("/dashboard");
+  await page.getByRole("link", { name: "Northside Makers", exact: true }).click({ timeout: 60_000 });
+  const competition = page.getByRole("link", { name: "Spring Bake-off", exact: true });
+  const href = await competition.getAttribute("href");
+  const competitionId = decodeURIComponent(href!.split("/").at(-1)!);
+  const groupId = decodeURIComponent(new URL(page.url()).pathname.split("/").at(-1)!);
+  await demoExpect(page.locator("body")).not.toContainText(groupId);
+  await demoExpect(page.locator("body")).not.toContainText(competitionId);
+  await competition.click();
+  await demoExpect(page.getByRole("link", { name: "Manage competition" })).toHaveAttribute(
     "href",
-    `/competition/${encodeURIComponent(id)}/admin`,
+    `/competition/${encodeURIComponent(competitionId)}/admin`,
   );
-  await page.getByRole("link", { name: "Admin review" }).first().click();
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Competition admin");
-  await expect(page.locator("body")).not.toContainText(id);
-  await expect(page.getByRole("link", { name: "Participant view" })).toHaveAttribute(
+  await page.getByRole("link", { name: "Manage competition" }).click();
+  await demoExpect(page.getByRole("heading", { level: 1 })).toHaveText("Competition admin");
+  await demoExpect(page.locator("body")).not.toContainText(competitionId);
+  await demoExpect(page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Spring Bake-off" })).toHaveAttribute(
     "href",
-    `/competition/${encodeURIComponent(id)}`,
+    `/competition/${encodeURIComponent(competitionId)}`,
   );
 });
 

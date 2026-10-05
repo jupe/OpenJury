@@ -6,7 +6,8 @@ import { usePathname } from "next/navigation";
 export default function MobileNavigation() {
   const pathname = usePathname();
   const homeActive = pathname === "/";
-  const dashboardActive = pathname === "/dashboard";
+  const competitionsActive = pathname === "/competitions" || pathname.startsWith("/competition/");
+  const dashboardActive = pathname === "/dashboard" || pathname.startsWith("/group/");
 
   return (
     <nav aria-label="Mobile navigation" className="mobile-tabbar">
@@ -24,6 +25,13 @@ export default function MobileNavigation() {
           <rect x="3" y="13" width="8" height="8" rx="2" />
         </svg>
         <span>Groups</span>
+      </Link>
+      <Link href="/competitions" aria-current={competitionsActive ? "page" : undefined} className={competitionsActive ? "mobile-tab mobile-tab-active" : "mobile-tab"}>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3" />
+        </svg>
+        <span>Competitions</span>
       </Link>
     </nav>
   );
