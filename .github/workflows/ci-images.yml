@@ -1,0 +1,59 @@
+name: Prebuild CI images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .nvmrc
+      - package.json
+      - package-lock.json
+      - deploy/proxmox/requirements.txt
+      - Dockerfile.ci
+      - Dockerfile.ci.dockerignore
+      - .github/actions/ci-images/action.yml
+      - .github/workflows/ci-images.yml
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-images-main
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build refreshed images
+        id: images
+        uses: ./.github/actions/ci-images
+        with:
+          dependencies: 'true'
+          rebuild: 'true'
+          prepare-workspace: 'false'
+      - name: Publish prebuilt images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOOLS_TAG: ${{ steps.images.outputs.tools-tag }}
+          DEPENDENCIES_TAG: ${{ steps.images.outputs.dependencies-tag }}
+          DOCKER_CONFIG: ${{ runner.temp }}/registry-auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker logout ghcr.io; rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker push "$TOOLS_TAG"
+          docker push "$DEPENDENCIES_TAG"
+          printf '### Prebuilt CI images\n- %s\n- %s\n' \
+            "$TOOLS_TAG" "$DEPENDENCIES_TAG" >> "$GITHUB_STEP_SUMMARY"

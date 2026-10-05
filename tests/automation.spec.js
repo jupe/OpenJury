@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { runInNewContext } from "node:vm";
 import { assessDiff, hasRequiredProtection, latestReviews, mergeMinorPRs } from "../.github/scripts/minor-pr.mjs";
@@ -12,6 +13,73 @@ const fullName = "jupe/OpenJury";
 const sha = "a".repeat(40);
 const context = { repo, serverUrl: "https://github.com", runId: 123 };
 const core = { info() {}, warning() {} };
+
+for (const [cacheHit, dependencies, rebuild, pulls, builds] of [
+  ["true", "true", "false", 2, 0],
+  ["false", "true", "false", 2, 2],
+  ["true", "false", "false", 1, 0],
+  ["true", "true", "true", 0, 2],
+]) {
+  test(`CI image preparation: hit=${cacheHit}, dependencies=${dependencies}, rebuild=${rebuild}`, () => {
+    const directory = mkdtempSync(join(tmpdir(), "openjury-ci-images-"));
+    const output = join(directory, "output");
+    const log = join(directory, "docker.log");
+    const action = readFileSync(resolve(".github/actions/ci-images/action.yml"), "utf8");
+    const script = action.split("run: |")[1];
+    try {
+      execFileSync("bash", ["-e", "-c", `
+        docker() {
+          printf '%s\\n' "$*" >> "$DOCKER_LOG"
+          case "$1" in
+            pull) test "$CACHE_HIT" = true ;;
+            image) printf 'sha256:%064d\\n' 1 ;;
+            build|tag) return 0 ;;
+            *) return 1 ;;
+          esac
+        }
+        export -f docker
+        ${script}
+      `], {
+        env: {
+          ...process.env,
+          GITHUB_REPOSITORY: fullName,
+          GITHUB_OUTPUT: output,
+          DOCKER_LOG: log,
+          CACHE_HIT: cacheHit,
+          INCLUDE_DEPENDENCIES: dependencies,
+          REBUILD: rebuild,
+          PREPARE_WORKSPACE: "false",
+        },
+      });
+      const commands = readFileSync(log, "utf8");
+      expect(commands.match(/^pull /gm) || []).toHaveLength(pulls);
+      expect(commands.match(/^build /gm) || []).toHaveLength(builds);
+      expect(commands).not.toMatch(/^push /m);
+      const outputs = readFileSync(output, "utf8");
+      expect(outputs).toMatch(/^tools=sha256:[a-f0-9]{64}$/m);
+      expect(outputs).toMatch(/^tools-tag=ghcr.io\/jupe\/openjury-ci:tools-[a-f0-9]{64}$/m);
+      expect(outputs.includes("dependencies=openjury-ci-dependencies:")).toBe(dependencies === "true");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}
+
+test("CI and deployment smoke tests reuse tools without installing packages on cache hits", () => {
+  for (const file of ["ci.yml", "deploy.yml"]) {
+    const workflow = readFileSync(resolve(".github/workflows", file), "utf8");
+    expect(workflow).toContain("uses: ./.github/actions/ci-images");
+    expect(workflow).toContain("--env PLAYWRIGHT_BASE_URL");
+    expect(workflow).not.toMatch(/setup-node|npm install|npm ci|playwright install|pipx run/);
+  }
+  const publisher = readFileSync(resolve(".github/workflows/ci-images.yml"), "utf8");
+  expect(publisher).toContain("if: github.ref == 'refs/heads/main'");
+  expect(publisher).not.toMatch(/pull_request/);
+  const dockerfile = readFileSync(resolve("Dockerfile"), "utf8");
+  expect(dockerfile).toContain("ARG DEPENDENCIES_IMAGE=dependencies");
+  expect(dockerfile).toContain("FROM ${DEPENDENCIES_IMAGE} AS builder");
+  expect(dockerfile).toContain("FROM node AS runner");
+});
 
 for (const eventName of ["pull_request", "merge_group"]) {
   test(`${eventName} skips only documentation-only or empty diffs`, () => {

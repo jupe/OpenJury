@@ -1,18 +1,15 @@
+ARG DEPENDENCIES_IMAGE=dependencies
 FROM node:26.10.0-alpine AS node
 
-# Build stages use the pinned npm; the runtime never needs npm.
-FROM node AS base
-RUN npm install --global npm@12.2.0
-
-FROM base AS dependencies
+FROM node AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+RUN npm install --global "$(node -p 'require("./package.json").packageManager')" \
+    && npm ci --no-audit --no-fund
 
-FROM base AS builder
+FROM ${DEPENDENCIES_IMAGE} AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
-COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 

@@ -1,0 +1,66 @@
+name: Prepare CI images
+description: Reuse preinstalled tools and dependencies, building locally only on a cache miss.
+inputs:
+  dependencies:
+    description: Also prepare Alpine production dependencies.
+    default: 'false'
+  rebuild:
+    description: Rebuild from current base images for trusted publication.
+    default: 'false'
+  prepare-workspace:
+    description: Link the preinstalled Node dependencies into the mounted workspace.
+    default: 'true'
+outputs:
+  tools:
+    description: Local immutable tooling image ID.
+    value: ${{ steps.images.outputs.tools }}
+  dependencies:
+    description: Local production dependency image tag.
+    value: ${{ steps.images.outputs.dependencies }}
+  tools-tag:
+    description: Registry tooling image tag for this set of inputs.
+    value: ${{ steps.images.outputs.tools-tag }}
+  dependencies-tag:
+    description: Registry dependency image tag for this set of inputs.
+    value: ${{ steps.images.outputs.dependencies-tag }}
+runs:
+  using: composite
+  steps:
+    - name: Pull matching images or build on a cache miss
+      id: images
+      shell: bash
+      env:
+        INCLUDE_DEPENDENCIES: ${{ inputs.dependencies }}
+        REBUILD: ${{ inputs.rebuild }}
+        PREPARE_WORKSPACE: ${{ inputs.prepare-workspace }}
+      run: |
+        set -euo pipefail
+        key="$(sha256sum .nvmrc package.json package-lock.json \
+          deploy/proxmox/requirements.txt Dockerfile.ci Dockerfile.ci.dockerignore \
+          .github/actions/ci-images/action.yml | sha256sum | cut -d ' ' -f 1)"
+        registry="ghcr.io/${GITHUB_REPOSITORY,,}-ci"
+        for target in tools dependencies; do
+          if [[ "$target" == dependencies && "$INCLUDE_DEPENDENCIES" != true ]]; then
+            continue
+          fi
+          tag="$registry:$target-$key"
+          if [[ "$REBUILD" == true ]] || ! docker pull "$tag"; then
+            echo "::notice::Building $target image; no matching prebuilt image is available or a refresh was requested."
+            docker build --pull --file Dockerfile.ci --target "$target" \
+              --build-arg "NODE_VERSION=$(cat .nvmrc)" --tag "$tag" .
+          fi
+          image_id="$(docker image inspect "$tag" --format '{{.Id}}')"
+          echo "$target-tag=$tag" >> "$GITHUB_OUTPUT"
+          if [[ "$target" == tools ]]; then
+            echo "tools=$image_id" >> "$GITHUB_OUTPUT"
+          else
+            # A local tag also works when a fork cannot publish its new inputs.
+            docker tag "$image_id" "openjury-ci-dependencies:$key"
+            echo "dependencies=openjury-ci-dependencies:$key" >> "$GITHUB_OUTPUT"
+          fi
+        done
+        if [[ "$PREPARE_WORKSPACE" == true ]]; then
+          # Resolved inside the tooling container, not on the host runner.
+          test ! -e node_modules && test ! -L node_modules
+          ln -s /opt/openjury/node_modules node_modules
+        fi

@@ -33,6 +33,45 @@ The `checks` status still runs and succeeds for documentation-only changes; a
 failed detector or required build fails it. Previews are skipped when CI produces
 no tested image. Pushes to `main` still run full CI and publish a tested image.
 
+## Prebuilt CI environment
+
+`Prebuild CI images` publishes two targets from `Dockerfile.ci` to
+`ghcr.io/jupe/openjury-ci`: `tools-<input-hash>` contains Node, the npm version
+from `package.json`, locked application dependencies, Chromium, WebKit and their
+OS libraries, ShellCheck, and Ansible; `dependencies-<input-hash>` contains the
+Alpine dependencies used to build the production image. The separate dependency
+target preserves compatibility with the Alpine production runtime.
+
+Images rebuild on `main` when their inputs change, weekly to refresh base images
+and OS packages, or through manual dispatch on `main`. Only that trusted workflow
+publishes the cache; PR jobs never publish CI images. The key covers `.nvmrc`,
+both npm manifests, the Ansible requirements, the image recipe and its dedicated
+Docker ignore file, and the preparation action. No application source or secrets
+are baked into these images.
+
+After the first publication, **make the `openjury-ci` GHCR package public** so
+fork PRs and read-only CI jobs can pull it without registry credentials. Run the
+workflow manually after merging to warm the cache. CI and deployment smoke tests
+pull matching inputs and run tools in disposable containers on GitHub-hosted
+runners. They use the locally resolved image ID throughout each job; browser
+containers use host networking to reach the production container's loopback port.
+Dependencies are linked into the workspace only inside these tooling containers.
+Normal cache hits require no Node, npm, application dependency, browser, OS
+package, or Ansible installation.
+
+A new dependency PR, first run, missing/private package, or registry outage falls
+back to building the exact images locally; it never uses stale dependencies or
+needs a write token. Only cache misses incur installation. Changing application
+source alone reuses both images. Image pulls still transfer uncached layers on
+fresh hosted runners.
+
+The production Dockerfile accepts `DEPENDENCIES_IMAGE` so CI reuses the prebuilt
+Alpine dependencies without another `npm ci`. A normal local `docker build .`
+still installs from the lockfile itself. Neither path changes the runtime image
+or release promotion of the tested image.
+
+## Image promotion and previews
+
 Main images are published as `ghcr.io/jupe/openjury:sha-<commit>`. Deployments use
 the immutable `ghcr.io/jupe/openjury@sha256:...` reference recorded in the Release
 summary. Same-repository PRs may push only to the separate
