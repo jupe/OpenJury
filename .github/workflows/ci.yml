@@ -126,8 +126,8 @@ jobs:
           echo "::error::Production container did not become healthy"
           exit 1
 
-      - name: Install Chromium and WebKit
-        run: npx playwright install --with-deps chromium webkit
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
 
       - name: Test production image
         run: npm run test:e2e
