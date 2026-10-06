@@ -27,6 +27,8 @@ const MEDIA_TYPES = new Map([
 type Competition = {
   id: string;
   name: string;
+  description: string | null;
+  rules: string | null;
   status: string;
   submission_deadline: string | null;
   voting_deadline: string | null;
@@ -53,6 +55,25 @@ function Deadlines({ competition }: { competition: Competition }) {
       )}
       {competition.voting_deadline && (
         <p>Voting closes {new Date(competition.voting_deadline).toLocaleString()}</p>
+      )}
+    </>
+  );
+}
+
+function CompetitionDetails({ competition }: { competition: Competition }) {
+  return (
+    <>
+      {competition.description && (
+        <section className="mt-4">
+          <h3 className="font-semibold">Description</h3>
+          <p className="whitespace-pre-wrap break-words">{competition.description}</p>
+        </section>
+      )}
+      {competition.rules && (
+        <section className="mt-4">
+          <h3 className="font-semibold">Rules</h3>
+          <p className="whitespace-pre-wrap break-words">{competition.rules}</p>
+        </section>
       )}
     </>
   );
@@ -259,7 +280,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     setPublishedCategoryResults([]);
     try {
       const result = await client.from("competitions")
-        .select("id,group_id,name,status,submission_deadline,voting_deadline,results_publish_at,groups(name),competition_participants(role)")
+        .select("id,group_id,name,description,rules,status,submission_deadline,voting_deadline,results_publish_at,groups(name),competition_participants(role)")
         .eq("id", competitionId)
         .maybeSingle();
       if (result.error || !result.data) {
@@ -536,6 +557,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       <Card title={competition.name}>
         <p className="flex flex-wrap items-center gap-2">Status: <StatusBadge status={competition.status} /></p>
         <Deadlines competition={competition} />
+        <CompetitionDetails competition={competition} />
         {isAdmin && (
           <ButtonLink href={`/competition/${encodeURIComponent(competitionId)}/admin`}>
             Manage competition
@@ -737,6 +759,10 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [transitioning, setTransitioning] = useState(false);
   const [transitionError, setTransitionError] = useState("");
+  const [detailsDraft, setDetailsDraft] = useState<{ name: string; description: string; rules: string } | null>(null);
+  const [savingDetails, setSavingDetails] = useState(false);
+  const [detailsError, setDetailsError] = useState("");
+  const [detailsMessage, setDetailsMessage] = useState("");
   const refresh = useCallback(() => {
     setLoading(true);
     setError("");
@@ -755,7 +781,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
         const [submissionResult, competitionResult, attendeeResult, roleResult] = await Promise.all([
           client.rpc("get_admin_submissions", { p_competition_id: competitionId }),
           client.from("competitions")
-            .select("id,group_id,name,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
+            .select("id,group_id,name,description,rules,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
             .eq("id", competitionId).maybeSingle(),
           client.rpc("get_admin_competition_attendees", { p_competition_id: competitionId }),
           client.rpc("get_competition_participants", { p_competition_id: competitionId }),
@@ -807,6 +833,29 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
   }, [client, competitionId, attempt]);
 
   useRealtimeUpdates(client, session.user.id, groupId, refresh);
+
+  async function saveDetails(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!detailsDraft || savingDetails) return;
+    setSavingDetails(true);
+    setDetailsError("");
+    try {
+      const { error: saveError } = await client.rpc("save_competition_details", {
+        p_competition_id: competitionId,
+        p_name: detailsDraft.name.trim(),
+        p_description: detailsDraft.description.trim() || null,
+        p_rules: detailsDraft.rules.trim() || null,
+      });
+      if (saveError) throw saveError;
+      setDetailsDraft(null);
+      setDetailsMessage("Competition details saved.");
+      refresh();
+    } catch (failure) {
+      setDetailsError(`Unable to save competition details: ${failureMessage(failure)}`);
+    } finally {
+      setSavingDetails(false);
+    }
+  }
 
   async function refreshReviewResults() {
     const [review, categories] = await Promise.all([
@@ -976,7 +1025,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
         <p className="flex flex-wrap items-center gap-2">Status: <StatusBadge status={competitionStatus} /></p>
         {competition && <Deadlines competition={competition} />}
         {competitionStatus === "draft" && (
-          <p>Edit the draft from the group page. Opening submissions locks its settings.</p>
+          <p>Edit scoring categories, event type, and deadlines from the group page before opening submissions. Competition details remain editable.</p>
         )}
         {competitionStatus === "review_pending" && (
           <>
@@ -1000,6 +1049,40 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
           </Button>
         )}
       </Card>
+      {competition && (
+        <Card title="Competition details">
+          {detailsDraft ? (
+            <form onSubmit={saveDetails} className="space-y-4" aria-busy={savingDetails}>
+              <fieldset disabled={savingDetails} className="space-y-4">
+                <label className="block">Competition name
+                  <input required maxLength={100} value={detailsDraft.name} onChange={(event) => setDetailsDraft({ ...detailsDraft, name: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+                </label>
+                <label className="block">Description (optional)
+                  <textarea maxLength={10000} rows={3} value={detailsDraft.description} onChange={(event) => setDetailsDraft({ ...detailsDraft, description: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+                </label>
+                <label className="block">Rules (optional)
+                  <textarea maxLength={10000} rows={4} value={detailsDraft.rules} onChange={(event) => setDetailsDraft({ ...detailsDraft, rules: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+                </label>
+                <div className="flex flex-wrap gap-3">
+                  <Button type="submit">{savingDetails ? "Saving…" : "Save details"}</Button>
+                  <Button type="button" variant="secondary" onClick={() => { setDetailsDraft(null); setDetailsError(""); }}>Cancel edit</Button>
+                </div>
+              </fieldset>
+              {detailsError && <p role="alert">{detailsError}</p>}
+            </form>
+          ) : (
+            <>
+              <CompetitionDetails competition={competition} />
+              <Button onClick={() => {
+                setDetailsDraft({ name: competition.name, description: competition.description ?? "", rules: competition.rules ?? "" });
+                setDetailsError("");
+                setDetailsMessage("");
+              }}>Edit competition details</Button>
+            </>
+          )}
+          {detailsMessage && <p role="status">{detailsMessage}</p>}
+        </Card>
+      )}
       <Card title="Competition attendees">
         <p>Group members and anyone who has submitted or voted, with how each takes part in this competition.</p>
         {attendees.length ? (

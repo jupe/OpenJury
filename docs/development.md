@@ -86,8 +86,11 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/08_realtime_notifications.sql`,
 `supabase/migrations/09_group_management.sql`,
 `supabase/migrations/10_competition_attendees.sql`,
-`supabase/migrations/11_review_enhancements.sql`, and
-`supabase/migrations/12_roles_and_invites.sql`, once each, in that order.
+`supabase/migrations/11_review_enhancements.sql`,
+`supabase/migrations/12_roles_and_invites.sql`,
+`supabase/migrations/13_disqualified_result_vote_count.sql`,
+`supabase/migrations/14_published_result_media.sql`, and
+`supabase/migrations/15_competition_details.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
@@ -95,6 +98,8 @@ projects, apply only migrations not already applied, in sequence. Apply
 migrations as the database owner, as in the SQL Editor: security-definer
 functions run with their owner's permissions to perform the otherwise-denied
 writes.
+Migration 15 adds competition description/rules and admin-only metadata editing
+in every phase; existing draft-save calls may omit the two new optional arguments.
 
 Alternatively, with the Supabase CLI installed and Docker running, initialize a
 local Supabase workspace with `supabase init`, then run `supabase start` and
