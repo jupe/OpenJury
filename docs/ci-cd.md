@@ -153,7 +153,7 @@ Promoted release digests are intentionally **not age-pruned**: hosts deploy and
 roll back by digest, and manual rollbacks are not tracked centrally. Age alone
 cannot establish that a release is unused. This preserves existing deployment
 and rollback behavior; release-history pruning requires an authoritative inventory
-of deployed and rollback digests first. GitHub attestations are not deleted.
+of deployed and rollback digests first.
 Expired unpromoted CI images cannot be used for old Release retries; rerun full CI
 on current `main` instead. Removed CI caches rebuild locally on demand using the
 exact dependency inputs, so old branches and fork builds continue working.
