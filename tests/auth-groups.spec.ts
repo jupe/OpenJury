@@ -405,13 +405,14 @@ test("group admins create and edit draft competitions with scoring criteria", as
         name: body.p_name,
         description: body.p_description,
         rules: body.p_rules,
+        allow_participant_voting: body.p_allow_participant_voting,
         event_type: body.p_event_type,
         status: "draft",
         submission_deadline: body.p_submission_deadline,
         voting_deadline: body.p_voting_deadline,
       });
     } else {
-      Object.assign(competitions[0], { name: body.p_name, description: body.p_description, rules: body.p_rules });
+      Object.assign(competitions[0], { name: body.p_name, description: body.p_description, rules: body.p_rules, allow_participant_voting: body.p_allow_participant_voting });
     }
     expect(categories).toHaveLength(1);
     return route.fulfill({ json: competitionId });
@@ -422,6 +423,8 @@ test("group admins create and edit draft competitions with scoring criteria", as
   await page.getByLabel("Description (optional)").fill("  A friendly baking competition.  ");
   await page.getByLabel("Rules (optional)").fill("One entry per person.\nNo identifying marks.");
   await page.getByRole("textbox", { name: "Category name" }).fill("Taste");
+  await expect(page.getByLabel("Allow participants to vote")).not.toBeChecked();
+  await page.getByLabel("Allow participants to vote").check();
   await page.getByRole("button", { name: "Create competition" }).click();
   await expect(page.getByRole("link", { name: "Autumn bake-off", exact: true })).toHaveAttribute("href", `/competition/${competitionId}`);
   expect(saves[0]).toMatchObject({
@@ -430,6 +433,7 @@ test("group admins create and edit draft competitions with scoring criteria", as
     p_name: "Autumn bake-off",
     p_description: "A friendly baking competition.",
     p_rules: "One entry per person.\nNo identifying marks.",
+    p_allow_participant_voting: true,
     p_event_type: "remote",
     p_categories: [{ name: "Taste", max_score: 5 }],
   });
@@ -437,6 +441,8 @@ test("group admins create and edit draft competitions with scoring criteria", as
   await page.getByRole("button", { name: "Edit draft" }).click();
   await expect(page.getByLabel("Description (optional)")).toHaveValue("A friendly baking competition.");
   await expect(page.getByLabel("Rules (optional)")).toHaveValue("One entry per person.\nNo identifying marks.");
+  await expect(page.getByLabel("Allow participants to vote")).toBeChecked();
+  await page.getByLabel("Allow participants to vote").uncheck();
   await page.getByLabel("Description (optional)").fill("");
   await page.getByLabel("Rules (optional)").fill("");
   await expect(page.getByRole("textbox", { name: "Category name" })).toHaveValue("Taste");
@@ -448,6 +454,7 @@ test("group admins create and edit draft competitions with scoring criteria", as
     p_group_id: groupId,
     p_description: null,
     p_rules: null,
+    p_allow_participant_voting: false,
     p_categories: [{ name: "Creativity", max_score: 5 }],
   });
 });
@@ -895,7 +902,8 @@ test("auth changes discard in-flight data from the previous user", async ({ page
   await expect(page.getByText("Old user's private group")).toHaveCount(0);
 });
 
-test("voting cards load a private ballot and save score revisions", async ({ page }) => {
+for (const votingRole of ["audience", "participant"]) {
+test(`${votingRole} voting cards load a private ballot and save score revisions`, async ({ page }) => {
   const competitionId = "33333333-3333-4333-8333-333333333333";
   const tasteId = "44444444-4444-4444-8444-444444444444";
   const presentationId = "55555555-5555-4555-8555-555555555555";
@@ -908,7 +916,8 @@ test("voting cards load a private ballot and save score revisions", async ({ pag
       status: "voting",
       submission_deadline: null,
       voting_deadline: new Date(Date.now() + 60_000).toISOString(),
-      competition_participants: [{ role: "audience" }],
+      allow_participant_voting: votingRole === "participant",
+      competition_participants: [{ role: votingRole }],
     }],
   }));
   await page.route(`${supabaseURL}/rest/v1/categories**`, (route) => route.fulfill({
@@ -933,6 +942,10 @@ test("voting cards load a private ballot and save score revisions", async ({ pag
 
   await page.goto(`/competition/${competitionId}`);
   await expect(page.getByRole("heading", { name: "Entry 7" })).toBeVisible();
+  if (votingRole === "participant") {
+    await expect(page.getByText("Submit your own entry and vote on other entries. You cannot vote on your own entry.")).toBeVisible();
+    await expect(page.getByText("Submit your own entry. Participants do not vote.")).toHaveCount(0);
+  }
   await expect(page.getByRole("slider", { name: "Taste" })).toHaveValue("2");
   await expect(page.getByRole("slider", { name: "Presentation" })).toHaveValue("3");
   await expect(page.getByText("Voted", { exact: true })).toBeVisible();
@@ -949,6 +962,7 @@ test("voting cards load a private ballot and save score revisions", async ({ pag
   });
   await page.screenshot({ path: "/tmp/openjury-voting-ballot.png", fullPage: true });
 });
+}
 
 test("admins disqualify and publish while group members see only final identities", async ({ page }) => {
   const competitionId = "66666666-6666-4666-8666-666666666666";
@@ -1272,7 +1286,7 @@ test("members choose to take part as participant or audience before submitting",
   ]);
 });
 
-test("participants never load the anonymous ballot, and newcomers may only join the audience during voting", async ({ page }) => {
+test("participants cannot load the ballot when disabled, and newcomers may only join the audience during voting", async ({ page }) => {
   const competitionId = "33333333-3333-4333-8333-333333333333";
   let role: string | null = "participant";
   let ballotRequested = false;
@@ -1281,6 +1295,7 @@ test("participants never load the anonymous ballot, and newcomers may only join 
     json: [{
       id: competitionId, group_id: groupId, name: "Autumn bake-off", status: "voting",
       submission_deadline: null, voting_deadline: null,
+      allow_participant_voting: false,
       competition_participants: role ? [{ role }] : [],
     }],
   }));
