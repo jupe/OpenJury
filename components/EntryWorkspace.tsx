@@ -285,6 +285,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | LocalizedError>("");
   const fileInput = useRef<HTMLInputElement>(null);
+  const captureInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -416,21 +417,22 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   const editable = competition?.status === "submission" && submissionOpen && role === "participant";
   const activeMedia = (submission?.media_keys || []).filter((key) => !removedKeys.includes(key));
 
-  function selectFiles(files: FileList | null) {
+  function selectFiles(files: FileList | null, append = false) {
     const selected = Array.from(files || []);
-    const available = MAX_MEDIA_FILES - activeMedia.length;
+    const existing = append ? newFiles : [];
+    const available = MAX_MEDIA_FILES - activeMedia.length - existing.length;
     if (selected.length > available) {
       setError(t("An entry may contain up to {count} images.", { count: MAX_MEDIA_FILES }));
-      setNewFiles([]);
+      if (!append) setNewFiles([]);
       return;
     }
     if (selected.some((file) => !MEDIA_TYPES.has(file.type) || file.size < 1 || file.size > MAX_MEDIA_SIZE)) {
       setError(t("Choose JPEG, PNG, or WebP images no larger than 10 MB each."));
-      setNewFiles([]);
+      if (!append) setNewFiles([]);
       return;
     }
     setError("");
-    setNewFiles(selected);
+    setNewFiles((current) => append ? [...current, ...selected] : selected);
   }
 
   async function cleanup(keys: string[]) {
@@ -619,16 +621,32 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                 {t("Remove image {number}", { number: index + 1 })}
               </Button>
             ))}
-            <label className="block">{t("Images (JPEG, PNG, or WebP; up to 5 files, 10 MB each)")}
-              <input
-                ref={fileInput}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                multiple
-                onChange={(event) => selectFiles(event.target.files)}
-                className="mt-1 block w-full"
-              />
-            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="secondary" type="button" onClick={() => captureInput.current?.click()}>
+                {t("Take a photo")}
+              </Button>
+              <label className="block min-w-0 flex-1">{t("Images (JPEG, PNG, or WebP; up to 5 files, 10 MB each)")}
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple
+                  onChange={(event) => selectFiles(event.target.files)}
+                  className="mt-1 block w-full"
+                />
+              </label>
+            </div>
+            <input
+              ref={captureInput}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              capture="environment"
+              onChange={(event) => {
+                selectFiles(event.target.files, true);
+                event.currentTarget.value = "";
+              }}
+              className="hidden"
+            />
             {newFiles.length > 0 && <p>{t("{count} new image(s) selected.", { count: newFiles.length })}</p>}
             {error && <p role="alert"><ErrorText error={error} /></p>}
             <Button type="submit" disabled={saving}>{t(saving ? "Saving…" : "Save submission")}</Button>
