@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthBoundary";
 import Card from "@/components/Card";
+import { useLocale } from "@/lib/i18n";
 
 // Competitions members can currently take part in.
 const ACTIVE_STATUSES = new Set(["submission", "voting"]);
 
 /** Sends the member to the competitions of their first group (dashboard order) with an active competition. */
 export default function ActiveCompetitionRedirect() {
+  const { t } = useLocale();
   const { client } = useAuth();
   const router = useRouter();
   const [state, setState] = useState<"loading" | "none" | "error">("loading");
@@ -41,13 +43,13 @@ export default function ActiveCompetitionRedirect() {
     return () => { active = false; };
   }, [client, router]);
 
-  if (state === "loading") return <p role="status">Finding active competitions…</p>;
+  if (state === "loading") return <p role="status">{t("Finding active competitions…")}</p>;
   return (
-    <Card title={state === "none" ? "No active competitions" : "Competitions unavailable"}>
+    <Card title={t(state === "none" ? "No active competitions" : "Competitions unavailable")}>
       {state === "none"
-        ? <p>None of your groups has a competition open for entries or voting right now.</p>
-        : <p role="alert">Unable to load your competitions. Please try again.</p>}
-      <Link href="/dashboard" className="underline">Go to your groups</Link>
+        ? <p>{t("None of your groups has a competition open for entries or voting right now.")}</p>
+        : <p role="alert">{t("Unable to load your competitions. Please try again.")}</p>}
+      <Link href="/dashboard" className="underline">{t("Go to your groups")}</Link>
     </Card>
   );
 }

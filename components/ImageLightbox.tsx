@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
+import { useLocale } from "@/lib/i18n";
 
 export type GalleryImage = { key: string; url: string };
 
@@ -14,6 +15,7 @@ export default function ImageLightbox({ images, label, start, onClose }: {
   start: number;
   onClose: () => void;
 }) {
+  const { t } = useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const track = useRef<HTMLDivElement>(null);
   const [index, setIndex] = useState(start);
@@ -42,7 +44,7 @@ export default function ImageLightbox({ images, label, start, onClose }: {
   return (
     <dialog
       ref={dialog}
-      aria-label={`${label} gallery`}
+      aria-label={`${label} ${t("gallery")}`}
       onClose={onClose}
       onKeyDown={(event) => {
         if (event.key === "ArrowRight") go(index + 1);
@@ -53,7 +55,7 @@ export default function ImageLightbox({ images, label, start, onClose }: {
       <div className="flex h-full flex-col">
         <div className="flex items-center justify-between gap-2 px-3 py-2">
           <p aria-live="polite" className="pl-1 text-sm tabular-nums">{index + 1} / {images.length}</p>
-          <button type="button" autoFocus aria-label="Close gallery" onClick={() => dialog.current?.close()} className={roundButton}>
+          <button type="button" autoFocus aria-label={t("Close gallery")} onClick={() => dialog.current?.close()} className={roundButton}>
             ×
           </button>
         </div>
@@ -81,10 +83,10 @@ export default function ImageLightbox({ images, label, start, onClose }: {
           </div>
           {images.length > 1 && (
             <>
-              <button type="button" aria-label="Previous image" disabled={index === 0} onClick={() => go(index - 1)} className={`${roundButton} absolute top-1/2 left-2 -translate-y-1/2`}>
+              <button type="button" aria-label={t("Previous image")} disabled={index === 0} onClick={() => go(index - 1)} className={`${roundButton} absolute top-1/2 left-2 -translate-y-1/2`}>
                 ‹
               </button>
-              <button type="button" aria-label="Next image" disabled={index === images.length - 1} onClick={() => go(index + 1)} className={`${roundButton} absolute top-1/2 right-2 -translate-y-1/2`}>
+              <button type="button" aria-label={t("Next image")} disabled={index === images.length - 1} onClick={() => go(index + 1)} className={`${roundButton} absolute top-1/2 right-2 -translate-y-1/2`}>
                 ›
               </button>
             </>
@@ -96,7 +98,7 @@ export default function ImageLightbox({ images, label, start, onClose }: {
               <li key={key} className="shrink-0">
                 <button
                   type="button"
-                  aria-label={`Show image ${slide + 1}`}
+                  aria-label={`${t("Show image")} ${slide + 1}`}
                   aria-current={slide === index}
                   onClick={() => go(slide)}
                   className={`block cursor-pointer overflow-hidden rounded-md border-2 ${slide === index ? "border-white" : "border-transparent opacity-60 hover:opacity-100"}`}
