@@ -55,6 +55,14 @@ returns only the caller's own scores; there is no member-facing ballot or
 preliminary-results projection. Direct entry and vote table access remains
 revoked.
 
+Migration `17_participant_voting.sql` adds `allow_participant_voting`, disabled
+by default. Group admins can enable **Allow participants to vote** when creating
+or editing a draft competition. The setting is fixed once submissions open.
+When enabled, participants may score other entries and revise their ballots until
+voting closes; self-voting remains prohibited and their own entry stays hidden
+from the blind ballot. Audience voting is unchanged. PostgreSQL enforces this
+eligibility, not just the interface.
+
 ## Admin review and publication
 
 After voting closes, group admins can access preliminary rankings and

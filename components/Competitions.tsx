@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "@/components/AuthBoundary";
 import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
 import AddButton from "@/components/AddButton";
-import Button, { ButtonLink } from "@/components/Button";
+import Button from "@/components/Button";
 import { StatusBadge } from "@/components/CompetitionStatus";
 import Card from "@/components/Card";
+import IconButton, { IconLink } from "@/components/IconButton";
 import type { CompetitionRoleName } from "@/components/Membership";
 import { useLocale } from "@/lib/i18n";
 
@@ -18,6 +19,7 @@ type Competition = {
   name: string;
   description: string | null;
   rules: string | null;
+  allow_participant_voting: boolean;
   event_type: "live" | "remote";
   status: string;
   submission_deadline: string | null;
@@ -79,6 +81,7 @@ type CompetitionDraft = {
   name: string;
   description: string;
   rules: string;
+  allowParticipantVoting: boolean;
   eventType: "live" | "remote";
   submissionDeadline: string;
   votingDeadline: string;
@@ -91,6 +94,7 @@ function emptyDraft(): CompetitionDraft {
     name: "",
     description: "",
     rules: "",
+    allowParticipantVoting: false,
     eventType: "remote",
     submissionDeadline: "",
     votingDeadline: "",
@@ -123,8 +127,10 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
+  const [editError, setEditError] = useState<CompetitionError | null>(null);
   const [draft, setDraft] = useState<CompetitionDraft>(emptyDraft);
   const [attempt, setAttempt] = useState(0);
+  const formDialog = useRef<HTMLDialogElement>(null);
   const refresh = useCallback(() => {
     setLoading(true);
     setError(null);
@@ -148,7 +154,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             .abortSignal(controller.signal)
             .maybeSingle(),
           client.from("competitions")
-            .select("id,name,description,rules,event_type,status,submission_deadline,voting_deadline,results_publish_at,competition_participants(role)")
+            .select("id,name,description,rules,allow_participant_voting,event_type,status,submission_deadline,voting_deadline,results_publish_at,competition_participants(role)")
             .eq("group_id", groupId)
             .order("name")
             .abortSignal(controller.signal),
@@ -176,8 +182,24 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
     }
   }, [loading]);
 
+  function newCompetition() {
+    setEditError(null);
+    setDraft(emptyDraft());
+    setEditing(false);
+    setSaveError(null);
+    formDialog.current?.showModal();
+  }
+
+  // Closing by Cancel, Escape, or a successful save discards the unsaved form.
+  function resetForm() {
+    setDraft(emptyDraft());
+    setEditing(false);
+    setSaveError(null);
+  }
+
   async function editCompetition(competition: Competition) {
     setLoadingEdit(true);
+    setEditError(null);
     setSaveError(null);
     try {
       const { data, error: queryError } = await client.from("categories")
@@ -185,7 +207,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         .eq("competition_id", competition.id)
         .order("name");
       if (queryError) {
-        setSaveError({ message: "Unable to load scoring categories: {error}", error: queryError.message });
+        setEditError({ message: "Unable to load scoring categories: {error}", error: queryError.message });
         return;
       }
       setDraft({
@@ -193,6 +215,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         name: competition.name,
         description: competition.description ?? "",
         rules: competition.rules ?? "",
+        allowParticipantVoting: competition.allow_participant_voting ?? false,
         eventType: competition.event_type,
         submissionDeadline: toLocalInput(competition.submission_deadline),
         votingDeadline: toLocalInput(competition.voting_deadline),
@@ -202,8 +225,9 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         })),
       });
       setEditing(true);
+      formDialog.current?.showModal();
     } catch {
-      setSaveError({ message: "Unable to load scoring categories. Please try again." });
+      setEditError({ message: "Unable to load scoring categories. Please try again." });
     } finally {
       setLoadingEdit(false);
     }
@@ -230,6 +254,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         p_name: draft.name.trim(),
         p_description: draft.description.trim() || null,
         p_rules: draft.rules.trim() || null,
+        p_allow_participant_voting: draft.allowParticipantVoting,
         p_event_type: draft.eventType,
         p_submission_deadline: toTimestamp(draft.submissionDeadline),
         p_voting_deadline: toTimestamp(draft.votingDeadline),
@@ -242,8 +267,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         setSaveError({ message: "Unable to save competition: {error}", error: rpcError.message });
         return;
       }
-      setDraft(emptyDraft());
-      setEditing(false);
+      formDialog.current?.close();
       setLoading(true);
       setAttempt((value) => value + 1);
     } catch {
@@ -283,8 +307,8 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
 
   return (
     <>
-      <Card id="competitions" title={t("Competitions")}>
-        {deleteError && <p role="alert" className="mb-4">{t(deleteError.message, { error: t(deleteError.error ?? "") })}</p>}
+      <Card id="competitions" title={t("Competitions")} action={isAdmin && <AddButton aria-label={t("New competition")} onClick={newCompetition} />}>
+        {deleteError && <p role="alert">{t(deleteError.message, { error: t(deleteError.error ?? "") })}</p>}
         {loading ? <p role="status">{t("Loading competitions…")}</p> : error ? (
           <>
             <p role="alert">{t(error.message, { error: t(error.error ?? "") })}</p>
@@ -304,45 +328,46 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
                     {t(competition.event_type === "live" ? "Live" : "Remote")}
                   </p>
                 </div>
-                {(competition.submission_deadline || competition.voting_deadline) && (
-                  <p className="text-sm text-slate-600">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="min-w-0 text-sm text-slate-600">
                     {competition.submission_deadline && t("Submissions close {date}", { date: formatDateTime(competition.submission_deadline) })}
                     {competition.submission_deadline && competition.voting_deadline && " · "}
                     {competition.voting_deadline && t("Voting closes {date}", { date: formatDateTime(competition.voting_deadline) })}
                   </p>
-                )}
-                {isAdmin && (
-                  <div className="mt-3 flex flex-wrap gap-3">
-                    {competition.status === "draft" && (
-                      <Button disabled={loadingEdit} onClick={() => void editCompetition(competition)}>
-                        {t(loadingEdit ? "Loading…" : "Edit draft")}
-                      </Button>
-                    )}
-                    <ButtonLink
-                      href={`/competition/${encodeURIComponent(competition.id)}/admin`}
-                      aria-label={t("Manage {name}", { name: competition.name })}
-                    >
-                      {t("Manage")}
-                    </ButtonLink>
-                    <Button
-                      variant="secondary"
-                      disabled={deletingId !== null || saving || loadingEdit}
-                      onClick={() => void deleteCompetition(competition)}
-                      aria-label={t("Remove {name}", { name: competition.name })}
-                    >
-                      {t(deletingId === competition.id ? "Working…" : "Remove competition")}
-                    </Button>
-                  </div>
-                )}
+                  {isAdmin && (
+                    <div className="flex shrink-0">
+                      {competition.status === "draft" && (
+                        <IconButton icon="edit" disabled={loadingEdit} aria-label={t(loadingEdit ? "Loading…" : "Edit draft")} onClick={() => void editCompetition(competition)} />
+                      )}
+                      <IconLink
+                        icon="manage"
+                        href={`/competition/${encodeURIComponent(competition.id)}/admin`}
+                        aria-label={t("Manage {name}", { name: competition.name })}
+                      />
+                      <IconButton
+                        icon="remove"
+                        tone="danger"
+                        disabled={deletingId !== null || saving || loadingEdit}
+                        aria-label={t(deletingId === competition.id ? "Working…" : "Remove {name}", { name: competition.name })}
+                        onClick={() => void deleteCompetition(competition)}
+                      />
+                    </div>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
         ) : <p>{t("No competitions have been created for this group yet.")}</p>}
+        {editError && <p role="alert">{t(editError.message, { error: t(editError.error ?? "") })}</p>}
       </Card>
 
       {isAdmin && (
-        <Card title={t(editing ? "Edit draft competition" : "Create a draft competition")}>
+        <dialog ref={formDialog} aria-labelledby="competition-form-title" onClose={resetForm} className="app-dialog m-auto max-h-[calc(100dvh-2rem)] w-[min(42rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl p-5 shadow-xl">
           <form onSubmit={saveCompetition} className="space-y-4" aria-busy={saving}>
+            <div className="flex items-center justify-between gap-3">
+              <h2 id="competition-form-title" className="text-lg font-semibold">{t(editing ? "Edit draft competition" : "Create a draft competition")}</h2>
+              <IconButton icon="cancel" aria-label={t("Close")} disabled={saving} onClick={() => formDialog.current?.close()} />
+            </div>
             <label className="block">{t("Competition name")}
               <input required maxLength={100} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
@@ -352,6 +377,11 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             <label className="block">{t("Rules (optional)")}
               <textarea maxLength={10000} rows={4} value={draft.rules} onChange={(event) => setDraft({ ...draft, rules: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
+            <label className="flex min-h-11 items-center gap-3">
+              <input type="checkbox" checked={draft.allowParticipantVoting} onChange={(event) => setDraft({ ...draft, allowParticipantVoting: event.target.checked })} className="h-5 w-5" />
+              {t("Allow participants to vote")}
+            </label>
+            <p className="text-sm text-slate-600">{t("Participants can score other entries, never their own. This setting is fixed once submissions open.")}</p>
             <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-[minmax(8rem,10rem)_minmax(0,1fr)_minmax(0,1fr)]">
               <label className="block sm:col-span-2 md:col-span-1">{t("Event type")}
                 <select value={draft.eventType} onChange={(event) => setDraft({ ...draft, eventType: event.target.value as "live" | "remote" })} className="mt-1 block w-full rounded border border-slate-300 p-2">
@@ -389,20 +419,20 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
                       categories: draft.categories.map((item, itemIndex) => itemIndex === index ? { ...item, max_score: Number(event.target.value) } : item),
                     })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
                   </label>
-                  <Button type="button" variant="secondary" disabled={draft.categories.length === 1} onClick={() => setDraft({
+                  <IconButton icon="remove" tone="danger" aria-label={t("Remove category")} disabled={draft.categories.length === 1} onClick={() => setDraft({
                     ...draft,
                     categories: draft.categories.filter((_, itemIndex) => itemIndex !== index),
-                  })}>{t("Remove")}</Button>
+                  })} />
                 </div>
               ))}
             </fieldset>
             {saveError && <p role="alert">{t(saveError.message, { error: t(saveError.error ?? "") })}</p>}
             <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
-              {editing && <Button type="button" variant="secondary" disabled={saving} onClick={() => { setEditing(false); setDraft(emptyDraft()); setSaveError(null); }}>{t("Cancel edit")}</Button>}
+              <Button type="button" variant="secondary" disabled={saving} onClick={() => formDialog.current?.close()}>{t("Cancel")}</Button>
               <Button type="submit" disabled={saving} className="sm:min-w-56 sm:text-base">{t(saving ? "Saving…" : editing ? "Save draft" : "Create competition")}</Button>
             </div>
           </form>
-        </Card>
+        </dialog>
       )}
     </>
   );

@@ -51,7 +51,7 @@ groups, submissions, or votes are queried or saved.
 | Platform admin | Emails in the deployment's `PLATFORM_ADMIN_EMAILS` | See every group on the dashboard and become an admin of any of them (**Manage as admin**), after which they have all group admin rights |
 | Group admin | The group's creator, and members other admins promote | Rename or remove the group, invite and remove members, promote or demote admins (a group always keeps at least one), and create and run competitions |
 | Member | Anyone who joined through an invite link or an email invite | See the group's competitions and choose a role in each |
-| Participant | A member who joined a competition as participant | Submit and edit their own entry; never vote |
+| Participant | A member who joined a competition as participant | Submit and edit their own entry; vote on other entries only if enabled for the competition |
 | Audience | A member who joined a competition as audience | Vote on anonymous entries; never submit |
 
 Members choose participant or audience on the competition page and can switch

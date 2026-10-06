@@ -45,6 +45,7 @@ type Competition = {
   name: string;
   description: string | null;
   rules: string | null;
+  allow_participant_voting: boolean;
   status: string;
   submission_deadline: string | null;
   voting_deadline: string | null;
@@ -285,6 +286,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | LocalizedError>("");
   const fileInput = useRef<HTMLInputElement>(null);
+  const captureInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -300,7 +302,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     setPublishedCategoryResults([]);
     try {
       const result = await client.from("competitions")
-        .select("id,group_id,name,description,rules,status,submission_deadline,voting_deadline,results_publish_at,groups(name),competition_participants(role)")
+        .select("id,group_id,name,description,rules,allow_participant_voting,status,submission_deadline,voting_deadline,results_publish_at,groups(name),competition_participants(role)")
         .eq("id", competitionId)
         .maybeSingle();
       if (result.error || !result.data) {
@@ -321,8 +323,8 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       setVotingOpen(isVotingOpen);
       const myRole = result.data.competition_participants?.[0]?.role ?? null;
       setRole(myRole);
-      // Only the audience votes, and only it may load the anonymous ballot.
-      const isBallotOpen = isVotingOpen && myRole === "audience";
+      const isBallotOpen = isVotingOpen && (myRole === "audience"
+        || (myRole === "participant" && result.data.allow_participant_voting));
       const [membership, mine, blind, categoryResult, savedBallot, finalResults, finalCategories] = await Promise.all([
         client.from("group_members").select("role")
           .eq("group_id", result.data.group_id).eq("user_id", session.user.id).maybeSingle(),
@@ -414,23 +416,25 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   }, [competition, load]);
 
   const editable = competition?.status === "submission" && submissionOpen && role === "participant";
+  const canVote = role === "audience" || (role === "participant" && competition?.allow_participant_voting);
   const activeMedia = (submission?.media_keys || []).filter((key) => !removedKeys.includes(key));
 
-  function selectFiles(files: FileList | null) {
+  function selectFiles(files: FileList | null, append = false) {
     const selected = Array.from(files || []);
-    const available = MAX_MEDIA_FILES - activeMedia.length;
+    const existing = append ? newFiles : [];
+    const available = MAX_MEDIA_FILES - activeMedia.length - existing.length;
     if (selected.length > available) {
       setError(t("An entry may contain up to {count} images.", { count: MAX_MEDIA_FILES }));
-      setNewFiles([]);
+      if (!append) setNewFiles([]);
       return;
     }
     if (selected.some((file) => !MEDIA_TYPES.has(file.type) || file.size < 1 || file.size > MAX_MEDIA_SIZE)) {
       setError(t("Choose JPEG, PNG, or WebP images no larger than 10 MB each."));
-      setNewFiles([]);
+      if (!append) setNewFiles([]);
       return;
     }
     setError("");
-    setNewFiles(selected);
+    setNewFiles((current) => append ? [...current, ...selected] : selected);
   }
 
   async function cleanup(keys: string[]) {
@@ -593,6 +597,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           status={competition.status}
           role={role}
           hasEntry={!!submission}
+          allowParticipantVoting={competition.allow_participant_voting}
           onChanged={() => void load()}
         />
       )}
@@ -619,16 +624,32 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                 {t("Remove image {number}", { number: index + 1 })}
               </Button>
             ))}
-            <label className="block">{t("Images (JPEG, PNG, or WebP; up to 5 files, 10 MB each)")}
-              <input
-                ref={fileInput}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                multiple
-                onChange={(event) => selectFiles(event.target.files)}
-                className="mt-1 block w-full"
-              />
-            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="secondary" type="button" onClick={() => captureInput.current?.click()}>
+                {t("Take a photo")}
+              </Button>
+              <label className="block min-w-0 flex-1">{t("Images (JPEG, PNG, or WebP; up to 5 files, 10 MB each)")}
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple
+                  onChange={(event) => selectFiles(event.target.files)}
+                  className="mt-1 block w-full"
+                />
+              </label>
+            </div>
+            <input
+              ref={captureInput}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              capture="environment"
+              onChange={(event) => {
+                selectFiles(event.target.files, true);
+                event.currentTarget.value = "";
+              }}
+              className="hidden"
+            />
             {newFiles.length > 0 && <p>{t("{count} new image(s) selected.", { count: newFiles.length })}</p>}
             {error && <p role="alert"><ErrorText error={error} /></p>}
             <Button type="submit" disabled={saving}>{t(saving ? "Saving…" : "Save submission")}</Button>
@@ -640,12 +661,12 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         <Button disabled={saving} onClick={() => void retryCleanup()}>{t("Retry media cleanup")}</Button>
       )}
 
-      {competition.status === "voting" && votingOpen && role === "participant" && (
+      {competition.status === "voting" && votingOpen && role === "participant" && !canVote && (
         <Card title={t("Voting in progress")}>
           <p>{t("The audience is voting on anonymous entries now. Participants do not vote.")}</p>
         </Card>
       )}
-      {competition.status === "voting" && votingOpen && role === "audience" && (
+      {competition.status === "voting" && votingOpen && canVote && (
         <Card title={t("Anonymous entries")}>
           {blindEntries.length ? (
             <ol className="space-y-6">
@@ -804,7 +825,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
         const [submissionResult, competitionResult, attendeeResult, roleResult] = await Promise.all([
           client.rpc("get_admin_submissions", { p_competition_id: competitionId }),
           client.from("competitions")
-            .select("id,group_id,name,description,rules,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
+            .select("id,group_id,name,description,rules,allow_participant_voting,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
             .eq("id", competitionId).maybeSingle(),
           client.rpc("get_admin_competition_attendees", { p_competition_id: competitionId }),
           client.rpc("get_competition_participants", { p_competition_id: competitionId }),

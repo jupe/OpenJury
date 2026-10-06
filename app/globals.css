@@ -156,7 +156,7 @@
     border-radius: 1.125rem;
   }
 
-  form button[type="submit"] {
+  form button[type="submit"]:not(.icon-button) {
     width: 100%;
   }
 

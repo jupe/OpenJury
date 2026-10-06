@@ -45,6 +45,11 @@ a row-locked RPC and an own-ballot-only projection. PostgreSQL rejects self-vote
 checks every category and score, excludes each voter's own entry from the blind
 projection, and permits revisions only before the voting deadline. Members have
 no RPC to read other ballots or preliminary results.
+Migration `17_participant_voting.sql` allows participants to use the blind
+projection and save ballots only when the competition's default-disabled
+`allow_participant_voting` setting is enabled. Only group admins can change it,
+through the row-locked draft-save RPC before submissions open. Membership,
+deadline, full-ballot validation, and self-vote protections remain enforced.
 Migration `07_admin_review_and_publication.sql` makes preliminary results and
 disqualification available only to group admins during review. The disqualification
 RPC records a reason/admin/timestamp event and does not delete the entry or its
@@ -106,7 +111,8 @@ Run `supabase/tests/group_access.sql`,
 `supabase/tests/secure_submissions.sql`,
 `supabase/tests/transactional_lifecycle.sql`,
 `supabase/tests/admin_review_and_publication.sql`,
-`supabase/tests/competition_attendees.sql`, and
+`supabase/tests/competition_attendees.sql`,
+`supabase/tests/participant_voting.sql`, and
 `supabase/tests/realtime_notifications.sql` as the database owner on a
 disposable Supabase database after applying all migrations. The assertions cover tenant
 isolation, admin-only draft setup, deadline and score constraints, frozen
