@@ -8,6 +8,7 @@ import { failureMessage } from "@/lib/errors";
 import Breadcrumbs, { type Crumb } from "@/components/Breadcrumbs";
 import Button, { ButtonLink } from "@/components/Button";
 import Card from "@/components/Card";
+import IconButton, { Icon, IconLink } from "@/components/IconButton";
 import ImageLightbox from "@/components/ImageLightbox";
 import Toast, { type ToastMessage } from "@/components/Toast";
 import { StatusBadge, nextTransition } from "@/components/CompetitionStatus";
@@ -162,10 +163,15 @@ function MediaGallery({
   client,
   mediaKeys,
   label,
+  removeLabel,
+  onRemove,
 }: {
   client: ReturnType<typeof useAuth>["client"];
   mediaKeys: string[];
   label: string;
+  /** With onRemove, each image gets a remove button with this accessible name. */
+  removeLabel?: (key: string) => string;
+  onRemove?: (key: string) => void;
 }) {
   const { t } = useLocale();
   const [images, setImages] = useState<Array<{ key: string; url: string }>>([]);
@@ -229,7 +235,7 @@ function MediaGallery({
       {shown.length > 0 && (
         <ul className="flex snap-x gap-2 overflow-x-auto pb-1">
           {shown.map(({ key, url }, index) => (
-            <li key={key} className="shrink-0 snap-start">
+            <li key={key} className="relative shrink-0 snap-start">
               <button
                 type="button"
                 title={t("Open gallery")}
@@ -245,6 +251,19 @@ function MediaGallery({
                   className="h-24 w-24 object-cover sm:h-28 sm:w-28"
                 />
               </button>
+              {onRemove && removeLabel && (
+                <button
+                  type="button"
+                  aria-label={removeLabel(key)}
+                  title={removeLabel(key)}
+                  onClick={() => onRemove(key)}
+                  className="absolute top-0 right-0 flex size-11 cursor-pointer items-start justify-end p-1"
+                >
+                  <span className="flex size-6 items-center justify-center rounded-full bg-slate-900/75 text-white hover:bg-red-700">
+                    <Icon name="cancel" className="size-4" />
+                  </span>
+                </button>
+              )}
             </li>
           ))}
         </ul>
@@ -580,15 +599,16 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     <div className="space-y-6">
       <Breadcrumbs items={competitionCrumbs(competitionId, competition, groupId, t).map((crumb, index, all) =>
         index === all.length - 1 ? { label: crumb.label } : crumb)} />
-      <Card title={competition.name}>
-        <p className="flex flex-wrap items-center gap-2">{t("Status:")} <StatusBadge status={competition.status} /></p>
-        <Deadlines competition={competition} />
+      <Card
+        title={competition.name}
+        action={isAdmin && <IconLink icon="manage" href={`/competition/${encodeURIComponent(competitionId)}/admin`} aria-label={t("Manage competition")} />}
+      >
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          <p><span className="sr-only">{t("Status:")} </span><StatusBadge status={competition.status} /></p>
+          {competition.submission_deadline && <p>{t("Submissions close {date}", { date: formatDateTime(competition.submission_deadline) })}</p>}
+          {competition.voting_deadline && <p>{t("Voting closes {date}", { date: formatDateTime(competition.voting_deadline) })}</p>}
+        </div>
         <CompetitionDetails competition={competition} />
-        {isAdmin && (
-          <ButtonLink href={`/competition/${encodeURIComponent(competitionId)}/admin`}>
-            {t("Manage competition")}
-          </ButtonLink>
-        )}
       </Card>
 
       {["draft", "submission", "voting"].includes(competition.status) && (
@@ -614,36 +634,33 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                 className="mt-1 block w-full rounded border border-slate-300 p-2"
               />
             </label>
-            <MediaGallery client={client} mediaKeys={activeMedia} label={t("Your submission image")} />
-            {submission?.media_keys.map((key, index) => !removedKeys.includes(key) && (
-              <Button
-                key={key}
-                type="button"
-                onClick={() => setRemovedKeys((current) => [...current, key])}
-              >
-                {t("Remove image {number}", { number: index + 1 })}
-              </Button>
-            ))}
-            <div className="flex flex-wrap items-center gap-3">
-              <Button variant="secondary" type="button" onClick={() => captureInput.current?.click()}>
-                {t("Take a photo")}
-              </Button>
-              <label className="block min-w-0 flex-1">{t("Images (JPEG, PNG, or WebP; up to 5 files, 10 MB each)")}
-                <input
-                  ref={fileInput}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  multiple
-                  onChange={(event) => selectFiles(event.target.files)}
-                  className="mt-1 block w-full"
-                />
-              </label>
+            <MediaGallery
+              client={client}
+              mediaKeys={activeMedia}
+              label={t("Your submission image")}
+              removeLabel={(key) => t("Remove image {number}", { number: (submission?.media_keys.indexOf(key) ?? 0) + 1 })}
+              onRemove={(key) => setRemovedKeys((current) => [...current, key])}
+            />
+            <div className="flex items-center gap-1">
+              <IconButton icon="camera" aria-label={t("Take a photo")} onClick={() => captureInput.current?.click()} />
+              <IconButton icon="addImage" aria-label={t("Add images")} onClick={() => fileInput.current?.click()} />
+              <p className="ml-2 text-xs text-slate-500">{t("JPEG, PNG or WebP · up to 5 images, 10 MB each")}</p>
             </div>
+            <input
+              ref={fileInput}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              aria-label={t("Add images")}
+              onChange={(event) => selectFiles(event.target.files)}
+              className="hidden"
+            />
             <input
               ref={captureInput}
               type="file"
               accept="image/jpeg,image/png,image/webp"
               capture="environment"
+              aria-label={t("Take a photo")}
               onChange={(event) => {
                 selectFiles(event.target.files, true);
                 event.currentTarget.value = "";
