@@ -39,6 +39,8 @@ const MEDIA_TYPES = new Map([
   ["image/jpeg", "jpg"],
   ["image/png", "png"],
   ["image/webp", "webp"],
+  ["image/heic", "heic"],
+  ["image/heif", "heif"],
 ]);
 
 type Competition = {
@@ -448,7 +450,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       return;
     }
     if (selected.some((file) => !MEDIA_TYPES.has(file.type) || file.size < 1 || file.size > MAX_MEDIA_SIZE)) {
-      setError(t("Choose JPEG, PNG, or WebP images no larger than 10 MB each."));
+      setError(t("Choose JPEG, PNG, WebP, HEIC, or HEIF images no larger than 10 MB each."));
       if (!append) setNewFiles([]);
       return;
     }
@@ -644,12 +646,12 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
             <div className="flex items-center gap-1">
               <IconButton icon="camera" aria-label={t("Take a photo")} onClick={() => captureInput.current?.click()} />
               <IconButton icon="addImage" aria-label={t("Add images")} onClick={() => fileInput.current?.click()} />
-              <p className="ml-2 text-xs text-slate-500">{t("JPEG, PNG or WebP · up to 5 images, 10 MB each")}</p>
+              <p className="ml-2 text-xs text-slate-500">{t("JPEG, PNG, WebP, HEIC, or HEIF · up to 5 images, 10 MB each")}</p>
             </div>
             <input
               ref={fileInput}
               type="file"
-              accept="image/jpeg,image/png,image/webp"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
               multiple
               aria-label={t("Add images")}
               onChange={(event) => selectFiles(event.target.files)}
@@ -658,7 +660,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
             <input
               ref={captureInput}
               type="file"
-              accept="image/jpeg,image/png,image/webp"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
               capture="environment"
               aria-label={t("Take a photo")}
               onChange={(event) => {

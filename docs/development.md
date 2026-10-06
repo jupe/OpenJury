@@ -91,8 +91,9 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/13_disqualified_result_vote_count.sql`,
 `supabase/migrations/14_published_result_media.sql`, and
 `supabase/migrations/15_competition_details.sql`,
-`supabase/migrations/16_competition_deletion.sql`, and
-`supabase/migrations/17_participant_voting.sql`, once each, in that order.
+`supabase/migrations/16_competition_deletion.sql`,
+`supabase/migrations/17_participant_voting.sql`, and
+`supabase/migrations/18_heic_submission_media.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing

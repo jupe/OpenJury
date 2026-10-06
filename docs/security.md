@@ -98,12 +98,12 @@ Remaining security work:
    authorization. An initial admin role alone does not grant competition access.
 
 The `competition-submissions` Storage bucket is private, limits uploads to
-JPEG/PNG/WebP images up to 10 MiB, and uses random UUID filenames without user
-identifiers or original filenames. Storage policies bind each object to its
-entry owner and competition phase. The UI downloads protected objects through
-the authenticated Storage client into temporary in-memory Blob URLs; it does
-not create public or signed media URLs. Removed media and failed uploads are
-deleted through Storage and failed cleanup can be retried.
+JPEG/PNG/WebP/HEIC/HEIF images up to 10 MiB, and uses random UUID filenames
+without user identifiers or original filenames. Storage policies bind each
+object to its entry owner and competition phase. The UI downloads protected
+objects through the authenticated Storage client into temporary in-memory Blob
+URLs; it does not create public or signed media URLs. Removed media and failed
+uploads are deleted through Storage, and failed cleanup can be retried.
 
 Run `supabase/tests/group_access.sql`,
 `supabase/tests/group_management.sql`,
