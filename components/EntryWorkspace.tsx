@@ -597,7 +597,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       )}
 
       {editable && (
-        <Card title={submission ? "Edit your submission" : "Submit an entry"}>
+        <Card title={t(submission ? "Edit your submission" : "Submit an entry")}>
           <form onSubmit={save} className="space-y-4" aria-busy={saving}>
             <label className="block">Entry title
               <input

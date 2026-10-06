@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthBoundary";
 import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
 import { failureMessage } from "@/lib/errors";
+import { useLocale } from "@/lib/i18n";
 import Button, { ButtonLink } from "@/components/Button";
 import Card from "@/components/Card";
 
@@ -387,6 +388,7 @@ export function CompetitionRole({
   hasEntry: boolean;
   onChanged: () => void;
 }) {
+  const { t } = useLocale();
   const { client } = useAuth();
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
@@ -404,28 +406,28 @@ export function CompetitionRole({
       if (joinError) throw joinError;
       onChanged();
     } catch (failure) {
-      setError(`Unable to join: ${failureMessage(failure)}`);
+      setError(t("Unable to join: {error}", { error: failureMessage(failure) }));
     } finally {
       setWorking(false);
     }
   }
 
   return (
-    <Card title={role ? "How you take part" : "Take part"}>
+    <Card title={t(role ? "How you take part" : "Take part")}>
       {role ? (
-        <p>You are taking part as <strong>{role === "participant" ? "a participant" : "audience"}</strong>. {roleCopy[role].summary}</p>
+        <p>{t(role === "participant" ? "You are taking part as a participant." : "You are taking part as audience.")} {t(roleCopy[role].summary)}</p>
       ) : available.length ? (
-        <p>Choose how you take part. You can change your mind until voting starts.</p>
+        <p>{t("Choose how you take part. You can change your mind until voting starts.")}</p>
       ) : (
-        <p>This competition is no longer open to new participants or audience.</p>
+        <p>{t("This competition is no longer open to new participants or audience.")}</p>
       )}
-      {role && hasEntry && beforeVoting && <p className="text-sm">You have submitted an entry, so you stay a participant.</p>}
-      {role && !beforeVoting && <p className="text-sm">Roles are fixed once voting starts.</p>}
+      {role && hasEntry && beforeVoting && <p className="text-sm">{t("You have submitted an entry, so you stay a participant.")}</p>}
+      {role && !beforeVoting && <p className="text-sm">{t("Roles are fixed once voting starts.")}</p>}
       {available.map((next) => (
         <div key={next} className="space-y-2">
-          {!role && <p className="text-sm">{roleCopy[next].summary}</p>}
+          {!role && <p className="text-sm">{t(roleCopy[next].summary)}</p>}
           <Button disabled={working} onClick={() => void choose(next)}>
-            {role ? `Switch to ${next === "participant" ? "participant" : "audience"}` : roleCopy[next].join}
+            {role ? t(next === "participant" ? "Switch to participant" : "Switch to audience") : t(roleCopy[next].join)}
           </Button>
         </div>
       ))}
