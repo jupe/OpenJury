@@ -90,7 +90,8 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/12_roles_and_invites.sql`,
 `supabase/migrations/13_disqualified_result_vote_count.sql`,
 `supabase/migrations/14_published_result_media.sql`, and
-`supabase/migrations/15_competition_details.sql`, once each, in that order.
+`supabase/migrations/15_competition_details.sql`, and
+`supabase/migrations/16_competition_deletion.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
@@ -100,6 +101,8 @@ functions run with their owner's permissions to perform the otherwise-denied
 writes.
 Migration 15 adds competition description/rules and admin-only metadata editing
 in every phase; existing draft-save calls may omit the two new optional arguments.
+Migration 16 adds an admin-only competition deletion RPC that preserves
+disqualification audit records.
 Competition setup and details support English and Finnish through `lib/i18n.tsx`.
 Choose the language from the account menu; the preference is stored in the browser.
 Translate interface labels and messages, not user-provided competition names,
