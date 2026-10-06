@@ -155,12 +155,17 @@ test("PR CI includes trusted preview orchestration after checks with fork and do
   expect(preview).toContain("github.event_name == 'pull_request'");
   expect(preview).toContain("vars.PREVIEW_CD_ENABLED == 'true'");
   expect(preview).toContain("github.event.pull_request.head.repo.full_name == github.repository");
+  expect(preview).toContain("needs.build.outputs.preview-artifact != ''");
   expect(preview).toContain("uses: jupe/OpenJury/.github/workflows/preview.yml@50d123dcc5a2600c27fa91a540be7501ed46e252");
   expect(preview).not.toMatch(/uses: (?:\.\/\.github\/workflows\/preview\.yml|jupe\/OpenJury\/\.github\/workflows\/preview\.yml@main)/);
   expect(preview).toContain("sha: ${{ github.event.pull_request.head.sha }}");
   expect(preview).toContain("artifact: ${{ needs.build.outputs.preview-artifact }}");
   expect(ci).toContain("vars.PREVIEW_CD_ENABLED == 'true' && github.run_id || 'latest'");
   expect(ci).toContain("cancel-in-progress: true");
+  expect(ci).toContain("steps.upload_image_ref.outcome == 'success'");
+  expect(ci).toContain("steps.upload_tested_image.outcome == 'success'");
+  expect(ci).toContain("continue-on-error: ${{ github.event_name == 'pull_request' }}");
+  expect(ci).toContain("continue-on-error: true");
   const workflow = readFileSync(resolve(".github/workflows/preview.yml"), "utf8");
   expect(workflow).toContain("workflow_call:");
   expect(workflow).not.toContain("workflow_run");

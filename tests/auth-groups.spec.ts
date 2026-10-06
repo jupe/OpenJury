@@ -79,7 +79,7 @@ async function expectPhoneLayout(page: Page) {
   }
 }
 
-test("small phone forms, long names and landscape stay usable", async ({ page }) => {
+test("small phone forms, long names and landscape stay usable @mobile", async ({ page }) => {
   await configure(page, true);
   await page.route(`${supabaseURL}/rest/v1/groups**`, (route) => route.fulfill({
     json: [{ id: groupId, name: "Community".repeat(12) }],
@@ -97,6 +97,7 @@ test("small phone forms, long names and landscape stay usable", async ({ page })
   for (const viewport of [{ width: 320, height: 568 }, { width: 360, height: 640 }, { width: 640, height: 360 }]) {
     await page.setViewportSize(viewport);
     await page.goto("/dashboard");
+    await page.getByRole("button", { name: "New group" }).click();
     await expect(page.getByRole("textbox", { name: "Group name" })).toBeVisible();
     await expectPhoneLayout(page);
     await page.goto(`/group/${groupId}`);
@@ -150,7 +151,7 @@ test("ordinary group members cannot manage group settings", async ({ page }) => 
   await expect(page.getByRole("button", { name: "Remove group" })).toHaveCount(0);
 });
 
-test("phone sign-in controls support zoom and comfortable touch targets", async ({ page }) => {
+test("phone sign-in controls support zoom and comfortable touch targets @mobile", async ({ page }) => {
   await configure(page);
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto("/");
@@ -162,7 +163,7 @@ test("phone sign-in controls support zoom and comfortable touch targets", async 
   expect(viewport).not.toMatch(/user-scalable=no|maximum-scale=1/);
 });
 
-test("phone image upload, uncropped preview and removal work", async ({ page }) => {
+test("phone image upload, uncropped preview and removal work @mobile", async ({ page }) => {
   await configure(page, true);
   await page.setViewportSize({ width: 320, height: 568 });
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
@@ -193,17 +194,18 @@ test("phone image upload, uncropped preview and removal work", async ({ page }) 
   await preview.scrollIntoViewIfNeeded();
   await expect(preview).toBeVisible();
   await expect.poll(() => preview.evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBe(1);
-  await page.locator("summary").click();
+  await preview.click();
+  await expect(page.getByRole("dialog", { name: "Your submission image gallery" })).toBeVisible();
   await expect(page.getByRole("img", { name: "Your submission image 1, full view" })).toBeVisible();
   await expectPhoneLayout(page);
-  await page.locator("summary").click();
-  await expect(page.getByRole("img", { name: "Your submission image 1, full view" })).not.toBeVisible();
+  await page.getByRole("button", { name: "Close gallery" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("button", { name: "Remove image 1" }).click();
   await page.getByRole("button", { name: "Save submission" }).click();
   await expect.poll(() => saves.at(-1)?.p_media_keys).toEqual([]);
 });
 
-test("off-screen private voting media is deferred until scrolling", async ({ page }) => {
+test("off-screen private voting media is deferred until scrolling @mobile", async ({ page }) => {
   await configure(page, true);
   await page.setViewportSize({ width: 320, height: 568 });
   const downloads: string[] = [];
@@ -262,17 +264,22 @@ async function mockRealtime(page: Page) {
   };
 }
 
-test("unconfigured pages offer setup and only public demo content", async ({ page }) => {
+test("unconfigured deployments run the in-browser demo without network data", async ({ page }) => {
+  test.setTimeout(120_000);
   await page.route("**/runtime-config.js", (route) => route.fulfill({
     contentType: "application/javascript",
     body: 'window.__OPENJURY_CONFIG__ = {SUPABASE_URL: "", SUPABASE_ANON_KEY: ""};',
   }));
-  for (const path of ["/", "/dashboard", "/group/demo"]) {
+  const apiRequests: string[] = [];
+  page.on("request", (request) => { if (/\/(rest|auth|storage)\/v1\//.test(request.url())) apiRequests.push(request.url()); });
+  for (const path of ["/", "/dashboard"]) {
     await page.goto(path);
-    await expect(page.getByRole("heading", { name: "Setup required" })).toBeVisible();
+    await expect(page.getByRole("complementary", { name: "Demo mode" })).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByRole("button", { name: "Account (alex@demo.openjury.app)" })).toBeVisible({ timeout: 60_000 });
     await expect(page.getByRole("button", { name: "Send sign-in link" })).toHaveCount(0);
   }
-  await expect(page.getByRole("link", { name: "Spring Bake-off" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Northside Makers" })).toBeVisible();
+  expect(apiRequests).toEqual([]);
 });
 
 test("configured signed-out routes prompt login without group queries", async ({ page }) => {
@@ -317,7 +324,7 @@ test("preview password sign-in uses the seeded account", async ({ page }) => {
   const request = await requestPromise;
   expect(new URL(request.url()).searchParams.get("grant_type")).toBe("password");
   expect(request.postDataJSON()).toMatchObject({ email: "admin@openjury.test", password: "preview-secret" });
-  await expect(page.getByText("Signed in as admin@openjury.test")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Account (admin@openjury.test)" })).toBeVisible();
 });
 
 test("OTP failures and rejected links are visible and retryable", async ({ page }) => {
@@ -352,7 +359,7 @@ test("session initialization errors fail closed and offer retry", async ({ page 
 test("implicit magic link establishes a browser session", async ({ page }) => {
   await configure(page);
   await page.goto(`/dashboard#access_token=magic-link-token&refresh_token=test-refresh&expires_in=3600&token_type=bearer`);
-  await expect(page.getByText("Signed in as member@example.com")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Account (member@example.com)" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Baking club" })).toBeVisible();
   await expect(page).toHaveURL(/\/dashboard#?$/);
 });
@@ -370,10 +377,11 @@ test("signed-in dashboard lists RLS groups and creates a group via RPC", async (
   });
   await page.goto("/dashboard");
   await expect(page.getByRole("link", { name: "Baking club" })).toHaveAttribute("href", `/group/${groupId}`);
+  await page.getByRole("button", { name: "New group" }).click();
   await page.getByRole("textbox", { name: "Group name" }).fill("  New community  ");
   await page.getByRole("button", { name: "Create group", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/group/${secondId}$`));
-  await expect(page.getByRole("heading", { name: "New community" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" }).getByText("New community")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Competitions" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Create a draft competition" })).toBeVisible();
 });
@@ -421,8 +429,10 @@ test("group admins create and edit draft competitions with scoring criteria", as
   });
 
   await page.getByRole("button", { name: "Edit draft" }).click();
+  await expect(page.getByRole("textbox", { name: "Category name" })).toHaveValue("Taste");
   await page.getByRole("textbox", { name: "Category name" }).fill("Creativity");
   await page.getByRole("button", { name: "Save draft" }).click();
+  await expect.poll(() => saves.length).toBe(2);
   expect(saves[1]).toMatchObject({
     p_competition_id: competitionId,
     p_group_id: groupId,
@@ -547,7 +557,8 @@ test("empty memberships and failed group creation provide clear feedback", async
     status: 400, json: { message: "Group name rejected" },
   }));
   await page.goto("/dashboard");
-  await expect(page.getByText("You do not belong to any groups yet. Open an invite link from a group admin, or create your first group below.")).toBeVisible();
+  await expect(page.getByText("You do not belong to any groups yet. Open an invite link from a group admin, or create a group with +.")).toBeVisible();
+  await page.getByRole("button", { name: "New group" }).click();
   await page.getByRole("textbox", { name: "Group name" }).fill("New group");
   await page.getByRole("button", { name: "Create group", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Group name rejected" })).toBeVisible();
@@ -579,7 +590,7 @@ test("group list and detail query errors can be retried", async ({ page }) => {
   await expect(page.getByRole("alert").filter({ hasText: "Unable to load group" })).toBeVisible();
   await page.route(`${supabaseURL}/rest/v1/groups**`, (route) => route.fulfill({ json: [{ id: groupId, name: "Recovered group" }] }));
   await page.getByRole("button", { name: "Retry group" }).click();
-  await expect(page.getByRole("heading", { name: "Recovered group" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" }).getByText("Recovered group")).toBeVisible();
 });
 
 test("logout reports server failure even when Supabase clears the local session", async ({ page }) => {
@@ -589,6 +600,7 @@ test("logout reports server failure even when Supabase clears the local session"
   }));
   await page.goto("/dashboard");
   await expect(page.getByRole("link", { name: "Baking club" })).toBeVisible();
+  await page.getByRole("button", { name: /^Account/ }).click();
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Unable to complete sign out" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Sign in to OpenJury" })).toBeVisible();
@@ -600,6 +612,7 @@ test("logout succeeds and clears browser session and private groups", async ({ p
   await configure(page, true);
   await page.goto("/dashboard");
   await expect(page.getByRole("link", { name: "Baking club" })).toBeVisible();
+  await page.getByRole("button", { name: /^Account/ }).click();
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Sign in to OpenJury" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Baking club" })).toHaveCount(0);
@@ -641,9 +654,9 @@ test("auth changes discard in-flight data from the previous user", async ({ page
     channel.postMessage({ event: "SIGNED_IN", session: nextSession });
     channel.close();
   }, session("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "other@example.com"));
-  await expect(page.getByText("Signed in as other@example.com")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Account (other@example.com)" })).toBeVisible();
   release();
-  await expect(page.getByText("You do not belong to any groups yet. Open an invite link from a group admin, or create your first group below.")).toBeVisible();
+  await expect(page.getByText("You do not belong to any groups yet. Open an invite link from a group admin, or create a group with +.")).toBeVisible();
   await expect(page.getByText("Old user's private group")).toHaveCount(0);
 });
 
@@ -685,13 +698,12 @@ test("voting cards load a private ballot and save score revisions", async ({ pag
 
   await page.goto(`/competition/${competitionId}`);
   await expect(page.getByRole("heading", { name: "Entry 7" })).toBeVisible();
-  await expect(page.getByLabel("Taste (1–5)")).toHaveValue("2");
-  await expect(page.getByLabel("Presentation (1–3)")).toHaveValue("3");
-  await expect(page.getByText(/Saved ballots can be revised until voting closes/)).toBeVisible();
+  await expect(page.getByRole("slider", { name: "Taste" })).toHaveValue("2");
+  await expect(page.getByRole("slider", { name: "Presentation" })).toHaveValue("3");
+  await expect(page.getByText("Voted", { exact: true })).toBeVisible();
   await expectPhoneLayout(page);
-  await page.getByLabel("Taste (1–5)").selectOption("4");
-  await page.getByRole("button", { name: "Save ballot" }).click();
-  await expect(page.getByRole("status")).toContainText("You can revise it until voting closes");
+  await page.getByRole("slider", { name: "Taste" }).fill("4");
+  await expect(page.getByRole("status")).toContainText("Vote recorded · Entry 7");
   expect(savedBallot).toEqual({
     p_competition_id: competitionId,
     p_entry_number: 7,
@@ -790,7 +802,7 @@ test("admins disqualify and publish while group members see only final identitie
   await page.goto(`/competition/${competitionId}`);
   await expect(page.getByRole("heading", { name: "Published results" })).toBeVisible();
   await expect(page.getByText("Submitted by Alex Baker")).toBeVisible();
-  await expect(page.getByText("82.5000% · 2 complete ballots")).toBeVisible();
+  await expect(page.getByText("83% · 2 complete ballots")).toBeVisible();
   await expectPhoneLayout(page);
 });
 

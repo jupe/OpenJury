@@ -100,7 +100,8 @@
   box-shadow: 0 2px 10px rgb(24 34 56 / 4%);
 }
 
-.app-card > h2 {
+.app-card > h2,
+.app-card > div:first-child > h2 {
   font-size: 1.125rem;
   font-weight: 650;
 }
@@ -141,10 +142,6 @@
     border-radius: 0.7rem;
   }
 
-  .desktop-dashboard-link {
-    display: none;
-  }
-
   .site-main {
     padding-top: 1.25rem;
     padding-bottom: calc(6.5rem + env(safe-area-inset-bottom));
@@ -170,7 +167,7 @@
     bottom: 0;
     left: 0;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     padding: 0.5rem max(1.5rem, env(safe-area-inset-right)) calc(0.5rem + env(safe-area-inset-bottom)) max(1.5rem, env(safe-area-inset-left));
     border-top: 1px solid #e5e8f0;
     background: rgb(255 255 255 / 94%);
@@ -206,5 +203,77 @@
     scroll-behavior: auto !important;
     transition: none !important;
     animation: none !important;
+  }
+}
+
+.demo-toolbar {
+  position: fixed;
+  z-index: 40;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.375rem max(1rem, env(safe-area-inset-right)) calc(0.375rem + env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+  background: rgb(15 23 42 / 96%);
+  box-shadow: 0 -2px 12px rgb(15 23 42 / 20%);
+}
+
+.demo-mode .site-main {
+  padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+}
+
+@media (max-width: 639px) {
+  /* Sits directly above the mobile tab bar. */
+  .demo-toolbar {
+    bottom: calc(4.25rem + env(safe-area-inset-bottom));
+    padding-bottom: 0.375rem;
+  }
+
+  .demo-mode .site-main {
+    padding-bottom: calc(10.5rem + env(safe-area-inset-bottom));
+  }
+}
+
+.app-dialog::backdrop {
+  background: rgb(15 23 42 / 45%);
+}
+
+.toast-region {
+  position: fixed;
+  z-index: 50;
+  right: 1rem;
+  bottom: calc(1.5rem + env(safe-area-inset-bottom));
+  left: 1rem;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.demo-mode .toast-region {
+  bottom: calc(5rem + env(safe-area-inset-bottom));
+}
+
+.toast {
+  animation: toast-in 160ms ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+}
+
+@media (max-width: 639px) {
+  /* Above the mobile tab bar, and the demo toolbar when present. */
+  .toast-region {
+    bottom: calc(5.25rem + env(safe-area-inset-bottom));
+  }
+
+  .demo-mode .toast-region {
+    bottom: calc(8.75rem + env(safe-area-inset-bottom));
   }
 }

@@ -8,6 +8,7 @@ import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
 import { CompetitionManager } from "@/components/Competitions";
 import { GroupMembers } from "@/components/Membership";
 import Breadcrumbs from "@/components/Breadcrumbs";
+import AddButton from "@/components/AddButton";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
 
@@ -25,6 +26,7 @@ export function GroupList() {
   const [createdId, setCreatedId] = useState("");
   const [attempt, setAttempt] = useState(0);
   const mounted = useRef(false);
+  const dialog = useRef<HTMLDialogElement>(null);
   const refresh = useCallback(() => {
     setLoading(true);
     setError("");
@@ -75,6 +77,7 @@ export function GroupList() {
       } else {
         setCreatedId(data);
         setName("");
+        dialog.current?.close();
         router.push(`/group/${data}`);
       }
     } catch {
@@ -84,27 +87,34 @@ export function GroupList() {
     }
   }
 
+  function closeDialog() {
+    dialog.current?.close();
+    setName("");
+    setCreateError("");
+  }
+
   return (
-    <>
-      <Card title="Your memberships">
-        {loading ? <p role="status">Loading groups…</p> : error ? (
-          <><p role="alert">{error}</p><Button onClick={() => { setLoading(true); setError(""); setAttempt((value) => value + 1); }}>Retry groups</Button></>
-        ) : groups.length ? (
-          <ul className="space-y-2">{groups.map((group) => <li key={group.id}><Link className="break-words underline" href={`/group/${group.id}`}>{group.name}</Link></li>)}</ul>
-        ) : <p>You do not belong to any groups yet. Open an invite link from a group admin, or create your first group below.</p>}
-      </Card>
-      <Card title="Build your community">
+    <Card title="Groups" action={<AddButton aria-label="New group" onClick={() => dialog.current?.showModal()} />}>
+      {loading ? <p role="status">Loading groups…</p> : error ? (
+        <><p role="alert">{error}</p><Button onClick={() => { setLoading(true); setError(""); setAttempt((value) => value + 1); }}>Retry groups</Button></>
+      ) : groups.length ? (
+        <ul className="space-y-2">{groups.map((group) => <li key={group.id}><Link className="break-words underline" href={`/group/${group.id}`}>{group.name}</Link></li>)}</ul>
+      ) : <p>You do not belong to any groups yet. Open an invite link from a group admin, or create a group with +.</p>}
+      {createdId && <p role="status">Group created. <Link className="underline" href={`/group/${createdId}`}>Open group</Link></p>}
+      <dialog ref={dialog} aria-labelledby="new-group-title" onClose={() => setCreateError("")} className="app-dialog m-auto w-[min(28rem,calc(100vw-2rem))] rounded-2xl p-5 shadow-xl">
         <form onSubmit={createGroup} className="space-y-4" aria-busy={creating}>
+          <h2 id="new-group-title" className="text-lg font-semibold">New group</h2>
           <label className="block">Group name
-            <input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+            <input required autoFocus maxLength={100} value={name} onChange={(event) => setName(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2" />
           </label>
-          <Button type="submit" disabled={creating || !name.trim()}>{creating ? "Creating group…" : "Create group"}</Button>
+          {createError && <p role="alert">{createError}</p>}
+          <div className="flex flex-wrap justify-end gap-3">
+            <button type="button" onClick={closeDialog} className="min-h-12 cursor-pointer rounded-xl px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100">Cancel</button>
+            <Button type="submit" disabled={creating || !name.trim()}>{creating ? "Creating group…" : "Create group"}</Button>
+          </div>
         </form>
-        {createError && <p role="alert">{createError}</p>}
-        {creating && <p role="status">Creating your group…</p>}
-        {createdId && <p role="status">Group created. <Link className="underline" href={`/group/${createdId}`}>Open group</Link></p>}
-      </Card>
-    </>
+      </dialog>
+    </Card>
   );
 }
 
@@ -206,7 +216,6 @@ export function GroupDetails({ id }: { id: string }) {
   return (
     <>
       <Breadcrumbs items={[{ label: "Dashboard", href: "/dashboard" }, { label: group.name }]} />
-      <Card title={group.name}><p>Group: {group.id}</p></Card>
       {isAdmin && (
         <Card title="Group settings">
           <form onSubmit={renameGroup} className="space-y-4" aria-busy={saving}>

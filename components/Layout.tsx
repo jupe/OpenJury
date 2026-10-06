@@ -14,9 +14,8 @@ export default function Layout({ children }: { children: ReactNode }) {
             <span aria-hidden="true" className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-sm text-white">OJ</span>
             <span>OpenJury</span>
           </Link>
-          <Link href="/dashboard" className="desktop-dashboard-link flex min-h-12 items-center rounded-xl bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 focus-visible:outline-2 focus-visible:outline-offset-4">
-            Dashboard
-          </Link>
+          {/* Filled with the account menu by AuthBoundary once signed in. */}
+          <div id="account-menu-slot" className="flex items-center" />
         </nav>
       </header>
       <main id="main-content" tabIndex={-1} className="site-main mx-auto max-w-5xl space-y-5">{children}</main>

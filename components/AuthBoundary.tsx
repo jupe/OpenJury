@@ -1,11 +1,13 @@
 "use client";
 
-import Link from "next/link";
+import { createPortal } from "react-dom";
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase, passwordSignInEnabled } from "@/lib/supabase";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
+import AccountMenu from "@/components/AccountMenu";
+import DemoToolbar from "@/components/DemoToolbar";
 
 const AuthContext = createContext<{ client: SupabaseClient; session: Session } | null>(null);
 
@@ -15,11 +17,11 @@ export function useAuth() {
   return auth;
 }
 
-export default function AuthBoundary({ children, demo }: { children: ReactNode; demo?: ReactNode }) {
+export default function AuthBoundary({ children }: { children: ReactNode }) {
   const [client, setClient] = useState<SupabaseClient>();
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [unconfigured, setUnconfigured] = useState(false);
+  const [demo, setDemo] = useState(false);
   const [sessionError, setSessionError] = useState("");
   const [linkError, setLinkError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -53,7 +55,16 @@ export default function AuthBoundary({ children, demo }: { children: ReactNode; 
       }
       const initialRevision = revision.current;
       try {
-        const supabase = getSupabase();
+        let supabase: SupabaseClient;
+        try {
+          supabase = getSupabase();
+        } catch (error) {
+          if (!(error instanceof Error && error.message.startsWith("Supabase is not configured."))) throw error;
+          // Without a backend, run the real app against an in-browser demo database.
+          supabase = (await import("@/lib/demo/client")).getDemoClient();
+          if (!active) return;
+          setDemo(true);
+        }
         setClient(supabase);
         const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
           // getSession reports failures that INITIAL_SESSION hides.
@@ -82,11 +93,7 @@ export default function AuthBoundary({ children, demo }: { children: ReactNode; 
         }
       } catch (error) {
         if (!active || revision.current !== initialRevision) return;
-        if (error instanceof Error && error.message.startsWith("Supabase is not configured.")) {
-          setUnconfigured(true);
-        } else {
-          setSessionError(`Unable to load your session: ${error instanceof Error ? error.message : "Check the public Supabase configuration."}`);
-        }
+        setSessionError(`Unable to load your session: ${error instanceof Error ? error.message : "Check the public Supabase configuration."}`);
         setLoading(false);
       }
     })();
@@ -159,35 +166,24 @@ export default function AuthBoundary({ children, demo }: { children: ReactNode; 
     }
   }
 
-  if (loading) return <p role="status">Loading your session…</p>;
-  if (unconfigured) {
-    return (
-      <>
-        <Card title="Setup required">
-          <p>Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY at runtime, or NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local. Use only the public anon key.</p>
-          <p>Authentication and real data are unavailable. The demo below uses fictional, read-only sample content.</p>
-          <Link href="/dashboard" className="underline">Open demo dashboard</Link>
-        </Card>
-        <p role="note" className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900">
-          Demo mode · fictional sample content · changes are disabled and nothing is saved
-        </p>
-        {demo}
-      </>
-    );
-  }
+  // The account menu lives in the site header; a session only exists after hydration, so the slot is in the DOM.
+  const accountSlot = session && typeof document !== "undefined" ? document.getElementById("account-menu-slot") : null;
+  const banner = demo && <DemoToolbar userId={session?.user.id ?? null} />;
+  if (loading) return <>{banner}<p role="status">{demo ? "Preparing the demo database…" : "Loading your session…"}</p></>;
   if (sessionError) {
-    return <Card title="Session unavailable"><p role="alert">{sessionError}</p><Button onClick={() => window.location.reload()}>Retry session</Button></Card>;
+    return <>{banner}<Card title="Session unavailable"><p role="alert">{sessionError}</p><Button onClick={() => window.location.reload()}>Retry session</Button></Card></>;
   }
   return (
     <>
+      {banner}
       {linkError && <p role="alert">{linkError}</p>}
       {actionError && <p role="alert">{actionError}</p>}
       {session && client ? (
         <>
-          <div className="flex flex-wrap items-center gap-4">
-            <p className="break-all">Signed in as {session.user.email || session.user.id}</p>
-            <Button disabled={signingOut} onClick={signOut}>{signingOut ? "Signing out…" : "Sign out"}</Button>
-          </div>
+          {accountSlot && createPortal(
+            <AccountMenu email={session.user.email || session.user.id} signingOut={signingOut} onSignOut={signOut} />,
+            accountSlot,
+          )}
           {signingOut ? <p role="status">Signing out…</p> : (
             <AuthContext.Provider value={{ client, session }}>
               <div key={`${session.user.id}:${session.access_token}`} className="space-y-6">{children}</div>
@@ -197,6 +193,7 @@ export default function AuthBoundary({ children, demo }: { children: ReactNode; 
       ) : (
         <Card title="Sign in to OpenJury">
           <p>Sign in with your email to view your groups. New accounts are welcome.</p>
+          {demo && <p>In the demo, any email signs in instantly as a new account, or pick a demo person in the toolbar below.</p>}
           <form onSubmit={requestLink} className="space-y-4" aria-busy={pending}>
             <label className="block">Email address
               <input type="email" autoComplete="email" autoCapitalize="none" spellCheck={false} enterKeyHint="send" required value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2" />
