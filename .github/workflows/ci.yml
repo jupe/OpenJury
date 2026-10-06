@@ -54,7 +54,7 @@ jobs:
       preview-artifact: ${{ steps.upload_image_ref.outcome == 'success' && format('image-ref-{0}', github.run_id) || steps.upload_tested_image.outcome == 'success' && format('image-{0}', github.run_id) || '' }}
     permissions:
       contents: read
-      # Only used to publish same-repository PR images for dev previews.
+      # Publish tested main images and separate same-repository PR preview images.
       packages: write
     steps:
       - name: Check out source
@@ -141,6 +141,22 @@ jobs:
           CI_TOOLS: ${{ steps.ci-images.outputs.tools }}
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
 
+      - name: Publish tested main image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOCKER_CONFIG: ${{ runner.temp }}/registry-auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="ghcr.io/${GITHUB_REPOSITORY,,}:ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          [[ "$(docker image inspect openjury:ci --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$GITHUB_SHA" ]]
+          trap 'docker logout ghcr.io; rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker tag openjury:ci "$tag"
+          docker push "$tag"
+          printf '### Tested main image\n`%s`\n' "$tag" >> "$GITHUB_STEP_SUMMARY"
+
       # Previews pull by digest, downloading only layers the dev VM lacks. Fork PRs
       # get a read-only token, so they keep using the image archive below.
       - name: Publish tested PR image for the dev preview
@@ -179,7 +195,7 @@ jobs:
           retention-days: 3
 
       - name: Save tested image
-        if: github.event_name == 'push' || (github.event_name == 'pull_request' && steps.preview-image.outcome != 'success')
+        if: github.event_name == 'pull_request' && steps.preview-image.outcome != 'success'
         run: |
           mkdir -p "$RUNNER_TEMP/image"
           docker save --output "$RUNNER_TEMP/image/image.tar" openjury:ci
@@ -188,7 +204,7 @@ jobs:
 
       - name: Upload tested image
         id: upload_tested_image
-        if: github.event_name == 'push' || (github.event_name == 'pull_request' && steps.preview-image.outcome != 'success')
+        if: github.event_name == 'pull_request' && steps.preview-image.outcome != 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         continue-on-error: ${{ github.event_name == 'pull_request' }}
         with:

@@ -215,7 +215,9 @@ PR-controlled reusable workflow or a moving PR branch as a shortcut.
   on `main`, supplying `pr_number`, to destroy that preview. This cleanup-only
   dispatch also works when `PREVIEW_CD_ENABLED` is disabled. Clean up existing
   previews before disabling the flag; disabling it is not a mass teardown.
-- Failed smoke reports are attached to the Release run. Production is untouched
+- Failed smoke reports are attached to the Release run when artifact storage is
+  available; report upload failures do not block promotion, but smoke test
+  failures still do. Production is untouched
   if staging fails. A production smoke failure marks the release failed but
   does not automatically revert traffic; there is no blue/green or zero-downtime
   guarantee with this single-container Compose setup.
@@ -225,5 +227,9 @@ PR-controlled reusable workflow or a moving PR branch as a shortcut.
   set to that digest. Run `PLAYWRIGHT_BASE_URL=https://<host> npm run test:smoke`
   afterward. Do not reset persistent data or rebuild an old source tree.
 - Monitor host disk use and retain enough prior GHCR digests for rollback.
+  Keep main CI's `ci-<run-id>-<run-attempt>` tags available for Release retries.
+  If a tested image has been deleted, rerun all CI jobs on current `main` rather
+  than rebuilding in Release or deploying an untested image. Artifact quota
+  exhaustion no longer blocks main image publication or deployment smoke jobs.
   Cleanup removes the preview's old image when it is not shared; it never runs
   a global Docker prune or deletes the shared proxy/network.

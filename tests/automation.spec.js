@@ -81,6 +81,113 @@ test("CI and deployment smoke tests reuse tools without installing packages on c
   expect(dockerfile).toContain("FROM node AS runner");
 });
 
+function workflowStep(workflow, name) {
+  return workflow.split(`- name: ${name}\n`)[1].split(/\n(?:      - |  [a-z])/)[0];
+}
+
+test("main release handoff does not depend on artifact storage or bypass checks", () => {
+  const ci = readFileSync(resolve(".github/workflows/ci.yml"), "utf8");
+  const publish = workflowStep(ci, "Publish tested main image");
+  expect(publish).toContain("if: github.event_name == 'push' && github.ref == 'refs/heads/main'");
+  expect(publish).not.toContain("continue-on-error");
+  expect(ci.indexOf("- name: Test production image")).toBeLessThan(ci.indexOf("- name: Publish tested main image"));
+  for (const name of ["Save tested image", "Upload tested image"]) {
+    const step = workflowStep(ci, name);
+    expect(step).toContain("if: github.event_name == 'pull_request' && steps.preview-image.outcome != 'success'");
+    expect(step).not.toContain("github.event_name == 'push'");
+  }
+  const release = readFileSync(resolve(".github/workflows/release.yml"), "utf8");
+  expect(release).not.toMatch(/download-artifact|docker (build|load)|release-image/);
+  expect(release).toContain("github.event.workflow_run.conclusion == 'success'");
+  expect(release).toContain("github.event.workflow_run.event == 'push'");
+  expect(release).toContain("github.event.workflow_run.head_repository.full_name == github.repository");
+  expect(release).toContain("CI_RUN_ID: ${{ github.event.workflow_run.id }}");
+  expect(release).toContain("CI_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}");
+  expect(release).toContain("if: steps.current.outputs.current == 'true'");
+  expect(release).toContain("data.commit.sha === context.payload.workflow_run.head_sha");
+  expect(release).toContain("needs.staging.result == 'success' && vars.CD_ENABLED == 'true'");
+  const deploy = readFileSync(resolve(".github/workflows/deploy.yml"), "utf8");
+  expect(workflowStep(deploy, "Upload smoke report")).toContain("continue-on-error: true");
+  expect(workflowStep(deploy, "Smoke test through the public ingress")).not.toContain("continue-on-error");
+});
+
+for (const workflow of ["ci.yml", "release.yml"]) {
+  for (const failure of ["", "revision", "pull", "push", "digest"]) {
+    if (workflow === "ci.yml" && ["pull", "digest"].includes(failure)) continue;
+    test(`${workflow} tested image promotion fails closed: ${failure || "success"}`, () => {
+      const directory = mkdtempSync(join(tmpdir(), "openjury-release-"));
+      const output = join(directory, "output");
+      const log = join(directory, "docker.log");
+      const digest = `ghcr.io/jupe/openjury@sha256:${"b".repeat(64)}`;
+      const source = "ghcr.io/jupe/openjury:ci-123-2";
+      const text = readFileSync(resolve(".github/workflows", workflow), "utf8");
+      const step = workflowStep(text, workflow === "ci.yml"
+        ? "Publish tested main image" : "Publish the tested image, without rebuilding");
+      const script = step.split("run: |")[1];
+      try {
+        const run = () => execFileSync("bash", ["-e", "-c", `
+          docker() {
+            printf '%s\\n' "$*" >> "$DOCKER_LOG"
+            case "$1" in
+              login) cat >/dev/null ;;
+              logout|tag) return 0 ;;
+              pull|push) test "$FAILURE" != "$1" ;;
+              image)
+                if [[ "$*" == *RepoDigests* ]]; then
+                  if [[ "$FAILURE" == digest ]]; then printf 'ghcr.io/other/image@sha256:invalid\\n';
+                  else printf '%s\\n' "$EXPECTED_DIGEST"; fi
+                elif [[ "$FAILURE" == revision ]]; then printf 'wrong-revision\\n';
+                else printf '%s\\n' "$REVISION"; fi ;;
+              *) return 1 ;;
+            esac
+          }
+          export -f docker
+          ${script}
+        `], {
+          env: {
+            ...process.env,
+            GITHUB_REPOSITORY: fullName,
+            GITHUB_SHA: sha,
+            GITHUB_RUN_ID: "123",
+            GITHUB_RUN_ATTEMPT: "2",
+            CI_RUN_ID: "123",
+            CI_RUN_ATTEMPT: "2",
+            REVISION: sha,
+            GITHUB_ACTOR: "test",
+            GH_TOKEN: "test-only",
+            GITHUB_OUTPUT: output,
+            GITHUB_STEP_SUMMARY: join(directory, "summary"),
+            DOCKER_CONFIG: join(directory, "auth"),
+            DOCKER_LOG: log,
+            FAILURE: failure,
+            EXPECTED_DIGEST: digest,
+          },
+        });
+        if (failure) expect(run).toThrow();
+        else expect(run).not.toThrow();
+        const commands = readFileSync(log, "utf8");
+        expect(commands).not.toMatch(/^(build|load|save) /m);
+        if (!failure) {
+          if (workflow === "ci.yml") {
+            expect(commands).toContain(`tag openjury:ci ${source}`);
+            expect(commands).toContain(`push ${source}`);
+          } else {
+            expect(commands).toContain(`pull ${source}`);
+            expect(commands).toContain(`image inspect ${digest}`);
+            expect(commands).toContain(`tag ${digest} ghcr.io/jupe/openjury:sha-${sha}`);
+            expect(readFileSync(output, "utf8")).toBe(`image=${digest}\n`);
+          }
+        } else {
+          if (failure !== "push") expect(commands).not.toMatch(/^push /m);
+          expect(() => readFileSync(output, "utf8")).toThrow();
+        }
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    });
+  }
+}
+
 for (const eventName of ["pull_request", "merge_group"]) {
   test(`${eventName} skips only documentation-only or empty diffs`, () => {
     const event = { eventName, baseSha: "b".repeat(40), headSha: sha };
