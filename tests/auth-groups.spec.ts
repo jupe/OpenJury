@@ -403,7 +403,9 @@ test("signed-in dashboard lists RLS groups and creates a group via RPC", async (
   await page.getByRole("textbox", { name: "Group name" }).fill("  New community  ");
   await page.getByRole("button", { name: "Create group", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/group/${secondId}$`));
-  await expect(page.getByRole("navigation", { name: "Breadcrumb" }).getByText("New community")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Group lobby" })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toHaveCount(0);
+  await expect(page.locator("nav.mobile-tabbar")).toHaveCount(1);
   await expect(page.getByRole("heading", { name: "Competitions" })).toBeVisible();
   await expect(page.getByRole("button", { name: "New competition" })).toBeVisible();
 });
@@ -865,7 +867,7 @@ test("group list and detail query errors can be retried", async ({ page }) => {
   await expect(page.getByRole("alert").filter({ hasText: "Unable to load group" })).toBeVisible();
   await page.route(`${supabaseURL}/rest/v1/groups**`, (route) => route.fulfill({ json: [{ id: groupId, name: "Recovered group" }] }));
   await page.getByRole("button", { name: "Retry group" }).click();
-  await expect(page.getByRole("navigation", { name: "Breadcrumb" }).getByText("Recovered group")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toHaveCount(0);
 });
 
 test("logout reports server failure even when Supabase clears the local session", async ({ page }) => {
@@ -1161,9 +1163,7 @@ test("group lobby shows competition status and offers admins a manage button", a
   }));
 
   await page.goto(`/group/${groupId}`);
-  const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
-  await expect(breadcrumb.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/dashboard");
-  await expect(breadcrumb.getByText("Baking club")).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toHaveCount(0);
   await expect(page.getByText("Open for entries")).toBeVisible();
   await expect(page.getByRole("link", { name: "Manage Autumn bake-off" }))
     .toHaveAttribute("href", `/competition/${competitionId}/admin`);

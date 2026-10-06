@@ -7,7 +7,6 @@ import { useAuth } from "@/components/AuthBoundary";
 import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
 import { CompetitionManager } from "@/components/Competitions";
 import { GroupMembers } from "@/components/Membership";
-import Breadcrumbs from "@/components/Breadcrumbs";
 import AddButton from "@/components/AddButton";
 import Button from "@/components/Button";
 import IconButton from "@/components/IconButton";
@@ -253,7 +252,6 @@ export function GroupDetails({ id }: { id: string }) {
   if (!group) return <Card title={t("Group not found or access denied")}><p>{t("This group does not exist, or you are not a member.")}</p><Link href="/dashboard" className="underline">{t("Back to your groups")}</Link></Card>;
   return (
     <>
-      <Breadcrumbs items={[{ label: t("Dashboard"), href: "/dashboard" }, { label: group.name }]} />
       {isAdmin && (
         <>
           <Card title={t("Group settings")}>
