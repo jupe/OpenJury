@@ -24,7 +24,10 @@ reports after seven. Actions are commit-pinned and Dependabot proposes updates.
 The full Playwright suite runs in Chromium; Android and iPhone run `@smoke` and
 `@mobile` tests. Four CI workers keep the browser stage under five minutes.
 Production builds use Webpack because Turbopack currently breaks PGlite's WASM
-initializer in the demo.
+initializer in the demo. On PRs, artifact uploads are best-effort when the
+repository reaches GitHub's storage quota; this skips the optional preview if
+its image artifact is unavailable. Main-branch image uploads remain required for
+release promotion.
 
 Documentation-only PRs and merge-queue entries skip the build/test job. The
 documentation allowlist is root-level `*.md`, Markdown files under `docs/`, and

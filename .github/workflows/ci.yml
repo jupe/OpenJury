@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     outputs:
-      preview-artifact: ${{ steps.preview-image.outcome == 'success' && format('image-ref-{0}', github.run_id) || format('image-{0}', github.run_id) }}
+      preview-artifact: ${{ steps.upload_image_ref.outcome == 'success' && format('image-ref-{0}', github.run_id) || steps.upload_tested_image.outcome == 'success' && format('image-{0}', github.run_id) || '' }}
     permissions:
       contents: read
       # Only used to publish same-repository PR images for dev previews.
@@ -167,8 +167,10 @@ jobs:
           cp -R supabase/migrations "$RUNNER_TEMP/image-ref/migrations"
 
       - name: Upload tested PR image reference
+        id: upload_image_ref
         if: steps.preview-image.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
         with:
           name: image-ref-${{ github.run_id }}
           path: ${{ runner.temp }}/image-ref/
@@ -185,8 +187,10 @@ jobs:
           cp -R supabase/migrations "$RUNNER_TEMP/image/migrations"
 
       - name: Upload tested image
+        id: upload_tested_image
         if: github.event_name == 'push' || (github.event_name == 'pull_request' && steps.preview-image.outcome != 'success')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
         with:
           name: image-${{ github.run_id }}
           path: |
@@ -202,6 +206,7 @@ jobs:
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        continue-on-error: true
         with:
           name: playwright-report-${{ github.run_id }}
           overwrite: true
@@ -244,7 +249,8 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       vars.PREVIEW_CD_ENABLED == 'true' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.build.outputs.preview-artifact != ''
     # Pin existing reusable orchestration; main may still have only workflow_run.
     uses: jupe/OpenJury/.github/workflows/preview.yml@50d123dcc5a2600c27fa91a540be7501ed46e252
     permissions:
