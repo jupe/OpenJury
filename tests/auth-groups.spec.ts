@@ -402,7 +402,7 @@ test("signed-in dashboard lists RLS groups and creates a group via RPC", async (
   await expect(page).toHaveURL(new RegExp(`/group/${secondId}$`));
   await expect(page.getByRole("heading", { name: "Group lobby" })).toHaveCount(0);
   await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toHaveCount(0);
-  await expect(page.getByRole("navigation", { name: "Mobile navigation" })).toHaveCount(1);
+  await expect(page.locator("nav.mobile-tabbar")).toHaveCount(1);
   await expect(page.getByRole("heading", { name: "Competitions" })).toBeVisible();
   await expect(page.getByRole("button", { name: "New competition" })).toBeVisible();
 });
