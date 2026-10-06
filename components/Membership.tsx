@@ -444,25 +444,46 @@ export function CompetitionRole({
     }
   }
 
+  const fixedReason = role && !available.length
+    ? (!beforeVoting ? "Roles are fixed once voting starts." : hasEntry ? "You have submitted an entry, so you stay a participant." : null)
+    : null;
+  const roleStyle = (name: CompetitionRoleName) => name === "participant" ? "bg-violet-50 text-violet-700" : "bg-amber-50 text-amber-700";
+
   return (
     <Card title={t(role ? "How you take part" : "Take part")}>
       {role ? (
-        <p>{t(role === "participant" ? "You are taking part as a participant." : "You are taking part as audience.")} {t(summary(role))}</p>
+        <div className="flex items-center gap-3">
+          <span aria-hidden className={`flex size-10 shrink-0 items-center justify-center rounded-full ${roleStyle(role)}`}><Icon name={role} /></span>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-slate-900">{t(role === "participant" ? "You are taking part as a participant." : "You are taking part as audience.")}</p>
+            <p className="text-sm">{t(summary(role))}</p>
+          </div>
+          {available.map((next) => (
+            <IconButton key={next} icon="swap" disabled={working} aria-label={t(next === "participant" ? "Switch to participant" : "Switch to audience")} onClick={() => void choose(next)} />
+          ))}
+          {fixedReason && <IconButton icon="swap" disabled aria-label={t("Switch role")} title={t(fixedReason)} />}
+        </div>
       ) : available.length ? (
-        <p>{t("Choose how you take part. You can change your mind until voting starts.")}</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {available.map((next) => (
+            <button
+              key={next}
+              type="button"
+              disabled={working}
+              onClick={() => void choose(next)}
+              className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-3 text-left hover:border-indigo-400 hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span aria-hidden className={`flex size-10 shrink-0 items-center justify-center rounded-full ${roleStyle(next)}`}><Icon name={next} /></span>
+              <span className="min-w-0">
+                <span className="block font-semibold text-slate-900">{t(roleCopy[next].join)}</span>
+                <span className="block text-sm">{t(summary(next))}</span>
+              </span>
+            </button>
+          ))}
+        </div>
       ) : (
         <p>{t("This competition is no longer open to new participants or audience.")}</p>
       )}
-      {role && hasEntry && beforeVoting && <p className="text-sm">{t("You have submitted an entry, so you stay a participant.")}</p>}
-      {role && !beforeVoting && <p className="text-sm">{t("Roles are fixed once voting starts.")}</p>}
-      {available.map((next) => (
-        <div key={next} className="space-y-2">
-          {!role && <p className="text-sm">{t(summary(next))}</p>}
-          <Button disabled={working} onClick={() => void choose(next)}>
-            {role ? t(next === "participant" ? "Switch to participant" : "Switch to audience") : t(roleCopy[next].join)}
-          </Button>
-        </div>
-      ))}
       {error && <p role="alert">{error}</p>}
     </Card>
   );

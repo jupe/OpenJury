@@ -1335,7 +1335,8 @@ test("participants cannot load the ballot when disabled, and newcomers may only 
 
   await page.goto(`/competition/${competitionId}`);
   await expect(page.getByRole("heading", { name: "Voting in progress" })).toBeVisible();
-  await expect(page.getByText("Roles are fixed once voting starts.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Switch role" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Switch role" })).toHaveAttribute("title", "Roles are fixed once voting starts.");
   await expect(page.getByRole("button", { name: /Switch to/ })).toHaveCount(0);
   expect(ballotRequested).toBe(false);
 
