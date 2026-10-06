@@ -10,6 +10,7 @@ import { GroupMembers } from "@/components/Membership";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import AddButton from "@/components/AddButton";
 import Button from "@/components/Button";
+import IconButton from "@/components/IconButton";
 import Card from "@/components/Card";
 import { useLocale } from "@/lib/i18n";
 
@@ -132,7 +133,10 @@ export function GroupDetails({ id }: { id: string }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
+  const [removeError, setRemoveError] = useState("");
+  const [editing, setEditing] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const removeDialog = useRef<HTMLDialogElement>(null);
   const refresh = useCallback(() => {
     setLoading(true);
     setError("");
@@ -186,6 +190,7 @@ export function GroupDetails({ id }: { id: string }) {
         setGroup({ ...group, name: name.trim() });
         setName(name.trim());
         setSaveMessage(t("Group name updated."));
+        setEditing(false);
       }
     } catch {
       setSaveError(t("Unable to rename group. Please try again."));
@@ -194,20 +199,35 @@ export function GroupDetails({ id }: { id: string }) {
     }
   }
 
-  async function deleteGroup() {
-    if (saving || !group) return;
-    if (!window.confirm(t("Remove “{name}” and permanently delete its competitions and group data? This cannot be undone.", { name: group.name }))) return;
-    setSaving(true);
+  function startEditing() {
     setSaveError("");
     setSaveMessage("");
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    setName(group?.name ?? "");
+    setSaveError("");
+    setEditing(false);
+  }
+
+  function openRemoveDialog() {
+    setRemoveError("");
+    removeDialog.current?.showModal();
+  }
+
+  async function deleteGroup() {
+    if (saving || !group) return;
+    setSaving(true);
+    setRemoveError("");
     try {
       const { error: rpcError } = await client.rpc("delete_group", {
         p_group_id: group.id,
       });
-      if (rpcError) setSaveError(t("Unable to remove group: {error}", { error: t(rpcError.message) }));
+      if (rpcError) setRemoveError(t("Unable to remove group: {error}", { error: t(rpcError.message) }));
       else router.push("/dashboard");
     } catch {
-      setSaveError(t("Unable to remove group. Please try again."));
+      setRemoveError(t("Unable to remove group. Please try again."));
     } finally {
       setSaving(false);
     }
@@ -220,24 +240,39 @@ export function GroupDetails({ id }: { id: string }) {
     <>
       <Breadcrumbs items={[{ label: t("Dashboard"), href: "/dashboard" }, { label: group.name }]} />
       {isAdmin && (
-        <Card title={t("Group settings")}>
-          <form onSubmit={renameGroup} className="space-y-4" aria-busy={saving}>
-            <label className="block">{t("Group name")}
-              <input required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2" />
-            </label>
-            <Button type="submit" disabled={saving || !name.trim() || name.trim() === group.name}>
-              {t(saving ? "Saving…" : "Rename group")}
-            </Button>
-          </form>
-          <div className="mt-6 border-t border-slate-200 pt-4">
-            <Button className="bg-red-700 hover:bg-red-800 active:bg-red-900" disabled={saving} onClick={deleteGroup}>
-              {t(saving ? "Working…" : "Remove group")}
-            </Button>
-            <p className="mt-2 text-sm">{t("Removing a group permanently deletes its competitions and other group data. Groups with disqualification audit records cannot be removed.")}</p>
-          </div>
-          {saveError && <p role="alert" className="mt-4">{saveError}</p>}
-          {saveMessage && <p role="status" className="mt-4">{saveMessage}</p>}
-        </Card>
+        <>
+          <Card title={t("Group settings")}>
+            {editing ? (
+              <form onSubmit={renameGroup} onKeyDown={(event) => { if (event.key === "Escape") cancelEditing(); }} className="flex items-center gap-1" aria-busy={saving}>
+                <input aria-label={t("Group name")} autoFocus required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} className="block min-h-12 min-w-0 flex-1 rounded border border-slate-300 p-2" />
+                <IconButton type="submit" icon="save" tone="primary" aria-label={t(saving ? "Saving…" : "Save group name")} disabled={saving || !name.trim() || name.trim() === group.name} />
+                <IconButton icon="cancel" aria-label={t("Cancel")} disabled={saving} onClick={cancelEditing} />
+              </form>
+            ) : (
+              <div className="flex items-center gap-1">
+                <p className="min-w-0 flex-1 break-words font-semibold text-slate-900">{group.name}</p>
+                <IconButton icon="edit" aria-label={t("Rename group")} disabled={saving} onClick={startEditing} />
+                <IconButton icon="remove" tone="danger" aria-label={t("Remove group")} disabled={saving} onClick={openRemoveDialog} />
+              </div>
+            )}
+            {saveError && <p role="alert">{saveError}</p>}
+            {saveMessage && <p role="status">{saveMessage}</p>}
+          </Card>
+          <dialog ref={removeDialog} aria-labelledby="remove-group-title" onClose={() => setRemoveError("")} className="app-dialog m-auto w-[min(28rem,calc(100vw-2rem))] rounded-2xl p-5 shadow-xl">
+            <div className="space-y-4" aria-busy={saving}>
+              <h2 id="remove-group-title" className="text-lg font-semibold">{t("Remove “{name}”?", { name: group.name })}</h2>
+              <p className="text-slate-600">{t("Removing a group permanently deletes its competitions and other group data. Groups with disqualification audit records cannot be removed.")}</p>
+              <p className="text-slate-600">{t("This cannot be undone.")}</p>
+              {removeError && <p role="alert">{removeError}</p>}
+              <div className="flex flex-wrap justify-end gap-3">
+                <button type="button" onClick={() => removeDialog.current?.close()} className="min-h-12 cursor-pointer rounded-xl px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100">{t("Cancel")}</button>
+                <Button className="bg-red-700 hover:bg-red-800 active:bg-red-900" disabled={saving} onClick={deleteGroup}>
+                  {t(saving ? "Working…" : "Remove group")}
+                </Button>
+              </div>
+            </div>
+          </dialog>
+        </>
       )}
       {isAdmin && <GroupMembers groupId={id} />}
       <CompetitionManager groupId={id} />

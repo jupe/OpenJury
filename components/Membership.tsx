@@ -8,6 +8,7 @@ import { failureMessage } from "@/lib/errors";
 import { useLocale } from "@/lib/i18n";
 import Button, { ButtonLink } from "@/components/Button";
 import Card from "@/components/Card";
+import IconButton, { Icon } from "@/components/IconButton";
 
 // Sign-in links always return to /dashboard, so an invite opened while signed
 // out is remembered here and resumed from the dashboard.
@@ -209,93 +210,106 @@ export function GroupMembers({ groupId }: { groupId: string }) {
 
   return (
     <Card title={t("Members")}>
-      <ul className="space-y-3">
-        {members.map((member) => {
-          const self = member.user_id === session.user.id;
-          const lastAdmin = member.role === "admin" && adminCount === 1;
-          return (
-            <li key={member.user_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 p-3">
-              <div className="min-w-0">
-                <p className="break-all font-semibold text-slate-900">{member.email}{self && ` (${t("you")})`}</p>
-                <p className="text-sm">{t(member.role === "admin" ? "Group admin" : "Member")}</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {member.role === "member" ? (
-                  <Button disabled={!!working} aria-label={t("Make {email} a group admin", { email: member.email })} onClick={() => void act(member.user_id, "change role", () =>
-                    client.rpc("set_group_member_role", { p_group_id: groupId, p_user_id: member.user_id, p_role: "admin" }))}>
-                    {t("Make admin")}
-                  </Button>
-                ) : (
-                  <Button disabled={!!working || lastAdmin} aria-label={t("Remove group admin role from {email}", { email: member.email })} onClick={() => {
-                    if (self && !window.confirm(t("Stop being a group admin? You will lose access to group management."))) return;
-                    void act(member.user_id, "change role", () =>
-                      client.rpc("set_group_member_role", { p_group_id: groupId, p_user_id: member.user_id, p_role: "member" }));
-                  }}>
-                    {t("Remove admin")}
-                  </Button>
-                )}
-                {!self && (
-                  <Button className="bg-red-700 hover:bg-red-800 active:bg-red-900" disabled={!!working || lastAdmin} aria-label={t("Remove {email} from the group", { email: member.email })} onClick={() => {
-                    if (!window.confirm(t("Remove {email} from this group?", { email: member.email }))) return;
-                    void act(member.user_id, "remove member", () =>
-                      client.rpc("remove_group_member", { p_group_id: groupId, p_user_id: member.user_id }));
-                  }}>
-                    {t("Remove")}
-                  </Button>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-      {adminCount === 1 && <p className="text-sm">{t("A group needs at least one admin, so make someone else an admin before removing the last one.")}</p>}
-
-      <form onSubmit={invite} className="space-y-3 border-t border-slate-200 pt-4" aria-busy={working === "invite"}>
-        <h3 className="font-semibold text-slate-900">{t("Invite by email")}</h3>
-        <label className="block">{t("Email address")}
-          <input type="email" required maxLength={320} value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2" />
-        </label>
-        <p className="text-sm">{t("No email is sent. They join when they next sign in with this address, so let them know.")}</p>
-        <Button type="submit" disabled={!!working || !email.trim()}>{t(working === "invite" ? "Inviting…" : "Invite")}</Button>
-      </form>
-      {emailInvites.length > 0 && (
-        <ul className="space-y-2">
+      <table className="w-full table-fixed text-left">
+        <thead className="text-sm text-slate-500">
+          <tr className="border-b border-slate-200">
+            <th scope="col" className="w-12 pb-2 font-medium"><span className="sr-only">{t("Role")}</span></th>
+            <th scope="col" className="pb-2 font-medium">{t("Email")}</th>
+            <th scope="col" className="w-24 pb-2 text-right font-medium"><span className="sr-only">{t("Actions")}</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {members.map((member) => {
+            const self = member.user_id === session.user.id;
+            const lastAdmin = member.role === "admin" && adminCount === 1;
+            const roleLabel = t(member.role === "admin" ? "Group admin" : "Member");
+            return (
+              <tr key={member.user_id} className="border-b border-slate-100 last:border-0">
+                <td className="py-1">
+                  <span role="img" aria-label={roleLabel} title={roleLabel} className={`inline-flex size-9 items-center justify-center rounded-full ${member.role === "admin" ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-500"}`}>
+                    <Icon name={member.role} />
+                  </span>
+                </td>
+                <td className="break-all py-1 pr-2 text-slate-900">{member.email}{self && ` (${t("you")})`}</td>
+                <td className="py-1">
+                  <div className="flex justify-end">
+                    {member.role === "member" ? (
+                      <IconButton icon="promote" disabled={!!working} aria-label={t("Make {email} a group admin", { email: member.email })} onClick={() => void act(member.user_id, "change role", () =>
+                        client.rpc("set_group_member_role", { p_group_id: groupId, p_user_id: member.user_id, p_role: "admin" }))} />
+                    ) : (
+                      <IconButton icon="demote" disabled={!!working || lastAdmin} aria-label={t("Remove group admin role from {email}", { email: member.email })} title={lastAdmin ? t("A group needs at least one admin. Make someone else an admin first.") : undefined} onClick={() => {
+                        if (self && !window.confirm(t("Stop being a group admin? You will lose access to group management."))) return;
+                        void act(member.user_id, "change role", () =>
+                          client.rpc("set_group_member_role", { p_group_id: groupId, p_user_id: member.user_id, p_role: "member" }));
+                      }} />
+                    )}
+                    {self ? <span className="size-12 shrink-0" /> : (
+                      <IconButton icon="removeMember" tone="danger" disabled={!!working || lastAdmin} aria-label={t("Remove {email} from the group", { email: member.email })} onClick={() => {
+                        if (!window.confirm(t("Remove {email} from this group?", { email: member.email }))) return;
+                        void act(member.user_id, "remove member", () =>
+                          client.rpc("remove_group_member", { p_group_id: groupId, p_user_id: member.user_id }));
+                      }} />
+                    )}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
           {emailInvites.map((pending) => (
-            <li key={pending.email} className="flex flex-wrap items-center justify-between gap-3">
-              <span className="break-all">{pending.email} · {t("waiting to sign in")}</span>
-              <Button disabled={!!working} aria-label={t("Cancel invite for {email}", { email: pending.email })} onClick={() => void act(pending.email, "cancel invite", () =>
-                client.rpc("revoke_group_email_invite", { p_group_id: groupId, p_email: pending.email }))}>
-                {t("Cancel invite")}
-              </Button>
-            </li>
+            <tr key={pending.email} className="border-b border-slate-100 last:border-0">
+              <td className="py-1">
+                <span role="img" aria-label={t("Invited")} title={t("Invited")} className="inline-flex size-9 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+                  <Icon name="pending" />
+                </span>
+              </td>
+              <td className="break-all py-1 pr-2 text-slate-500">{pending.email} · {t("waiting to sign in")}</td>
+              <td className="py-1">
+                <div className="flex justify-end">
+                  <IconButton icon="cancel" tone="danger" disabled={!!working} aria-label={t("Cancel invite for {email}", { email: pending.email })} onClick={() => void act(pending.email, "cancel invite", () =>
+                    client.rpc("revoke_group_email_invite", { p_group_id: groupId, p_email: pending.email }))} />
+                </div>
+              </td>
+            </tr>
           ))}
-        </ul>
-      )}
+        </tbody>
+      </table>
 
-      <div className="space-y-3 border-t border-slate-200 pt-4">
-        <h3 className="font-semibold text-slate-900">{t("Invite links")}</h3>
-        <p className="text-sm">{t("Anyone signed in who opens a link joins the group as a member. Revoke a link to stop it working.")}</p>
-        {links.map((link) => (
-          <div key={link.id} className="space-y-2 rounded-xl border border-slate-200 p-3">
-            <label className="block">{t("Invite link")}
-              <input readOnly value={inviteUrl(link.token)} onFocus={(event) => event.target.select()} className="mt-1 block w-full rounded border border-slate-300 p-2" />
-            </label>
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => void copy(link)}>{t(copied === link.id ? "Copied" : "Copy link")}</Button>
-              <Button className="bg-red-700 hover:bg-red-800 active:bg-red-900" disabled={!!working} onClick={() => {
-                if (!window.confirm(t("Revoke this invite link? People who have not joined yet can no longer use it."))) return;
-                void act(link.id, "revoke link", () => client.rpc("revoke_group_invite", { p_invite_id: link.id }));
-              }}>
-                {t("Revoke link")}
-              </Button>
+      <details className="group border-t border-slate-200 pt-2">
+        <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-2 font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
+          {t("Invite people")}
+          <svg aria-hidden viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-5 text-slate-500 transition-transform group-open:rotate-180">
+            <path d="m5 7.5 5 5 5-5" />
+          </svg>
+        </summary>
+        <div className="space-y-4 pt-2">
+          <form onSubmit={invite} aria-busy={working === "invite"}>
+            <div className="flex items-center gap-1">
+              <input type="email" required maxLength={320} aria-label={t("Email address")} aria-describedby="invite-email-hint" placeholder={t("Invite by email")} value={email} onChange={(event) => setEmail(event.target.value)} className="block min-h-12 min-w-0 flex-1 rounded border border-slate-300 p-2" />
+              <IconButton type="submit" icon="invite" tone="primary" disabled={!!working || !email.trim()} aria-label={t(working === "invite" ? "Inviting…" : "Invite")} />
             </div>
+            <p id="invite-email-hint" className="mt-1 text-xs text-slate-500">{t("No email is sent. They join when they next sign in with this address.")}</p>
+          </form>
+
+          <div className="space-y-2 border-t border-slate-100 pt-4">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="font-semibold text-slate-900">{t("Invite links")}</h3>
+              <IconButton icon="addLink" disabled={!!working} aria-label={t(working === "link" ? "Creating…" : "Create invite link")} onClick={() => void act("link", "create invite link", () =>
+                client.rpc("create_group_invite", { p_group_id: groupId }))} />
+            </div>
+            {links.map((link) => (
+              <div key={link.id} className="flex items-center gap-1">
+                <input readOnly aria-label={t("Invite link")} value={inviteUrl(link.token)} onFocus={(event) => event.target.select()} className="block min-h-12 min-w-0 flex-1 rounded border border-slate-300 p-2 font-mono" />
+                <IconButton icon={copied === link.id ? "save" : "copy"} aria-label={t(copied === link.id ? "Copied" : "Copy link")} onClick={() => void copy(link)} />
+                <IconButton icon="remove" tone="danger" disabled={!!working} aria-label={t("Revoke link")} onClick={() => {
+                  if (!window.confirm(t("Revoke this invite link? People who have not joined yet can no longer use it."))) return;
+                  void act(link.id, "revoke link", () => client.rpc("revoke_group_invite", { p_invite_id: link.id }));
+                }} />
+              </div>
+            ))}
+            <p className="text-xs text-slate-500">{t("Anyone signed in who opens a link joins as a member.")}</p>
           </div>
-        ))}
-        <Button disabled={!!working} onClick={() => void act("link", "create invite link", () =>
-          client.rpc("create_group_invite", { p_group_id: groupId }))}>
-          {t(working === "link" ? "Creating…" : "Create invite link")}
-        </Button>
-      </div>
+        </div>
+      </details>
       {actionError && <p role="alert">{actionError}</p>}
     </Card>
   );
