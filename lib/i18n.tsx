@@ -314,6 +314,7 @@ const finnish: Record<string, string> = {
   "Unable to save competition: {error}": "Kilpailun tallentaminen epäonnistui: {error}",
   "Unable to save competition details: {error}": "Kilpailun tietojen tallentaminen epäonnistui: {error}",
   "Unable to load competition status: {error}": "Kilpailun tilan lataaminen epäonnistui: {error}",
+  "Unable to load competition status: Competition not found.": "Kilpailun tilan lataaminen epäonnistui: Kilpailua ei löytynyt.",
   "Unable to load competition attendees: {error}": "Kilpailun osallistujien lataaminen epäonnistui: {error}",
   "Unable to load admin submissions: {error}": "Ylläpidon ehdotusten lataaminen epäonnistui: {error}",
   "Unable to open submissions: {error}": "Osallistumisen avaaminen epäonnistui: {error}",

@@ -66,6 +66,7 @@ export default function AccountMenu({ email, signingOut, onSignOut }: {
           <label className="block px-3 py-2 text-sm font-semibold">
             {t("Language")}
             <select
+              aria-label={t("Language")}
               value={locale}
               onChange={(event) => setLocale(event.target.value as Locale)}
               className="mt-1 block min-h-11 w-full rounded border border-slate-300 p-2 text-base"

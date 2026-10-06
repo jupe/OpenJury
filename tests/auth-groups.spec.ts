@@ -565,7 +565,7 @@ test("competition details follow the selected language without translating user 
   await page.getByRole("button", { name: "Edit competition details" }).click();
   await page.getByLabel("Competition name").fill("Winter bake-off");
   await page.getByRole("button", { name: /^Account \(/ }).click();
-  await page.getByLabel("Language", { exact: true }).selectOption("fi");
+  await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("fi");
   await expect(page.locator("html")).toHaveAttribute("lang", "fi");
   await page.getByRole("button", { name: /^Tili \(/ }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Kilpailun hallinta");
@@ -596,7 +596,7 @@ test("competition details follow the selected language without translating user 
   await expect(page.getByText(formattedDate, { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Muokkaa kilpailun tietoja" })).toHaveCount(0);
   await page.getByRole("button", { name: /^Tili \(/ }).click();
-  await page.getByLabel("Kieli", { exact: true }).selectOption("en");
+  await page.getByRole("combobox", { name: "Kieli", exact: true }).selectOption("en");
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await page.getByRole("button", { name: /^Account \(/ }).click();
   await expect(page.getByRole("heading", { name: "Description", exact: true })).toBeVisible();

@@ -820,7 +820,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
         if (competitionResult.error || !competitionResult.data) {
           setError(competitionResult.error
             ? localizedFailure("Unable to load competition status: {error}", competitionResult.error)
-            : { message: "Competition not found." });
+            : { message: "Unable to load competition status: Competition not found." });
           return;
         }
         if (attendeeResult.error) {
