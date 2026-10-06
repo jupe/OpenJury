@@ -115,6 +115,34 @@ their read-only token cannot register deployments and they cannot access dev
 secrets. A maintainer can move reviewed changes to a same-repository branch to
 preview them.
 
+## Manual package cleanup
+
+Run **Actions → Manual package cleanup → Run workflow** on `main` to remove
+repository-linked GHCR container packages. This workflow never deletes other
+packages belonging to the account.
+
+- Choose `selected` and enter comma-separated names: `openjury`,
+  `openjury-preview`, or `openjury-ci`. Choose `all` to select all three.
+- Leave `dry_run` enabled first and inspect the workflow summary.
+- To delete, disable `dry_run` and enter `jupe/OpenJury` as `confirmation`.
+  Deletion removes the entire selected package, including all versions, tags,
+  and signatures—not just old images. Missing or inaccessible packages are
+  reported and skipped; other API errors fail the run.
+- The repository's `GITHUB_TOKEN` needs package admin access to delete packages.
+  In each package's settings, grant this repository Actions access with the
+  **Admin** role if necessary. Packages must be linked to this repository.
+  GitHub may refuse deletion of public packages with high download counts;
+  contact GitHub Support rather than bypassing that restriction.
+
+Running containers are not stopped, and preview deployments/volumes are not
+removed. However, later deployments, restarts, image pulls, and rollbacks may fail
+after deleting application or preview images. Deleting `openjury-ci` removes the
+CI cache; rerun **Prebuild CI images** on `main` to republish it, then make the
+recreated package public for fork PRs. Main CI and preview CI republish their
+respective images on future runs; deleted release images are not rebuilt by
+Release. Avoid cleanup while publishing or deploying: its concurrency lock only
+serializes manual cleanup runs, not other workflows.
+
 ## Enable merge protection first
 
 In GitHub's ruleset/branch protection settings for `main`:

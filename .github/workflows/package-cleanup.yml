@@ -1,0 +1,94 @@
+name: Manual package cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Delete all OpenJury container packages or only selected packages
+        type: choice
+        options: [selected, all]
+        default: selected
+      packages:
+        description: Comma-separated package names (openjury, openjury-preview, openjury-ci); required for selected
+        type: string
+      dry_run:
+        description: Preview the selected packages without deleting anything
+        type: boolean
+        default: true
+      confirmation:
+        description: For deletion, enter the full repository name (jupe/OpenJury)
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: manual-package-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      packages: write
+    steps:
+      - name: Preview or delete repository container packages
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          CLEANUP_SCOPE: ${{ inputs.scope }}
+          CLEANUP_PACKAGES: ${{ inputs.packages }}
+          CLEANUP_DRY_RUN: ${{ inputs.dry_run }}
+          CLEANUP_CONFIRMATION: ${{ inputs.confirmation }}
+        with:
+          script: |
+            const repository = `${context.repo.owner}/${context.repo.repo}`;
+            const base = context.repo.repo.toLowerCase();
+            const allowed = [base, `${base}-preview`, `${base}-ci`];
+            const scope = process.env.CLEANUP_SCOPE;
+            if (!['all', 'selected'].includes(scope)) throw new Error('Invalid cleanup scope.');
+            if (!['true', 'false'].includes(process.env.CLEANUP_DRY_RUN)) {
+              throw new Error('Invalid dry-run value.');
+            }
+            const dryRun = process.env.CLEANUP_DRY_RUN === 'true';
+            const selected = scope === 'all' ? allowed : [...new Set(
+              process.env.CLEANUP_PACKAGES.split(',').map(name => name.trim()).filter(Boolean)
+            )];
+            if (!selected.length || selected.some(name => !allowed.includes(name))) {
+              throw new Error(`Select only these package names: ${allowed.join(', ')}.`);
+            }
+            if (!dryRun && process.env.CLEANUP_CONFIRMATION !== repository) {
+              throw new Error(`Deletion requires confirmation exactly matching ${repository}.`);
+            }
+
+            const org = context.payload.repository.owner.type === 'Organization';
+            const owner = org ? { org: context.repo.owner } : { username: context.repo.owner };
+            const api = github.rest.packages;
+            const getPackage = org ? api.getPackageForOrganization : api.getPackageForUser;
+            const deletePackage = org ? api.deletePackageForOrg : api.deletePackageForUser;
+            const targets = [];
+            for (const name of selected) {
+              const pkg = { ...owner, package_type: 'container', package_name: name };
+              try {
+                const { data } = await getPackage(pkg);
+                if (data.repository?.id !== context.payload.repository.id) {
+                  throw new Error(`Package ${name} is not linked to ${repository}; refusing cleanup.`);
+                }
+                targets.push(pkg);
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                core.info(`Package ${name} does not exist or is not accessible; skipping.`);
+              }
+            }
+
+            await core.summary
+              .addHeading(dryRun ? 'Package cleanup dry run' : 'Package cleanup')
+              .addRaw('Deleting a package removes ALL its versions, tags, and signatures. Running containers are not stopped, but future pulls and rollbacks can fail.\n')
+              .write();
+            for (const pkg of targets) {
+              if (!dryRun) await deletePackage(pkg);
+              const message = `${dryRun ? 'Would delete' : 'Deleted'} ghcr.io/${context.repo.owner.toLowerCase()}/${pkg.package_name}`;
+              core.info(message);
+              await core.summary.addRaw(`${message}\n`).write();
+            }
+            if (!targets.length) await core.summary.addRaw('No accessible packages found.\n').write();
