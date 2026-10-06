@@ -61,6 +61,20 @@ begin
   ) is not true then
     raise exception 'Submission owner could not upload valid private media';
   end if;
+  if public.can_upload_submission_media(
+    v_competition_id::text || '/' || v_entry_id::text ||
+      '/00000000-0000-4000-8000-000000000027.heic',
+    'image/heic',
+    1024
+  ) is not true
+     or public.can_upload_submission_media(
+       v_competition_id::text || '/' || v_entry_id::text ||
+         '/00000000-0000-4000-8000-000000000028.heif',
+       'image/heif',
+       1024
+     ) is not true then
+    raise exception 'Submission owner could not upload HEIC/HEIF media';
+  end if;
   if public.can_read_submission_media(
     v_competition_id::text || '/' || v_entry_id::text ||
       '/00000000-0000-4000-8000-000000000025.png'
@@ -97,6 +111,12 @@ begin
          '/00000000-0000-4000-8000-000000000025.png',
        'image/png',
        10485761
+     ) is not false
+     or public.can_upload_submission_media(
+       v_competition_id::text || '/' || v_entry_id::text ||
+         '/00000000-0000-4000-8000-000000000029.heic',
+       'image/heif',
+       1024
      ) is not false then
     raise exception 'Invalid media names, types, or sizes were accepted';
   end if;

@@ -192,9 +192,9 @@ and vote reads/writes remain revoked. `get_my_submission`,
 `get_admin_submissions`, and `get_blind_voting_entries` return distinct owner,
 admin, and blind-voting projections. Private images are stored in the
 `competition-submissions` bucket under random UUID filenames; uploads are
-limited to JPEG/PNG/WebP and 10 MiB, and Storage authorization checks ownership
-and phase. Clients download via authenticated requests rather than public or
-signed URLs, and media removal is followed by Storage cleanup.
+limited to JPEG/PNG/WebP/HEIC/HEIF and 10 MiB, and Storage authorization checks
+ownership and phase. Clients download via authenticated requests rather than
+public or signed URLs, and media removal is followed by Storage cleanup.
 
 Migration `05_transactional_lifecycle.sql` adds admin-only lifecycle transitions,
 voting, stable entry numbering, and service-role-only remote deadline processing.
