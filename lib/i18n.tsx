@@ -1,10 +1,57 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
 
 export type Locale = "en" | "fi";
 
 const STORAGE_KEY = "openjury:locale";
+const localeListeners = new Set<() => void>();
+let currentLocale: Locale | null = null;
+
+function getLocaleSnapshot(): Locale {
+  if (currentLocale !== null) return currentLocale;
+  try {
+    const savedLocale = window.localStorage.getItem(STORAGE_KEY);
+    if (savedLocale === "en" || savedLocale === "fi") return savedLocale;
+  } catch {
+    return "en";
+  }
+  return "en";
+}
+
+function getServerLocaleSnapshot(): Locale {
+  return "en";
+}
+
+function subscribeToLocale(listener: () => void) {
+  localeListeners.add(listener);
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key !== STORAGE_KEY && event.key !== null) return;
+    try {
+      const savedLocale = window.localStorage.getItem(STORAGE_KEY);
+      currentLocale = savedLocale === "en" || savedLocale === "fi" ? savedLocale : "en";
+    } catch {
+      // Keep the in-memory language when browser storage is unavailable.
+    }
+    listener();
+  };
+  window.addEventListener("storage", handleStorage);
+
+  return () => {
+    localeListeners.delete(listener);
+    window.removeEventListener("storage", handleStorage);
+  };
+}
+
+function updateLocale(locale: Locale) {
+  currentLocale = locale;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, locale);
+  } catch {
+    // Language preference remains available for this session.
+  }
+  localeListeners.forEach((listener) => listener());
+}
 
 const finnish: Record<string, string> = {
   "Account": "Tili",
@@ -243,29 +290,15 @@ type LocaleContextValue = {
 const LocaleContext = createContext<LocaleContextValue | null>(null);
 
 export function LocaleProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocale] = useState<Locale>("en");
-
-  useEffect(() => {
-    try {
-      const savedLocale = window.localStorage.getItem(STORAGE_KEY);
-      if (savedLocale === "en" || savedLocale === "fi") setLocale(savedLocale);
-    } catch {
-      // Language preference remains available for this session.
-    }
-  }, []);
+  const locale = useSyncExternalStore(subscribeToLocale, getLocaleSnapshot, getServerLocaleSnapshot);
 
   useEffect(() => {
     document.documentElement.lang = locale;
-    try {
-      window.localStorage.setItem(STORAGE_KEY, locale);
-    } catch {
-      // Language preference remains available for this session.
-    }
   }, [locale]);
 
   const value = useMemo<LocaleContextValue>(() => ({
     locale,
-    setLocale: (nextLocale) => setLocale(nextLocale),
+    setLocale: updateLocale,
     t: (message, values) => {
       const translated = locale === "fi" ? (finnish[message] ?? message) : message;
       return translated.replace(/\{(\w+)\}/g, (placeholder, name: string) =>
@@ -274,7 +307,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     formatDateTime: (date) => new Intl.DateTimeFormat(locale === "fi" ? "fi-FI" : "en", {
       dateStyle: "medium",
       timeStyle: "short",
-    }).format(date),
+    }).format(typeof date === "string" ? new Date(date) : date),
   }), [locale]);
 
   return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;
