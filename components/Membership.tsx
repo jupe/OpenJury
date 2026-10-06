@@ -383,12 +383,14 @@ export function CompetitionRole({
   status,
   role,
   hasEntry,
+  allowParticipantVoting = false,
   onChanged,
 }: {
   competitionId: string;
   status: string;
   role: CompetitionRoleName | null;
   hasEntry: boolean;
+  allowParticipantVoting?: boolean;
   onChanged: () => void;
 }) {
   const { t } = useLocale();
@@ -396,6 +398,9 @@ export function CompetitionRole({
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
   const beforeVoting = status === "draft" || status === "submission";
+  const summary = (next: CompetitionRoleName) => next === "participant" && allowParticipantVoting
+    ? "Submit your own entry and vote on other entries. You cannot vote on your own entry."
+    : roleCopy[next].summary;
   const available: CompetitionRoleName[] = role
     ? (beforeVoting && !(role === "participant" && hasEntry) ? [role === "participant" ? "audience" : "participant"] : [])
     : beforeVoting ? ["participant", "audience"] : status === "voting" ? ["audience"] : [];
@@ -418,7 +423,7 @@ export function CompetitionRole({
   return (
     <Card title={t(role ? "How you take part" : "Take part")}>
       {role ? (
-        <p>{t(role === "participant" ? "You are taking part as a participant." : "You are taking part as audience.")} {t(roleCopy[role].summary)}</p>
+        <p>{t(role === "participant" ? "You are taking part as a participant." : "You are taking part as audience.")} {t(summary(role))}</p>
       ) : available.length ? (
         <p>{t("Choose how you take part. You can change your mind until voting starts.")}</p>
       ) : (
@@ -428,7 +433,7 @@ export function CompetitionRole({
       {role && !beforeVoting && <p className="text-sm">{t("Roles are fixed once voting starts.")}</p>}
       {available.map((next) => (
         <div key={next} className="space-y-2">
-          {!role && <p className="text-sm">{t(roleCopy[next].summary)}</p>}
+          {!role && <p className="text-sm">{t(summary(next))}</p>}
           <Button disabled={working} onClick={() => void choose(next)}>
             {role ? t(next === "participant" ? "Switch to participant" : "Switch to audience") : t(roleCopy[next].join)}
           </Button>

@@ -18,6 +18,7 @@ type Competition = {
   name: string;
   description: string | null;
   rules: string | null;
+  allow_participant_voting: boolean;
   event_type: "live" | "remote";
   status: string;
   submission_deadline: string | null;
@@ -79,6 +80,7 @@ type CompetitionDraft = {
   name: string;
   description: string;
   rules: string;
+  allowParticipantVoting: boolean;
   eventType: "live" | "remote";
   submissionDeadline: string;
   votingDeadline: string;
@@ -91,6 +93,7 @@ function emptyDraft(): CompetitionDraft {
     name: "",
     description: "",
     rules: "",
+    allowParticipantVoting: false,
     eventType: "remote",
     submissionDeadline: "",
     votingDeadline: "",
@@ -148,7 +151,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             .abortSignal(controller.signal)
             .maybeSingle(),
           client.from("competitions")
-            .select("id,name,description,rules,event_type,status,submission_deadline,voting_deadline,results_publish_at,competition_participants(role)")
+            .select("id,name,description,rules,allow_participant_voting,event_type,status,submission_deadline,voting_deadline,results_publish_at,competition_participants(role)")
             .eq("group_id", groupId)
             .order("name")
             .abortSignal(controller.signal),
@@ -193,6 +196,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         name: competition.name,
         description: competition.description ?? "",
         rules: competition.rules ?? "",
+        allowParticipantVoting: competition.allow_participant_voting ?? false,
         eventType: competition.event_type,
         submissionDeadline: toLocalInput(competition.submission_deadline),
         votingDeadline: toLocalInput(competition.voting_deadline),
@@ -230,6 +234,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         p_name: draft.name.trim(),
         p_description: draft.description.trim() || null,
         p_rules: draft.rules.trim() || null,
+        p_allow_participant_voting: draft.allowParticipantVoting,
         p_event_type: draft.eventType,
         p_submission_deadline: toTimestamp(draft.submissionDeadline),
         p_voting_deadline: toTimestamp(draft.votingDeadline),
@@ -352,6 +357,11 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             <label className="block">{t("Rules (optional)")}
               <textarea maxLength={10000} rows={4} value={draft.rules} onChange={(event) => setDraft({ ...draft, rules: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
+            <label className="flex min-h-11 items-center gap-3">
+              <input type="checkbox" checked={draft.allowParticipantVoting} onChange={(event) => setDraft({ ...draft, allowParticipantVoting: event.target.checked })} className="h-5 w-5" />
+              {t("Allow participants to vote")}
+            </label>
+            <p className="text-sm text-slate-600">{t("Participants can score other entries, never their own. This setting is fixed once submissions open.")}</p>
             <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-[minmax(8rem,10rem)_minmax(0,1fr)_minmax(0,1fr)]">
               <label className="block sm:col-span-2 md:col-span-1">{t("Event type")}
                 <select value={draft.eventType} onChange={(event) => setDraft({ ...draft, eventType: event.target.value as "live" | "remote" })} className="mt-1 block w-full rounded border border-slate-300 p-2">

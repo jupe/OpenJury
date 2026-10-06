@@ -45,6 +45,7 @@ type Competition = {
   name: string;
   description: string | null;
   rules: string | null;
+  allow_participant_voting: boolean;
   status: string;
   submission_deadline: string | null;
   voting_deadline: string | null;
@@ -300,7 +301,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     setPublishedCategoryResults([]);
     try {
       const result = await client.from("competitions")
-        .select("id,group_id,name,description,rules,status,submission_deadline,voting_deadline,results_publish_at,groups(name),competition_participants(role)")
+        .select("id,group_id,name,description,rules,allow_participant_voting,status,submission_deadline,voting_deadline,results_publish_at,groups(name),competition_participants(role)")
         .eq("id", competitionId)
         .maybeSingle();
       if (result.error || !result.data) {
@@ -321,8 +322,8 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       setVotingOpen(isVotingOpen);
       const myRole = result.data.competition_participants?.[0]?.role ?? null;
       setRole(myRole);
-      // Only the audience votes, and only it may load the anonymous ballot.
-      const isBallotOpen = isVotingOpen && myRole === "audience";
+      const isBallotOpen = isVotingOpen && (myRole === "audience"
+        || (myRole === "participant" && result.data.allow_participant_voting));
       const [membership, mine, blind, categoryResult, savedBallot, finalResults, finalCategories] = await Promise.all([
         client.from("group_members").select("role")
           .eq("group_id", result.data.group_id).eq("user_id", session.user.id).maybeSingle(),
@@ -414,6 +415,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   }, [competition, load]);
 
   const editable = competition?.status === "submission" && submissionOpen && role === "participant";
+  const canVote = role === "audience" || (role === "participant" && competition?.allow_participant_voting);
   const activeMedia = (submission?.media_keys || []).filter((key) => !removedKeys.includes(key));
 
   function selectFiles(files: FileList | null) {
@@ -593,6 +595,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           status={competition.status}
           role={role}
           hasEntry={!!submission}
+          allowParticipantVoting={competition.allow_participant_voting}
           onChanged={() => void load()}
         />
       )}
@@ -640,12 +643,12 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         <Button disabled={saving} onClick={() => void retryCleanup()}>{t("Retry media cleanup")}</Button>
       )}
 
-      {competition.status === "voting" && votingOpen && role === "participant" && (
+      {competition.status === "voting" && votingOpen && role === "participant" && !canVote && (
         <Card title={t("Voting in progress")}>
           <p>{t("The audience is voting on anonymous entries now. Participants do not vote.")}</p>
         </Card>
       )}
-      {competition.status === "voting" && votingOpen && role === "audience" && (
+      {competition.status === "voting" && votingOpen && canVote && (
         <Card title={t("Anonymous entries")}>
           {blindEntries.length ? (
             <ol className="space-y-6">
@@ -804,7 +807,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
         const [submissionResult, competitionResult, attendeeResult, roleResult] = await Promise.all([
           client.rpc("get_admin_submissions", { p_competition_id: competitionId }),
           client.from("competitions")
-            .select("id,group_id,name,description,rules,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
+            .select("id,group_id,name,description,rules,allow_participant_voting,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
             .eq("id", competitionId).maybeSingle(),
           client.rpc("get_admin_competition_attendees", { p_competition_id: competitionId }),
           client.rpc("get_competition_participants", { p_competition_id: competitionId }),
