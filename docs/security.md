@@ -19,6 +19,13 @@ access to their competitions and categories. Competition creation and draft
 updates are restricted to group admins through a security-definer RPC; direct
 table writes remain revoked. The RPC validates deadline ordering and 1–5
 category maxima, and locks the competition row before allowing a draft edit.
+Migration `15_competition_details.sql` adds optional description/rules to atomic
+draft saves and the metadata-only `save_competition_details` RPC for every phase.
+Both are authenticated-only security-definer functions with empty search paths
+and current group-admin checks. Metadata edits lock the competition and update
+only name, description, and rules; they cannot alter categories, deadlines, or
+status. Names are trimmed to 1–100 characters; optional details are trimmed,
+blank-to-null, and limited to 10,000 characters each, also enforced by table checks.
 Migration `04_secure_submissions.sql` keeps direct entry and vote table access
 revoked. Authenticated members create or edit only their own entry through an
 RPC that locks the competition row and enforces submission phase and deadline.

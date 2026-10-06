@@ -403,13 +403,15 @@ test("group admins create and edit draft competitions with scoring criteria", as
       competitions.splice(0, competitions.length, {
         id: competitionId,
         name: body.p_name,
+        description: body.p_description,
+        rules: body.p_rules,
         event_type: body.p_event_type,
         status: "draft",
         submission_deadline: body.p_submission_deadline,
         voting_deadline: body.p_voting_deadline,
       });
     } else {
-      Object.assign(competitions[0], { name: body.p_name });
+      Object.assign(competitions[0], { name: body.p_name, description: body.p_description, rules: body.p_rules });
     }
     expect(categories).toHaveLength(1);
     return route.fulfill({ json: competitionId });
@@ -417,6 +419,8 @@ test("group admins create and edit draft competitions with scoring criteria", as
 
   await page.goto(`/group/${groupId}`);
   await page.getByRole("textbox", { name: "Competition name" }).fill("Autumn bake-off");
+  await page.getByLabel("Description (optional)").fill("  A friendly baking competition.  ");
+  await page.getByLabel("Rules (optional)").fill("One entry per person.\nNo identifying marks.");
   await page.getByRole("textbox", { name: "Category name" }).fill("Taste");
   await page.getByRole("button", { name: "Create competition" }).click();
   await expect(page.getByRole("link", { name: "Autumn bake-off", exact: true })).toHaveAttribute("href", `/competition/${competitionId}`);
@@ -424,11 +428,17 @@ test("group admins create and edit draft competitions with scoring criteria", as
     p_competition_id: null,
     p_group_id: groupId,
     p_name: "Autumn bake-off",
+    p_description: "A friendly baking competition.",
+    p_rules: "One entry per person.\nNo identifying marks.",
     p_event_type: "remote",
     p_categories: [{ name: "Taste", max_score: 5 }],
   });
 
   await page.getByRole("button", { name: "Edit draft" }).click();
+  await expect(page.getByLabel("Description (optional)")).toHaveValue("A friendly baking competition.");
+  await expect(page.getByLabel("Rules (optional)")).toHaveValue("One entry per person.\nNo identifying marks.");
+  await page.getByLabel("Description (optional)").fill("");
+  await page.getByLabel("Rules (optional)").fill("");
   await expect(page.getByRole("textbox", { name: "Category name" })).toHaveValue("Taste");
   await page.getByRole("textbox", { name: "Category name" }).fill("Creativity");
   await page.getByRole("button", { name: "Save draft" }).click();
@@ -436,8 +446,89 @@ test("group admins create and edit draft competitions with scoring criteria", as
   expect(saves[1]).toMatchObject({
     p_competition_id: competitionId,
     p_group_id: groupId,
+    p_description: null,
+    p_rules: null,
     p_categories: [{ name: "Creativity", max_score: 5 }],
   });
+});
+
+test("admins edit competition details after opening; members read plain text details @mobile", async ({ page }) => {
+  await configure(page, true);
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  const competition = {
+    id: competitionId, group_id: groupId, name: "Autumn bake-off",
+    description: "Original description" as string | null, rules: null as string | null,
+    status: "submission", submission_deadline: null, voting_deadline: null,
+    groups: { name: "Baking club" },
+  };
+  const saves: Array<Record<string, unknown>> = [];
+  let failSave = true;
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({ json: [competition] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/save_competition_details`, (route) => {
+    const body = route.request().postDataJSON();
+    saves.push(body);
+    if (failSave) return route.fulfill({ status: 400, json: { message: "Please try again" } });
+    Object.assign(competition, { name: body.p_name, description: body.p_description, rules: body.p_rules });
+    return route.fulfill({ json: null });
+  });
+  await page.goto(`/competition/${competitionId}/admin`);
+  await page.getByRole("button", { name: "Edit competition details" }).click();
+  await expect(page.getByLabel("Competition name")).toHaveValue("Autumn bake-off");
+  await expect(page.getByLabel("Description (optional)")).toHaveValue("Original description");
+  await expect(page.getByLabel("Rules (optional)")).toHaveValue("");
+  await expect(page.getByLabel("Description (optional)")).toHaveAttribute("maxlength", "10000");
+  await expect(page.getByLabel("Rules (optional)")).toHaveAttribute("maxlength", "10000");
+  await page.getByLabel("Competition name").fill("Cancelled change");
+  await page.getByRole("button", { name: "Cancel edit" }).click();
+  expect(saves).toHaveLength(0);
+  await page.getByRole("button", { name: "Edit competition details" }).click();
+  await expect(page.getByLabel("Competition name")).toHaveValue("Autumn bake-off");
+  await page.getByLabel("Competition name").fill("  Winter bake-off  ");
+  await page.getByLabel("Description (optional)").fill("  Share your best bakes.\nEveryone is welcome.  ");
+  await page.getByLabel("Rules (optional)").fill("<b>No identifying marks.</b>\nOne entry per person.");
+  await page.getByRole("button", { name: "Save details" }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("Unable to save competition details: Please try again");
+  await expect(page.getByLabel("Competition name")).toHaveValue("  Winter bake-off  ");
+  failSave = false;
+  await page.getByRole("button", { name: "Save details" }).click();
+  await expect(page.getByRole("status")).toHaveText("Competition details saved.");
+  await expect(page.getByRole("heading", { name: "Winter bake-off", exact: true })).toBeVisible();
+  expect(saves[1]).toEqual({
+    p_competition_id: competitionId,
+    p_name: "Winter bake-off",
+    p_description: "Share your best bakes.\nEveryone is welcome.",
+    p_rules: "<b>No identifying marks.</b>\nOne entry per person.",
+  });
+  await expect(page.getByText("Status: Open for entries")).toBeVisible();
+  await expectPhoneLayout(page);
+
+  await page.route(`${supabaseURL}/rest/v1/group_members**`, (route) => route.fulfill({ json: [{ role: "member" }] }));
+  await page.goto(`/competition/${competitionId}`);
+  await expect(page.getByRole("heading", { name: "Description", exact: true })).toBeVisible();
+  await expect(page.getByText("Share your best bakes. Everyone is welcome.")).toBeVisible();
+  await expect(page.getByText("<b>No identifying marks.</b> One entry per person.")).toBeVisible();
+  await expect(page.locator("main b")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Edit competition details" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Manage competition" })).toHaveCount(0);
+
+  await page.route(`${supabaseURL}/rest/v1/group_members**`, (route) => route.fulfill({ json: [{ role: "admin" }] }));
+  await page.goto(`/competition/${competitionId}/admin`);
+  await page.getByRole("button", { name: "Edit competition details" }).click();
+  await page.getByLabel("Description (optional)").fill("  ");
+  await page.getByLabel("Rules (optional)").fill("");
+  await page.getByRole("button", { name: "Save details" }).click();
+  await expect(page.getByRole("status")).toHaveText("Competition details saved.");
+  expect(saves[2]).toMatchObject({ p_description: null, p_rules: null });
+  await expect(page.getByRole("heading", { name: "Description", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Rules", exact: true })).toHaveCount(0);
+
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) =>
+    route.fulfill({ status: 403, json: { code: "42501", message: "Admin access required" } }));
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Admin access required" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit competition details" })).toHaveCount(0);
 });
 
 test("ordinary group members can view competitions but cannot create drafts", async ({ page }) => {
@@ -449,6 +540,101 @@ test("ordinary group members can view competitions but cannot create drafts", as
   await expect(page.getByRole("heading", { name: "Competitions" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Create a draft competition" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Edit draft" })).toHaveCount(0);
+});
+
+test("competition details follow the selected language without translating user content @mobile", async ({ page }) => {
+  await configure(page, true);
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  const competition = {
+    id: competitionId, group_id: groupId, name: "Autumn bake-off",
+    description: "Description", rules: "Rules", status: "submission",
+    submission_deadline: "2026-12-10T12:00:00Z", voting_deadline: null,
+  };
+  let saved: Record<string, unknown> | undefined;
+  let failSave = true;
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({ json: [competition] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/save_competition_details`, (route) => {
+    if (failSave) return route.fulfill({ status: 400, json: { message: "backend detail" } });
+    saved = route.request().postDataJSON();
+    Object.assign(competition, { name: saved!.p_name, description: saved!.p_description, rules: saved!.p_rules });
+    return route.fulfill({ json: competitionId });
+  });
+  await page.goto(`/competition/${competitionId}/admin`);
+  await page.getByRole("button", { name: "Edit competition details" }).click();
+  await page.getByLabel("Competition name").fill("Winter bake-off");
+  await page.getByRole("button", { name: /^Account \(/ }).click();
+  await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("fi");
+  await expect(page.locator("html")).toHaveAttribute("lang", "fi");
+  await page.getByRole("button", { name: /^Tili \(/ }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Kilpailun hallinta");
+  await expect(page.getByLabel("Kilpailun nimi")).toHaveValue("Winter bake-off");
+  await expect(page.getByLabel("Kuvaus (valinnainen)")).toHaveValue("Description");
+  await expect(page.getByLabel("Säännöt (valinnainen)")).toHaveValue("Rules");
+  await page.getByRole("button", { name: "Tallenna tiedot", exact: true }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("Kilpailun tietojen tallentaminen epäonnistui: backend detail");
+  failSave = false;
+  await page.getByRole("button", { name: "Tallenna tiedot", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Kilpailun tiedot tallennettu.");
+  expect(saved).toEqual({
+    p_competition_id: competitionId, p_name: "Winter bake-off", p_description: "Description", p_rules: "Rules",
+  });
+  await expectPhoneLayout(page);
+
+  await page.route(`${supabaseURL}/rest/v1/group_members**`, (route) => route.fulfill({ json: [{ role: "member" }] }));
+  await page.goto(`/competition/${competitionId}`);
+  await expect(page.locator("html")).toHaveAttribute("lang", "fi");
+  await expect(page.getByRole("heading", { name: "Kuvaus", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Säännöt", exact: true })).toBeVisible();
+  await expect(page.getByText("Description", { exact: true })).toBeVisible();
+  await expect(page.getByText("Rules", { exact: true })).toBeVisible();
+  await expect(page.getByText("Osallistuminen avoinna", { exact: true })).toBeVisible();
+  const formattedDate = await page.evaluate((date) => new Intl.DateTimeFormat("fi-FI", {
+    dateStyle: "medium", timeStyle: "short",
+  }).format(new Date(date)), competition.submission_deadline);
+  await expect(page.getByText(formattedDate, { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Muokkaa kilpailun tietoja" })).toHaveCount(0);
+  await page.getByRole("button", { name: /^Tili \(/ }).click();
+  await page.getByRole("combobox", { name: "Kieli", exact: true }).selectOption("en");
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await page.getByRole("button", { name: /^Account \(/ }).click();
+  await expect(page.getByRole("heading", { name: "Description", exact: true })).toBeVisible();
+});
+
+test("draft competition details can be created and edited in Finnish", async ({ page }) => {
+  await configure(page, true);
+  await page.addInitScript(() => localStorage.setItem("openjury:locale", "fi"));
+  const competitions: Array<Record<string, unknown>> = [];
+  const saves: Array<Record<string, unknown>> = [];
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({ json: competitions }));
+  await page.route(`${supabaseURL}/rest/v1/categories**`, (route) => route.fulfill({ json: [{ name: "Taste", max_score: 5 }] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/save_draft_competition`, (route) => {
+    const body = route.request().postDataJSON();
+    saves.push(body);
+    competitions.splice(0, competitions.length, {
+      id: secondId, name: body.p_name, description: body.p_description, rules: body.p_rules,
+      event_type: body.p_event_type, status: "draft", submission_deadline: null, voting_deadline: null,
+    });
+    return route.fulfill({ json: secondId });
+  });
+  await page.goto(`/group/${groupId}`);
+  await expect(page.getByRole("heading", { name: "Luo kilpailuluonnos" })).toBeVisible();
+  await page.getByLabel("Kilpailun nimi").fill("Finnish competition");
+  await page.getByLabel("Kuvaus (valinnainen)").fill("User description");
+  await page.getByLabel("Säännöt (valinnainen)").fill("User rules");
+  await page.getByLabel("Kategorian nimi").fill("Taste");
+  await page.getByRole("button", { name: "Luo kilpailu", exact: true }).click();
+  await expect(page.getByRole("link", { name: "Finnish competition", exact: true })).toBeVisible();
+  expect(saves[0]).toMatchObject({ p_name: "Finnish competition", p_description: "User description", p_rules: "User rules" });
+  await page.getByRole("button", { name: "Muokkaa luonnosta", exact: true }).click();
+  await expect(page.getByLabel("Kuvaus (valinnainen)")).toHaveValue("User description");
+  await expect(page.getByLabel("Säännöt (valinnainen)")).toHaveValue("User rules");
+  await page.getByLabel("Kuvaus (valinnainen)").fill("");
+  await page.getByLabel("Säännöt (valinnainen)").fill("");
+  await page.getByRole("button", { name: "Tallenna luonnos", exact: true }).click();
+  await expect.poll(() => saves.length).toBe(2);
+  expect(saves[1]).toMatchObject({ p_competition_id: secondId, p_description: null, p_rules: null });
 });
 
 test("participants refetch authorized competition data after reconnect", async ({ page }) => {

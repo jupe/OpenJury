@@ -1,3 +1,7 @@
+"use client";
+
+import { useLocale } from "@/lib/i18n";
+
 const labels: Record<string, string> = {
   draft: "Draft",
   submission: "Open for entries",
@@ -19,9 +23,10 @@ export function statusLabel(status: string) {
 }
 
 export function StatusBadge({ status }: { status: string }) {
+  const { t } = useLocale();
   return (
     <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${styles[status] ?? styles.draft}`}>
-      {statusLabel(status)}
+      {t(statusLabel(status))}
     </span>
   );
 }
@@ -30,20 +35,23 @@ export function StatusBadge({ status }: { status: string }) {
  * The admin's next manual step in the lifecycle enforced by
  * transition_competition. Review is finished by publishing results instead.
  */
-export const nextTransition: Record<string, { target: string; action: string; confirm: string }> = {
+export const nextTransition: Record<string, { target: string; action: string; confirm: string; error: string }> = {
   draft: {
     target: "submission",
     action: "Open submissions",
+    error: "Unable to open submissions: {error}",
     confirm: "Open submissions? Members can then submit entries, and the draft can no longer be edited.",
   },
   submission: {
     target: "voting",
     action: "Close submissions and start voting",
+    error: "Unable to close submissions and start voting: {error}",
     confirm: "Close submissions and start voting? Entries are numbered for blind voting and can no longer be changed.",
   },
   voting: {
     target: "review_pending",
     action: "Close voting",
+    error: "Unable to close voting: {error}",
     confirm: "Close voting? Ballots can no longer be changed, and you can review results before publishing them.",
   },
 };

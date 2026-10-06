@@ -11,7 +11,7 @@ the `display_name`, `full_name`, or `name` fields in user metadata.
 | --- | --- |
 | `groups` | Tenant name, creator, and creation time |
 | `group_members` | Group/user membership with `admin` or `member` role |
-| `competitions` | Group event, live/remote type, status, and optional deadlines |
+| `competitions` | Group event, optional description/rules, live/remote type, status, and optional deadlines |
 | `categories` | Competition grading criteria with maximum scores from 1 to 5 |
 | `entries` | Submission creator, title, private media keys, anonymous number, and disqualification flag |
 | `votes` | Entry/category/user score, unique per entry, voter, and category |
@@ -156,6 +156,16 @@ deadlines when both are set. Category maxima are constrained to 1–5. Draft
 updates lock the competition row and are rejected after it leaves the draft
 status, so lifecycle transitions must use the same row lock.
 
+Migration `15_competition_details.sql` adds nullable `description` and `rules`,
+each limited to 10,000 characters. Both save RPCs trim these fields and store blank
+values as null. `save_draft_competition` accepts trailing optional `p_description`
+and `p_rules` arguments (default null), saving details and categories atomically;
+existing seven-argument calls remain valid and clear those optional fields.
+`save_competition_details(p_competition_id, p_name, p_description, p_rules)` lets
+current group admins change only the name and those details in any phase under
+the same row lock. Categories, event type, deadlines, and lifecycle state are
+unchanged. Names remain trimmed and limited to 1–100 characters.
+
 Migration `09_group_management.sql` adds `rename_group` and `delete_group` RPCs.
 Only group admins may rename or remove a group, and names are trimmed and limited
 to 1–100 characters. Removing a group deletes its group-owned data, but is
@@ -208,7 +218,10 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/realtime_notifications
 
 Use an owner connection (not an API client). The test creates fixed-ID users
 and test data inside a transaction and rolls everything back; do not run it
-against a production database. The lifecycle test covers role authorization,
+against a production database. The competition setup test covers optional detail
+creation/clearing, length limits, authorization/revocation, and metadata-only
+edits across every phase without changing scoring or lifecycle fields.
+The lifecycle test covers role authorization,
 legal transitions, ballot creation and revision, self-voting and membership
 denial, stable numbering, and idempotent remote deadline processing. The
 review/publication test covers admin-only access, complete-ballot aggregation,

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import Layout from "@/components/Layout";
+import { LocaleProvider } from "@/lib/i18n";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -22,7 +23,7 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <Script src="/runtime-config.js" strategy="beforeInteractive" />
-        <Layout>{children}</Layout>
+        <LocaleProvider><Layout>{children}</Layout></LocaleProvider>
       </body>
     </html>
   );
