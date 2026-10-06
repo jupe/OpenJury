@@ -63,50 +63,26 @@ jobs:
 
   registry:
     if: >-
-      (vars.PREVIEW_CD_ENABLED == 'true' || github.event_name == 'workflow_dispatch') &&
       (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: read
       packages: write
+    concurrency:
+      group: ghcr-retention
+      cancel-in-progress: false
     steps:
-      - name: Delete this PR's preview images unless the PR has since reopened
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Prune expired images belonging only to closed PRs
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
         with:
           script: |
-            if (!/^[1-9][0-9]*$/.test(process.env.PR_NUMBER)) throw new Error('Invalid PR number');
-            const { data: pr } = await github.rest.pulls.get({
-              ...context.repo, pull_number: Number(process.env.PR_NUMBER)
+            const { cleanupRegistry } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/registry-cleanup.mjs`);
+            await cleanupRegistry({
+              github, context, core, dryRun: false, previewOnly: true,
             });
-            if (context.eventName !== 'workflow_dispatch' && pr.state !== 'closed') return;
-            const org = context.payload.repository.owner.type === 'Organization';
-            const scope = org ? { org: context.repo.owner } : { username: context.repo.owner };
-            const pkg = { ...scope, package_type: 'container', package_name: `${context.repo.repo.toLowerCase()}-preview` };
-            const api = github.rest.packages;
-            let versions;
-            try {
-              versions = await github.paginate(org
-                ? api.getAllPackageVersionsForPackageOwnedByOrg
-                : api.getAllPackageVersionsForPackageOwnedByUser, { ...pkg, per_page: 100 });
-            } catch (error) {
-              if (error.status === 404) return core.info('No preview images have been published.');
-              throw error;
-            }
-            const prefix = `pr-${process.env.PR_NUMBER}-`;
-            const stale = versions.filter(v => (v.metadata?.container?.tags || []).some(t => t.startsWith(prefix)));
-            for (const version of stale) {
-              try {
-                await (org ? api.deletePackageVersionForOrg : api.deletePackageVersionForUser)(
-                  { ...pkg, package_version_id: version.id });
-              } catch (error) {
-                // GHCR refuses to delete a package's last version; remove the package instead.
-                if (error.status !== 400 || versions.length !== stale.length) throw error;
-                await (org ? api.deletePackageForOrg : api.deletePackageForUser)(pkg);
-                break;
-              }
-            }
-            core.info(`Deleted ${stale.length} preview image version(s).`);
