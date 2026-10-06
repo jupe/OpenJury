@@ -1156,7 +1156,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
                 )}
                 {entry.is_disqualified && (
                   <p>
-                    {entry.content_removed ? t("Content removed") : `${t("Disqualified")} (${t(entry.disqualification_display === "exclude" ? "Exclude from results" : entry.disqualification_display === "bottom" ? "Show as disqualified at bottom" : "Remove inappropriate content")})`}: {entry.disqualification_reason}
+                    {entry.content_removed ? t("Content removed") : `${t("Disqualified")} (${t(entry.disqualification_display)})`}: {entry.disqualification_reason}
                     {entry.disqualified_by && ` · ${t("Admin {name}", { name: attendeeName(entry.disqualified_by) })}`}
                     {entry.disqualified_at && ` · ${formatDateTime(entry.disqualified_at)}`}
                   </p>

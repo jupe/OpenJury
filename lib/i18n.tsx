@@ -423,6 +423,9 @@ const finnish: Record<string, string> = {
   "Member, Riverside Choir admin": "Jäsen, Riverside Choirin ylläpitäjä",
   "Platform admin": "Alustan ylläpitäjä",
   "Enter a valid email address.": "Anna kelvollinen sähköpostiosoite.",
+  "exclude": "sulje pois",
+  "bottom": "alareunaan",
+  "remove_content": "poista sisältö",
 };
 
 type TranslationValues = Record<string, string | number>;
