@@ -21,6 +21,10 @@ CI runs on GitHub-hosted runners, including fork PRs. It exercises the productio
 Docker image, not the Next.js development server. The stable required check is
 `checks` in the `CI` workflow. Image artifacts expire after three days; browser
 reports after seven. Actions are commit-pinned and Dependabot proposes updates.
+The full Playwright suite runs in Chromium; Android and iPhone run `@smoke` and
+`@mobile` tests. Four CI workers keep the browser stage under five minutes.
+Production builds use Webpack because Turbopack currently breaks PGlite's WASM
+initializer in the demo.
 
 Documentation-only PRs and merge-queue entries skip the build/test job. The
 documentation allowlist is root-level `*.md`, Markdown files under `docs/`, and

@@ -105,7 +105,12 @@ test("database identifiers stay hidden but are preserved by navigation links", a
   );
 });
 
-test("mobile layout and main navigation", async ({ page }) => {
+test("mobile layout and main navigation @mobile", async ({ page }) => {
+  await page.route("**/runtime-config.js", (route) => route.fulfill({
+    contentType: "application/javascript",
+    body: 'window.__OPENJURY_CONFIG__ = {SUPABASE_URL: "https://foundation.supabase.co", SUPABASE_ANON_KEY: "public-test-anon"};',
+  }));
+  await page.route("https://foundation.supabase.co/**", (route) => route.fulfill({ status: 204, body: "" }));
   await page.setViewportSize({ width: 375, height: 812 });
   for (const path of ["/", "/dashboard", `/group/${"a".repeat(100)}`, `/competition/${"b".repeat(100)}`, `/competition/${"b".repeat(100)}/admin`]) {
     await page.goto(path);

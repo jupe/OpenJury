@@ -79,7 +79,7 @@ async function expectPhoneLayout(page: Page) {
   }
 }
 
-test("small phone forms, long names and landscape stay usable", async ({ page }) => {
+test("small phone forms, long names and landscape stay usable @mobile", async ({ page }) => {
   await configure(page, true);
   await page.route(`${supabaseURL}/rest/v1/groups**`, (route) => route.fulfill({
     json: [{ id: groupId, name: "Community".repeat(12) }],
@@ -151,7 +151,7 @@ test("ordinary group members cannot manage group settings", async ({ page }) => 
   await expect(page.getByRole("button", { name: "Remove group" })).toHaveCount(0);
 });
 
-test("phone sign-in controls support zoom and comfortable touch targets", async ({ page }) => {
+test("phone sign-in controls support zoom and comfortable touch targets @mobile", async ({ page }) => {
   await configure(page);
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto("/");
@@ -163,7 +163,7 @@ test("phone sign-in controls support zoom and comfortable touch targets", async 
   expect(viewport).not.toMatch(/user-scalable=no|maximum-scale=1/);
 });
 
-test("phone image upload, uncropped preview and removal work", async ({ page }) => {
+test("phone image upload, uncropped preview and removal work @mobile", async ({ page }) => {
   await configure(page, true);
   await page.setViewportSize({ width: 320, height: 568 });
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
@@ -205,7 +205,7 @@ test("phone image upload, uncropped preview and removal work", async ({ page }) 
   await expect.poll(() => saves.at(-1)?.p_media_keys).toEqual([]);
 });
 
-test("off-screen private voting media is deferred until scrolling", async ({ page }) => {
+test("off-screen private voting media is deferred until scrolling @mobile", async ({ page }) => {
   await configure(page, true);
   await page.setViewportSize({ width: 320, height: 568 });
   const downloads: string[] = [];
