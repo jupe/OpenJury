@@ -91,8 +91,9 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/13_disqualified_result_vote_count.sql`,
 `supabase/migrations/14_published_result_media.sql`, and
 `supabase/migrations/15_competition_details.sql`,
-`supabase/migrations/16_competition_deletion.sql`, and
-`supabase/migrations/17_participant_voting.sql`, once each, in that order.
+`supabase/migrations/16_competition_deletion.sql`,
+`supabase/migrations/17_participant_voting.sql`, and
+`supabase/migrations/18_group_overview.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
@@ -106,6 +107,8 @@ Migration 16 adds an admin-only competition deletion RPC that preserves
 disqualification audit records.
 Migration 17 adds default-disabled participant voting, configurable by admins
 while a competition is a draft. Participants still cannot vote on their own entry.
+Migration 18 adds a read-only group overview RPC with member and competition counts.
+Without it, groups still list but show no counts.
 Competition setup and details support English and Finnish through `lib/i18n.tsx`.
 Choose the language from the account menu; the preference is stored in the browser.
 Translate interface labels and messages, not user-provided competition names,

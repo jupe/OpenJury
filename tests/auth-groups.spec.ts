@@ -405,6 +405,24 @@ test("signed-in dashboard lists RLS groups and creates a group via RPC", async (
   await expect(page.getByRole("button", { name: "New competition" })).toBeVisible();
 });
 
+test("dashboard and group lobby show member and competition counts", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_groups`, (route) => route.fulfill({ json: [{
+    id: groupId, name: "Baking club", my_role: "admin",
+    member_count: 1, admin_count: 1, competition_count: 3, active_competition_count: 2,
+  }] }));
+
+  await page.goto("/dashboard");
+  await expect(page.getByRole("link", { name: "Baking club" })).toBeVisible();
+  await expect(page.getByText("1 member", { exact: true })).toBeVisible();
+  await expect(page.getByText("3 competitions", { exact: true })).toBeVisible();
+  await expect(page.getByText("2 active", { exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: "You are an admin" })).toBeVisible();
+
+  await page.goto(`/group/${groupId}`);
+  await expect(page.getByText("3 competitions", { exact: true })).toBeVisible();
+});
+
 test("group admins create and edit draft competitions with scoring criteria", async ({ page }) => {
   await configure(page, true);
   const competitionId = "33333333-3333-4333-8333-333333333333";

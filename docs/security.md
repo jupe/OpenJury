@@ -50,6 +50,10 @@ projection and save ballots only when the competition's default-disabled
 `allow_participant_voting` setting is enabled. Only group admins can change it,
 through the row-locked draft-save RPC before submissions open. Membership,
 deadline, full-ballot validation, and self-vote protections remain enforced.
+Migration `18_group_overview.sql` adds a security-definer `get_my_groups()`
+projection limited to the caller's memberships. It returns counts and the
+caller's own role only; member identities remain admin-only through
+`get_group_members`.
 Migration `07_admin_review_and_publication.sql` makes preliminary results and
 disqualification available only to group admins during review. The disqualification
 RPC records a reason/admin/timestamp event and does not delete the entry or its

@@ -63,6 +63,12 @@ voting closes; self-voting remains prohibited and their own entry stays hidden
 from the blind ballot. Audience voting is unchanged. PostgreSQL enforces this
 eligibility, not just the interface.
 
+Migration `18_group_overview.sql` adds `get_my_groups()`, which returns each of
+the caller's groups with their role, member and admin counts, and the number of
+competitions in total and currently open for entries or voting. It exposes only
+aggregate counts, never other members' identities, so members can see how big
+their group is while direct membership reads stay limited to their own row.
+
 ## Admin review and publication
 
 After voting closes, group admins can access preliminary rankings and
@@ -222,6 +228,7 @@ On a disposable Supabase database with all migrations applied, run:
 ```sh
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_access.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_management.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_overview.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_deletion.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_setup.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/secure_submissions.sql
