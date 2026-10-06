@@ -78,7 +78,10 @@ test("CI and deployment smoke tests reuse tools without installing packages on c
   const dockerfile = readFileSync(resolve("Dockerfile"), "utf8");
   expect(dockerfile).toContain("ARG DEPENDENCIES_IMAGE=dependencies");
   expect(dockerfile).toContain("FROM ${DEPENDENCIES_IMAGE} AS builder");
-  expect(dockerfile).toContain("FROM node AS runner");
+  const runner = dockerfile.slice(dockerfile.indexOf("FROM alpine:3.24 AS runner"));
+  expect(runner).toContain("COPY --from=node /usr/local/bin/node /usr/local/bin/node");
+  expect(runner).toContain("COPY --from=builder --chown=1001:1001 /app/.next/standalone ./");
+  expect(runner).not.toMatch(/\bnpm (?:install|ci)\b/);
 });
 
 function workflowStep(workflow, name) {
