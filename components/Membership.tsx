@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "@/components/AuthBoundary";
 import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
 import { failureMessage } from "@/lib/errors";
@@ -297,13 +298,22 @@ export function GroupMembers({ groupId }: { groupId: string }) {
                 client.rpc("create_group_invite", { p_group_id: groupId }))} />
             </div>
             {links.map((link) => (
-              <div key={link.id} className="flex items-center gap-1">
-                <input readOnly aria-label={t("Invite link")} value={inviteUrl(link.token)} onFocus={(event) => event.target.select()} className="block min-h-12 min-w-0 flex-1 rounded border border-slate-300 p-2 font-mono" />
-                <IconButton icon={copied === link.id ? "save" : "copy"} aria-label={t(copied === link.id ? "Copied" : "Copy link")} onClick={() => void copy(link)} />
-                <IconButton icon="remove" tone="danger" disabled={!!working} aria-label={t("Revoke link")} onClick={() => {
-                  if (!window.confirm(t("Revoke this invite link? People who have not joined yet can no longer use it."))) return;
-                  void act(link.id, "revoke link", () => client.rpc("revoke_group_invite", { p_invite_id: link.id }));
-                }} />
+              <div key={link.id} className="space-y-2">
+                <div className="flex items-center gap-1">
+                  <input readOnly aria-label={t("Invite link")} value={inviteUrl(link.token)} onFocus={(event) => event.target.select()} className="block min-h-12 min-w-0 flex-1 rounded border border-slate-300 p-2 font-mono" />
+                  <IconButton icon={copied === link.id ? "save" : "copy"} aria-label={t(copied === link.id ? "Copied" : "Copy link")} onClick={() => void copy(link)} />
+                  <IconButton icon="remove" tone="danger" disabled={!!working} aria-label={t("Revoke link")} onClick={() => {
+                    if (!window.confirm(t("Revoke this invite link? People who have not joined yet can no longer use it."))) return;
+                    void act(link.id, "revoke link", () => client.rpc("revoke_group_invite", { p_invite_id: link.id }));
+                  }} />
+                </div>
+                <details>
+                  <summary className="min-h-12 cursor-pointer py-3 font-medium text-indigo-700">{t("Show QR code")}</summary>
+                  <div className="space-y-2">
+                    <QRCodeSVG value={inviteUrl(link.token)} size={256} level="M" marginSize={4} role="img" aria-label={t("QR code for invite link")} className="h-auto max-w-full" />
+                    <p className="text-sm text-slate-600">{t("Scan this QR code with your phone to open the invite link. Sign in to join the group.")}</p>
+                  </div>
+                </details>
               </div>
             ))}
             <p className="text-xs text-slate-500">{t("Anyone signed in who opens a link joins as a member.")}</p>
