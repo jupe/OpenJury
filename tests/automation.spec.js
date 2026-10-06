@@ -7,6 +7,7 @@ import { runInNewContext } from "node:vm";
 import { assessDiff, hasRequiredProtection, latestReviews, mergeMinorPRs } from "../.github/scripts/minor-pr.mjs";
 import { notifyDeployment } from "../.github/scripts/deployment-feedback.mjs";
 import { shouldRunChecks } from "../.github/scripts/ci-changes.mjs";
+import { releaseImage } from "../.github/scripts/release-image.mjs";
 
 const repo = { owner: "jupe", repo: "OpenJury" };
 const fullName = "jupe/OpenJury";
@@ -85,30 +86,294 @@ function workflowStep(workflow, name) {
   return workflow.split(`- name: ${name}\n`)[1].split(/\n(?:      - |  [a-z])/)[0];
 }
 
+const imageDigest = `sha256:${"b".repeat(64)}`;
+
+function releaseJob(name, runAttempt = 1, overrides = {}) {
+  return {
+    id: 1000 + runAttempt * 10 + (name === "Build and test" ? 1 : name === "checks" ? 2 : 3),
+    run_id: 123, head_sha: sha, run_attempt: runAttempt, name,
+    status: "completed", conclusion: "success",
+    started_at: `2026-10-06T07:${String(runAttempt).padStart(2, "0")}:10Z`,
+    completed_at: `2026-10-06T07:${String(runAttempt).padStart(2, "0")}:20Z`,
+    ...overrides,
+  };
+}
+
+function imageMarker(runAttempt = 1, overrides = {}) {
+  return releaseJob(`release-image-v1 ${imageDigest}`, runAttempt, {
+    started_at: `2026-10-06T07:${String(runAttempt).padStart(2, "0")}:30Z`, ...overrides,
+  });
+}
+
+function releaseFixture({ attempt = 1, jobs, runOverrides = {}, triggerOverrides = {} } = {}) {
+  const trigger = {
+    id: 123, run_attempt: attempt, head_sha: sha, path: ".github/workflows/ci.yml",
+    head_branch: "main", event: "push", status: "completed", conclusion: "success",
+    repository: { full_name: fullName }, head_repository: { full_name: fullName },
+    ...triggerOverrides,
+  };
+  const run = { ...trigger, ...runOverrides };
+  const entries = jobs || [releaseJob("Build and test"), releaseJob("checks"), imageMarker()];
+  let runCalls = 0;
+  let pages = 0;
+  const listJobsForWorkflowRun = () => { throw new Error("Use authenticated pagination"); };
+  const github = {
+    rest: { actions: {
+      async getWorkflowRunAttempt(params) {
+        runCalls++;
+        expect(params).toEqual({ ...repo, run_id: trigger.id, attempt_number: trigger.run_attempt });
+        return { data: run };
+      },
+      listJobsForWorkflowRun,
+    } },
+    async paginate(endpoint, params) {
+      expect(endpoint).toBe(listJobsForWorkflowRun);
+      expect(params).toEqual({ ...repo, run_id: 123, filter: "all", per_page: 100 });
+      // Model the flattened result returned by github-script's pagination plugin.
+      const result = [];
+      for (let offset = 0; offset < entries.length; offset += params.per_page) {
+        pages++;
+        result.push(...entries.slice(offset, offset + params.per_page));
+      }
+      return result;
+    },
+  };
+  return {
+    github, context: { ...context, payload: { workflow_run: trigger } },
+    calls: () => ({ runCalls, pages }),
+  };
+}
+
+test("release resolves an immutable image from the authenticated originating run", async () => {
+  const fixture = releaseFixture();
+  await expect(releaseImage(fixture)).resolves.toBe(`ghcr.io/jupe/openjury@${imageDigest}`);
+  expect(fixture.calls()).toEqual({ runCalls: 1, pages: 1 });
+});
+
+for (const [name, overrides] of [
+  ["wrong workflow", { path: ".github/workflows/preview.yml" }],
+  ["wrong branch", { head_branch: "feature" }],
+  ["PR event", { event: "pull_request" }],
+  ["foreign head repository", { head_repository: { full_name: "other/OpenJury" } }],
+  ["foreign repository", { repository: { full_name: "other/OpenJury" } }],
+  ["missing head repository", { head_repository: null }],
+  ["missing repository", { repository: null }],
+  ["failed run", { conclusion: "failure" }],
+  ["unfinished run", { status: "in_progress" }],
+  ["invalid run id", { id: "123" }],
+  ["zero run id", { id: 0 }],
+  ["unsafe run id", { id: Number.MAX_SAFE_INTEGER + 1 }],
+  ["invalid SHA", { head_sha: "main" }],
+  ["SHA newline", { head_sha: `${sha}\n` }],
+  ["invalid attempt", { run_attempt: "1" }],
+  ["zero attempt", { run_attempt: 0 }],
+]) {
+  for (const source of ["triggerOverrides", "runOverrides"]) {
+    test(`release rejects ${source}: ${name}`, async () => {
+      const fixture = releaseFixture({ [source]: overrides });
+      await expect(releaseImage(fixture)).rejects.toThrow("Invalid originating CI run");
+      expect(fixture.calls().pages).toBe(0);
+      if (source === "triggerOverrides") expect(fixture.calls().runCalls).toBe(0);
+    });
+  }
+}
+
+for (const runOverrides of [{ id: 456 }, { head_sha: "c".repeat(40) }, { run_attempt: 2 }]) {
+  test(`release rejects API run/event mismatch ${JSON.stringify(runOverrides)}`, async () => {
+    await expect(releaseImage(releaseFixture({ runOverrides }))).rejects.toThrow("does not match");
+  });
+}
+
+test("release propagates run and jobs API failures instead of skipping verification", async () => {
+  for (const endpoint of ["getWorkflowRunAttempt", "paginate"]) {
+    const fixture = releaseFixture();
+    const fail = async () => { throw new Error("API unavailable"); };
+    if (endpoint === "paginate") fixture.github.paginate = fail;
+    else fixture.github.rest.actions[endpoint] = fail;
+    await expect(releaseImage(fixture)).rejects.toThrow("API unavailable");
+  }
+});
+
+for (const [name, overrides] of [
+  ["wrong run", { run_id: 456 }],
+  ["wrong SHA", { head_sha: "c".repeat(40) }],
+  ["invalid attempt", { run_attempt: 0 }],
+  ["missing attempt", { run_attempt: undefined }],
+  ["invalid job id", { id: "123" }],
+  ["missing name", { name: undefined }],
+]) {
+  test(`release rejects job metadata: ${name}`, async () => {
+    const fixture = releaseFixture({ jobs: [
+      releaseJob("Build and test"), releaseJob("checks"), imageMarker(1, overrides),
+    ] });
+    await expect(releaseImage(fixture)).rejects.toThrow("Invalid originating CI job metadata");
+  });
+}
+
+for (const name of [
+  "release-image-v1", "release-image-v1 sha256:bad", "release-image-v2 sha256:" + "b".repeat(64),
+  `release-image-v1 ${imageDigest}\n`, `release-image-v1 ${imageDigest} extra`,
+  `release-image-v1 sha256:${"B".repeat(64)}`,
+]) {
+  test(`release rejects malformed marker ${JSON.stringify(name)}`, async () => {
+    await expect(releaseImage(releaseFixture({ jobs: [
+      releaseJob("Build and test"), releaseJob("checks"), imageMarker(1, { name }),
+    ] }))).rejects.toThrow("Malformed image marker");
+  });
+}
+
+for (const missing of ["Build and test", "checks", `release-image-v1 ${imageDigest}`]) {
+  test(`release fails closed without ${missing}`, async () => {
+    await expect(releaseImage(releaseFixture({ jobs: [
+      releaseJob("Build and test"), releaseJob("checks"), imageMarker(),
+    ].filter((job) => job.name !== missing) }))).rejects.toThrow("Missing, duplicate, or unsuccessful");
+  });
+}
+
+for (const overrides of [
+  { conclusion: "failure" }, { conclusion: "skipped" },
+  { conclusion: "cancelled" }, { status: "in_progress", conclusion: null },
+]) {
+  test(`release rejects latest unsuccessful marker ${JSON.stringify(overrides)}`, async () => {
+    await expect(releaseImage(releaseFixture({ attempt: 2, jobs: [
+      releaseJob("Build and test"), releaseJob("checks"), imageMarker(), imageMarker(2, overrides),
+    ] }))).rejects.toThrow("unsuccessful image marker");
+  });
+}
+
+test("release rejects duplicate markers even when their digest matches", async () => {
+  for (const name of [`release-image-v1 ${imageDigest}`, `release-image-v1 sha256:${"c".repeat(64)}`]) {
+    await expect(releaseImage(releaseFixture({ jobs: [
+      releaseJob("Build and test"), releaseJob("checks"), imageMarker(),
+      imageMarker(1, { id: 9999, name }),
+    ] }))).rejects.toThrow("duplicate");
+  }
+});
+
+test("release rejects duplicated API job IDs", async () => {
+  await expect(releaseImage(releaseFixture({ jobs: [
+    releaseJob("Build and test"), releaseJob("checks"), imageMarker(), imageMarker(),
+  ] }))).rejects.toThrow("Invalid originating CI job metadata");
+});
+
+test("release paginates all jobs including a marker beyond page one", async () => {
+  const filler = Array.from({ length: 105 }, (_, index) => releaseJob(`other ${index}`, 1, { id: index + 1 }));
+  const jobs = [releaseJob("Build and test"), releaseJob("checks"), ...filler, imageMarker()];
+  const fixture = releaseFixture({ jobs });
+  await expect(releaseImage(fixture)).resolves.toBe(`ghcr.io/jupe/openjury@${imageDigest}`);
+  expect(fixture.calls().pages).toBe(2);
+  await expect(releaseImage(releaseFixture({ jobs: [
+    imageMarker(1, { id: 9999 }), ...jobs,
+  ] }))).rejects.toThrow("duplicate");
+});
+
+test("unrelated partial retry reuses the prior successful build and marker", async () => {
+  await expect(releaseImage(releaseFixture({ attempt: 3, jobs: [
+    releaseJob("Build and test"), releaseJob("checks"), imageMarker(),
+    releaseJob("Unrelated job", 2), releaseJob("checks", 3),
+  ] }))).resolves.toBe(`ghcr.io/jupe/openjury@${imageDigest}`);
+});
+
+test("release selects the latest eligible marker regardless of API order", async () => {
+  const digest = `sha256:${"c".repeat(64)}`;
+  await expect(releaseImage(releaseFixture({ attempt: 2, jobs: [
+    imageMarker(2, { name: `release-image-v1 ${digest}` }),
+    releaseJob("Build and test", 2), releaseJob("checks", 2),
+    imageMarker(1, { conclusion: "failure" }),
+    releaseJob("checks"), releaseJob("Build and test"),
+  ] }))).resolves.toBe(`ghcr.io/jupe/openjury@${digest}`);
+});
+
+test("a stale completion ignores newer attempts including newer builds and markers", async () => {
+  const fixture = releaseFixture({ jobs: [
+    releaseJob("Build and test", 2), imageMarker(2, { name: "release-image-v1 malformed" }),
+    releaseJob("checks", 2, { conclusion: "failure" }),
+    releaseJob("Build and test"), imageMarker(), releaseJob("checks"),
+  ] });
+  await expect(releaseImage(fixture)).resolves.toBe(`ghcr.io/jupe/openjury@${imageDigest}`);
+});
+
+test("a future marker cannot supply a missing handoff to a stale event", async () => {
+  await expect(releaseImage(releaseFixture({ jobs: [
+    releaseJob("Build and test"), releaseJob("checks"), imageMarker(2),
+  ] }))).rejects.toThrow("image marker");
+});
+
+test("a malformed newest marker cannot fall back to an older successful marker", async () => {
+  await expect(releaseImage(releaseFixture({ attempt: 2, jobs: [
+    releaseJob("Build and test"), releaseJob("checks"), imageMarker(),
+    imageMarker(2, { name: "release-image-v1 malformed" }),
+  ] }))).rejects.toThrow("Malformed image marker");
+});
+
+test("a rebuilt image requires a new marker", async () => {
+  await expect(releaseImage(releaseFixture({ attempt: 2, jobs: [
+    releaseJob("Build and test"), releaseJob("checks"), imageMarker(),
+    releaseJob("Build and test", 2), releaseJob("checks", 2),
+  ] }))).rejects.toThrow("predates the latest build");
+});
+
+for (const overrides of [
+  { started_at: "2026-10-06T07:01:00Z" }, { started_at: null }, { started_at: "invalid" },
+]) {
+  test(`release rejects a marker without post-build timing ${JSON.stringify(overrides)}`, async () => {
+    await expect(releaseImage(releaseFixture({ jobs: [
+      releaseJob("Build and test"), releaseJob("checks"), imageMarker(1, overrides),
+    ] }))).rejects.toThrow("predates the latest build");
+  });
+}
+
+for (const name of ["Build and test", "checks"]) {
+  test(`release rejects the latest failed ${name} instead of a prior success`, async () => {
+    await expect(releaseImage(releaseFixture({ attempt: 2, jobs: [
+      releaseJob("Build and test"), releaseJob("checks"), imageMarker(),
+      releaseJob(name, 2, { conclusion: "failure" }), imageMarker(2),
+    ] }))).rejects.toThrow("unsuccessful");
+  });
+}
+
+test("CI marker validates its digest before succeeding", () => {
+  const ci = readFileSync(resolve(".github/workflows/ci.yml"), "utf8");
+  const script = workflowStep(ci, "Record the checked main image in job metadata").split("run: |")[1];
+  for (const digest of [imageDigest, "", "sha256:bad", `${imageDigest}\n`, `sha256:${"B".repeat(64)}`]) {
+    const run = () => execFileSync("bash", ["-e", "-c", script], { env: { ...process.env, DIGEST: digest } });
+    if (digest === imageDigest) expect(run).not.toThrow();
+    else expect(run).toThrow();
+  }
+});
+
 test("main release handoff does not depend on artifact storage or bypass checks", () => {
   const ci = readFileSync(resolve(".github/workflows/ci.yml"), "utf8");
   const publish = workflowStep(ci, "Publish tested main image");
   expect(publish).toContain("if: github.event_name == 'push' && github.ref == 'refs/heads/main'");
   expect(publish).not.toContain("continue-on-error");
   expect(ci.indexOf("- name: Test production image")).toBeLessThan(ci.indexOf("- name: Publish tested main image"));
-  const attest = workflowStep(ci, "Attest tested main image");
-  expect(attest).toContain("if: github.event_name == 'push' && github.ref == 'refs/heads/main'");
-  expect(attest).toContain("subject-digest: ${{ steps.main-image.outputs.digest }}");
-  expect(attest).not.toContain("continue-on-error");
-  expect(ci.indexOf("- name: Publish tested main image")).toBeLessThan(ci.indexOf("- name: Attest tested main image"));
+  expect(ci).toContain("main-image-digest: ${{ steps.main-image.outputs.digest }}");
+  const marker = ci.split("\n  release-image:\n")[1].split("\n  preview:")[0];
+  expect(marker).toContain("name: release-image-v1 ${{ needs.build.outputs.main-image-digest }}");
+  expect(marker).toContain("needs: [build, checks]");
+  expect(marker).toContain("if: github.event_name == 'push' && github.ref == 'refs/heads/main'");
+  expect(marker).toContain('[[ "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]');
+  expect(marker).not.toMatch(/continue-on-error|always\(\)/);
   for (const name of ["Save tested image", "Upload tested image"]) {
     const step = workflowStep(ci, name);
     expect(step).toContain("if: github.event_name == 'pull_request' && steps.preview-image.outcome != 'success'");
     expect(step).not.toContain("github.event_name == 'push'");
   }
   const release = readFileSync(resolve(".github/workflows/release.yml"), "utf8");
-  expect(release).not.toMatch(/download-artifact|docker (build|load)|release-image/);
+  expect(release).not.toMatch(/download-artifact|docker (build|load)/);
+  expect(`${ci}\n${release}`).not.toMatch(/actions\/attest|attestations:|id-token:|gh attestation/);
   expect(release).toContain("github.event.workflow_run.conclusion == 'success'");
   expect(release).toContain("github.event.workflow_run.event == 'push'");
   expect(release).toContain("github.event.workflow_run.head_repository.full_name == github.repository");
-  expect(release).toContain("CI_RUN_ID: ${{ github.event.workflow_run.id }}");
+  expect(release).toContain("github.event.workflow_run.head_branch == 'main'");
+  expect(release).toContain("actions: read");
+  expect(workflowStep(release, "Check out trusted release automation")).toContain("ref: ${{ github.sha }}");
+  const handoff = workflowStep(release, "Read the checked image from CI job metadata");
+  expect(handoff).toContain(".github/scripts/release-image.mjs");
+  expect(handoff).not.toContain("continue-on-error");
+  expect(release).toContain("TESTED_IMAGE: ${{ steps.tested-image.outputs.image }}");
   expect(publish).not.toContain("GITHUB_RUN_ATTEMPT");
-  expect(release).not.toContain("workflow_run.run_attempt");
   expect(release).toContain("if: steps.current.outputs.current == 'true'");
   expect(release).toContain("data.commit.sha === context.payload.workflow_run.head_sha");
   expect(release).toContain("needs.staging.result == 'success' && vars.CD_ENABLED == 'true'");
@@ -118,8 +383,8 @@ test("main release handoff does not depend on artifact storage or bypass checks"
 });
 
 for (const workflow of ["ci.yml", "release.yml"]) {
-  for (const failure of ["", "revision", "pull", "push", "digest", "attestation"]) {
-    if (workflow === "ci.yml" && ["pull", "attestation"].includes(failure)) continue;
+  for (const failure of ["", "revision", "pull", "push", "digest", "different-digest", "missing", "mutable", "repository"]) {
+    if (workflow === "ci.yml" && !["", "revision", "push", "digest"].includes(failure)) continue;
     test(`${workflow} tested image promotion fails closed: ${failure || "success"}`, () => {
       const directory = mkdtempSync(join(tmpdir(), "openjury-release-"));
       const output = join(directory, "output");
@@ -132,6 +397,7 @@ for (const workflow of ["ci.yml", "release.yml"]) {
       const script = step.split("run: |")[1];
       try {
         const run = () => execFileSync("bash", ["-e", "-c", `
+          : > "$DOCKER_LOG"
           docker() {
             printf '%s\\n' "$*" >> "$DOCKER_LOG"
             case "$1" in
@@ -141,17 +407,14 @@ for (const workflow of ["ci.yml", "release.yml"]) {
               image)
                 if [[ "$*" == *RepoDigests* ]]; then
                   if [[ "$FAILURE" == digest ]]; then printf 'ghcr.io/other/image@sha256:invalid\\n';
+                  elif [[ "$FAILURE" == different-digest ]]; then printf 'ghcr.io/jupe/openjury@sha256:%064d\\n' 1;
                   else printf '%s\\n' "$EXPECTED_DIGEST"; fi
                 elif [[ "$FAILURE" == revision ]]; then printf 'wrong-revision\\n';
                 else printf '%s\\n' "$REVISION"; fi ;;
               *) return 1 ;;
             esac
           }
-          gh() {
-            printf 'gh %s\\n' "$*" >> "$DOCKER_LOG"
-            test "$FAILURE" != attestation
-          }
-          export -f docker gh
+          export -f docker
           ${script}
         `], {
           env: {
@@ -160,7 +423,8 @@ for (const workflow of ["ci.yml", "release.yml"]) {
             GITHUB_SHA: sha,
             GITHUB_RUN_ID: "123",
             GITHUB_RUN_ATTEMPT: "2",
-            CI_RUN_ID: "123",
+            TESTED_IMAGE: failure === "missing" ? "" : failure === "mutable" ? source :
+              failure === "repository" ? digest.replace("jupe/openjury", "other/image") : digest,
             REVISION: sha,
             GITHUB_ACTOR: "test",
             GH_TOKEN: "test-only",
@@ -182,11 +446,10 @@ for (const workflow of ["ci.yml", "release.yml"]) {
             expect(commands).toContain(`push ${source}`);
             expect(readFileSync(output, "utf8")).toBe(`name=ghcr.io/jupe/openjury\ndigest=sha256:${"b".repeat(64)}\n`);
           } else {
-            expect(commands).toContain(`pull ${source}`);
+            expect(commands).toContain(`pull ${digest}`);
+            expect(commands).not.toContain(source);
             expect(commands).toContain(`image inspect ${digest}`);
             expect(commands).toContain(`tag ${digest} ghcr.io/jupe/openjury:sha-${sha}`);
-            expect(commands).toContain(`gh attestation verify oci://${digest} --repo ${fullName} --signer-workflow ${fullName}/.github/workflows/ci.yml --source-ref refs/heads/main --source-digest ${sha} --deny-self-hosted-runners`);
-            expect(commands.indexOf("gh attestation verify")).toBeLessThan(commands.indexOf(`tag ${digest}`));
             expect(readFileSync(output, "utf8")).toBe(`image=${digest}\n`);
           }
         } else {
@@ -244,7 +507,7 @@ test("main pushes always build and diff failures cannot become successful skips"
 
 test("required CI status accepts only a successful build or a confirmed documentation skip", () => {
   const workflow = readFileSync(resolve(".github/workflows/ci.yml"), "utf8");
-  const checks = workflow.slice(workflow.indexOf("\n  checks:")).split("\n  preview:")[0];
+  const checks = workflow.split("\n  checks:")[1].split(/\n  [a-z][a-z-]*:/)[0];
   expect(checks).toContain("needs: [changes, build]");
   expect(checks).toContain("if: always()");
   expect(workflow).toContain("if: needs.changes.outputs.build == 'true'");

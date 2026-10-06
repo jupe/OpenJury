@@ -81,13 +81,13 @@ or release promotion of the tested image.
 
 ## Image promotion and previews
 
-Main CI publishes `ghcr.io/jupe/openjury:ci-<run-id>` and signs its digest with
-GitHub build provenance after tests pass. The run tag remains usable when a
-partial CI retry reuses the successful build job. Release pulls
-that successful run's image, resolves its digest, verifies its source revision
-and attestation (this repository's CI workflow on `main`, at the tested commit,
-on a GitHub-hosted runner),
-and tags it as `ghcr.io/jupe/openjury:sha-<commit>` without rebuilding. Deployments use
+Main CI publishes `ghcr.io/jupe/openjury:ci-<run-id>` after tests pass and records
+the immutable digest in a successful `release-image-v1 sha256:...` job name after
+the required checks succeed. Release reads this GitHub-managed job metadata
+through the authenticated Actions API, verifies that it belongs to this
+repository's successful main-push CI run and tested commit, and pulls directly by
+the recorded digest. It verifies the image's source revision and tags it as
+`ghcr.io/jupe/openjury:sha-<commit>` without rebuilding. Deployments use
 the immutable `ghcr.io/jupe/openjury@sha256:...` reference recorded in the Release
 summary. Same-repository PRs may push only to the separate
 `ghcr.io/jupe/openjury-preview` package (tagged `pr-<number>-<sha>`) so dev
@@ -97,8 +97,14 @@ and their versions are deleted when the PR closes. Release verifies the source
 revision and skips superseded main builds; deployment checks main again after
 any approval wait. Releases are serialized across staging and production.
 A failed staging deployment **or smoke test blocks production**.
-Missing or invalid provenance also blocks promotion: a registry tag or revision
-label alone is not trusted, since PR workflows have registry write permission.
+Missing, invalid, or ambiguous handoff metadata also blocks promotion: a registry
+tag or revision label alone is not trusted, since PR workflows have registry write
+permission. This handoff does not use GitHub artifact attestations, which are
+unavailable for user-owned private repositories, or Actions artifact storage.
+It relies on trusted main-CI execution metadata, not a cryptographic signature.
+Partial retries can reuse successful build and handoff jobs; a handoff older
+than a rebuilt image is rejected, and later attempts cannot change the digest
+selected for an earlier completed attempt.
 CI also exercises the configured, signed-out navigation path on desktop and both
 mobile browsers using mocked public configuration, even when the test container
 otherwise runs in demo mode.

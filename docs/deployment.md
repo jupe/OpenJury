@@ -227,9 +227,12 @@ PR-controlled reusable workflow or a moving PR branch as a shortcut.
   set to that digest. Run `PLAYWRIGHT_BASE_URL=https://<host> npm run test:smoke`
   afterward. Do not reset persistent data or rebuild an old source tree.
 - Monitor host disk use and retain enough prior GHCR digests for rollback.
-  Keep main CI's `ci-<run-id>` tags and GitHub attestations available for Release retries.
-  If a tested image has been deleted, rerun all CI jobs on current `main` rather
-  than rebuilding in Release or deploying an untested image. Artifact quota
+  Keep main CI's `ci-<run-id>` images and Actions run/job metadata available for
+  Release retries. Release pulls the digest recorded in the successful CI handoff
+  job, not the mutable registry tag; GitHub artifact attestations are not required.
+  If a tested image or its handoff metadata is missing or invalid, rerun all CI
+  jobs on current `main` rather than rebuilding in Release or deploying an
+  untested image. Artifact quota
   exhaustion no longer blocks main image publication or deployment smoke jobs.
   Cleanup removes the preview's old image when it is not shared; it never runs
   a global Docker prune or deletes the shared proxy/network.

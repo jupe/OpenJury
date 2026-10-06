@@ -52,12 +52,11 @@ jobs:
     timeout-minutes: 45
     outputs:
       preview-artifact: ${{ steps.upload_image_ref.outcome == 'success' && format('image-ref-{0}', github.run_id) || steps.upload_tested_image.outcome == 'success' && format('image-{0}', github.run_id) || '' }}
+      main-image-digest: ${{ steps.main-image.outputs.digest }}
     permissions:
       contents: read
       # Publish tested main images and separate same-repository PR preview images.
       packages: write
-      id-token: write
-      attestations: write
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -165,14 +164,6 @@ jobs:
           echo "digest=${image#*@}" >> "$GITHUB_OUTPUT"
           printf '### Tested main image\n`%s`\n' "$tag" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Attest tested main image
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-name: ${{ steps.main-image.outputs.name }}
-          subject-digest: ${{ steps.main-image.outputs.digest }}
-          create-storage-record: false
-
       # Previews pull by digest, downloading only layers the dev VM lacks. Fork PRs
       # get a read-only token, so they keep using the image archive below.
       - name: Publish tested PR image for the dev preview
@@ -274,6 +265,21 @@ jobs:
             test "$BUILD_REQUIRED" = false
             test "$BUILD_RESULT" = skipped
           fi
+
+  release-image:
+    name: release-image-v1 ${{ needs.build.outputs.main-image-digest }}
+    needs: [build, checks]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Record the checked main image in job metadata
+        env:
+          DIGEST: ${{ needs.build.outputs.main-image-digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
 
   preview:
     name: PR preview
