@@ -1,0 +1,42 @@
+name: Legacy main-CI artifact cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: List eligible legacy image archives without deleting them
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: legacy-main-ci-artifact-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Check out trusted main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Clean up obsolete legacy image archives
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        with:
+          script: |
+            if (!['true', 'false'].includes(process.env.DRY_RUN)) throw new Error('Invalid dry_run input');
+            const { cleanupLegacyArtifacts } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/artifact-cleanup.mjs`);
+            await cleanupLegacyArtifacts({
+              github, context, core, dryRun: process.env.DRY_RUN !== 'false',
+            });

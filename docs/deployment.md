@@ -227,7 +227,9 @@ PR-controlled reusable workflow or a moving PR branch as a shortcut.
   set to that digest. Run `PLAYWRIGHT_BASE_URL=https://<host> npm run test:smoke`
   afterward. Do not reset persistent data or rebuild an old source tree.
 - Monitor host disk use and retain enough prior GHCR digests for rollback.
-  Keep main CI's `ci-<run-id>` tags and GitHub attestations available for Release retries.
+  Keep main CI's `ci-<run-id>` tags and Cosign signature referrers available for Release retries.
+  Configure the main-only signing environment and trusted public key described in
+  [CI/CD](ci-cd.md#configure-private-release-signing) before enabling this pipeline.
   If a tested image has been deleted, rerun all CI jobs on current `main` rather
   than rebuilding in Release or deploying an untested image. Artifact quota
   exhaustion no longer blocks main image publication or deployment smoke jobs.

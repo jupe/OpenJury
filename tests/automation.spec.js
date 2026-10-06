@@ -91,11 +91,15 @@ test("main release handoff does not depend on artifact storage or bypass checks"
   expect(publish).toContain("if: github.event_name == 'push' && github.ref == 'refs/heads/main'");
   expect(publish).not.toContain("continue-on-error");
   expect(ci.indexOf("- name: Test production image")).toBeLessThan(ci.indexOf("- name: Publish tested main image"));
-  const attest = workflowStep(ci, "Attest tested main image");
-  expect(attest).toContain("if: github.event_name == 'push' && github.ref == 'refs/heads/main'");
-  expect(attest).toContain("subject-digest: ${{ steps.main-image.outputs.digest }}");
-  expect(attest).not.toContain("continue-on-error");
-  expect(ci.indexOf("- name: Publish tested main image")).toBeLessThan(ci.indexOf("- name: Attest tested main image"));
+  const sign = ci.split("\n  sign:")[1].split("\n  preview:")[0];
+  expect(sign).toContain("needs: [build, checks]");
+  expect(sign).toContain("if: github.event_name == 'push' && github.ref == 'refs/heads/main'");
+  expect(sign).toContain("environment: release-signing");
+  expect(sign).toContain("IMAGE_DIGEST: ${{ needs.build.outputs.image-digest }}");
+  expect(sign).toContain("COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}");
+  expect(sign).not.toMatch(/continue-on-error|checkout|self-hosted/);
+  expect(ci.split("\n  sign:")[0]).not.toContain("COSIGN_PRIVATE_KEY");
+  expect(ci).not.toMatch(/actions\/attest@|attestations:|id-token:/);
   for (const name of ["Save tested image", "Upload tested image"]) {
     const step = workflowStep(ci, name);
     expect(step).toContain("if: github.event_name == 'pull_request' && steps.preview-image.outcome != 'success'");
@@ -107,6 +111,13 @@ test("main release handoff does not depend on artifact storage or bypass checks"
   expect(release).toContain("github.event.workflow_run.event == 'push'");
   expect(release).toContain("github.event.workflow_run.head_repository.full_name == github.repository");
   expect(release).toContain("CI_RUN_ID: ${{ github.event.workflow_run.id }}");
+  expect(release).toContain("COSIGN_PUBLIC_KEY: ${{ vars.COSIGN_PUBLIC_KEY }}");
+  expect(release).not.toContain("COSIGN_PRIVATE_KEY");
+  expect(release).not.toMatch(/gh attestation|attestations:/);
+  for (const workflow of [sign, release]) {
+    expect(workflow).toContain("sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6");
+    expect(workflow).toContain("cosign-release: v3.1.3");
+  }
   expect(publish).not.toContain("GITHUB_RUN_ATTEMPT");
   expect(release).not.toContain("workflow_run.run_attempt");
   expect(release).toContain("if: steps.current.outputs.current == 'true'");
@@ -118,8 +129,8 @@ test("main release handoff does not depend on artifact storage or bypass checks"
 });
 
 for (const workflow of ["ci.yml", "release.yml"]) {
-  for (const failure of ["", "revision", "pull", "push", "digest", "attestation"]) {
-    if (workflow === "ci.yml" && ["pull", "attestation"].includes(failure)) continue;
+  for (const failure of ["", "revision", "pull", "push", "digest", "signature"]) {
+    if (workflow === "ci.yml" && ["pull", "signature"].includes(failure)) continue;
     test(`${workflow} tested image promotion fails closed: ${failure || "success"}`, () => {
       const directory = mkdtempSync(join(tmpdir(), "openjury-release-"));
       const output = join(directory, "output");
@@ -147,11 +158,11 @@ for (const workflow of ["ci.yml", "release.yml"]) {
               *) return 1 ;;
             esac
           }
-          gh() {
-            printf 'gh %s\\n' "$*" >> "$DOCKER_LOG"
-            test "$FAILURE" != attestation
+          cosign() {
+            printf 'cosign %s\\n' "$*" >> "$DOCKER_LOG"
+            test "$FAILURE" != signature
           }
-          export -f docker gh
+          export -f docker cosign
           ${script}
         `], {
           env: {
@@ -164,6 +175,7 @@ for (const workflow of ["ci.yml", "release.yml"]) {
             REVISION: sha,
             GITHUB_ACTOR: "test",
             GH_TOKEN: "test-only",
+            COSIGN_PUBLIC_KEY: "test-only-public-key",
             GITHUB_OUTPUT: output,
             GITHUB_STEP_SUMMARY: join(directory, "summary"),
             DOCKER_CONFIG: join(directory, "auth"),
@@ -185,8 +197,8 @@ for (const workflow of ["ci.yml", "release.yml"]) {
             expect(commands).toContain(`pull ${source}`);
             expect(commands).toContain(`image inspect ${digest}`);
             expect(commands).toContain(`tag ${digest} ghcr.io/jupe/openjury:sha-${sha}`);
-            expect(commands).toContain(`gh attestation verify oci://${digest} --repo ${fullName} --signer-workflow ${fullName}/.github/workflows/ci.yml --source-ref refs/heads/main --source-digest ${sha} --deny-self-hosted-runners`);
-            expect(commands.indexOf("gh attestation verify")).toBeLessThan(commands.indexOf(`tag ${digest}`));
+            expect(commands).toContain(`cosign verify --key env://COSIGN_PUBLIC_KEY --insecure-ignore-tlog=true -a repository=${fullName} -a workflow=${fullName}/.github/workflows/ci.yml@refs/heads/main -a ref=refs/heads/main -a revision=${sha} -a run-id=123 ${digest}`);
+            expect(commands.indexOf("cosign verify")).toBeLessThan(commands.indexOf(`tag ${digest}`));
             expect(readFileSync(output, "utf8")).toBe(`image=${digest}\n`);
           }
         } else {
@@ -200,6 +212,55 @@ for (const workflow of ["ci.yml", "release.yml"]) {
       }
     });
   }
+}
+
+for (const failure of ["", "sign", "verify", "name", "digest", "private-key", "password", "public-key"]) {
+  test(`private main signing fails closed: ${failure || "success"}`, () => {
+    const directory = mkdtempSync(join(tmpdir(), "openjury-sign-"));
+    const log = join(directory, "commands");
+    const digest = `sha256:${"b".repeat(64)}`;
+    const ci = readFileSync(resolve(".github/workflows/ci.yml"), "utf8");
+    const script = workflowStep(ci, "Sign and verify tested image").split("run: |")[1];
+    try {
+      const run = () => execFileSync("bash", ["-e", "-c", `
+        : > "$COMMAND_LOG"
+        docker() { printf 'docker %s\\n' "$*" >> "$COMMAND_LOG"; cat >/dev/null; }
+        cosign() {
+          printf 'cosign %s\\n' "$*" >> "$COMMAND_LOG"
+          test "$FAILURE" != "$1"
+        }
+        export -f docker cosign
+        ${script}
+      `], {
+        env: {
+          ...process.env,
+          GITHUB_REPOSITORY: fullName, GITHUB_SHA: sha, GITHUB_REF: "refs/heads/main",
+          GITHUB_RUN_ID: "123", GITHUB_ACTOR: "test", GH_TOKEN: "test-only",
+          IMAGE_NAME: failure === "name" ? "ghcr.io/other/image" : "ghcr.io/jupe/openjury",
+          IMAGE_DIGEST: failure === "digest" ? "invalid" : digest,
+          COSIGN_PRIVATE_KEY: failure === "private-key" ? "" : "test-only-private-key",
+          COSIGN_PASSWORD: failure === "password" ? "" : "test-only-password",
+          COSIGN_PUBLIC_KEY: failure === "public-key" ? "" : "test-only-public-key",
+          DOCKER_CONFIG: join(directory, "auth"), COMMAND_LOG: log, FAILURE: failure,
+        },
+      });
+      if (failure) expect(run).toThrow();
+      else expect(run).not.toThrow();
+      const commands = readFileSync(log, "utf8");
+      expect(commands).not.toMatch(/test-only-private-key|test-only-password|docker (build|run|pull)/);
+      if (!failure) {
+        const annotations = `-a repository=${fullName} -a workflow=${fullName}/.github/workflows/ci.yml@refs/heads/main -a ref=refs/heads/main -a revision=${sha} -a run-id=123 ghcr.io/jupe/openjury@${digest}`;
+        expect(commands).toContain(`cosign sign --yes --key env://COSIGN_PRIVATE_KEY --use-signing-config=false --tlog-upload=false ${annotations}`);
+        expect(commands).toContain(`cosign verify --key env://COSIGN_PUBLIC_KEY --insecure-ignore-tlog=true ${annotations}`);
+      } else if (failure === "sign") {
+        expect(commands).not.toContain("cosign verify");
+      } else if (failure !== "verify") {
+        expect(commands).toBe("");
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 }
 
 for (const eventName of ["pull_request", "merge_group"]) {
@@ -244,7 +305,7 @@ test("main pushes always build and diff failures cannot become successful skips"
 
 test("required CI status accepts only a successful build or a confirmed documentation skip", () => {
   const workflow = readFileSync(resolve(".github/workflows/ci.yml"), "utf8");
-  const checks = workflow.slice(workflow.indexOf("\n  checks:")).split("\n  preview:")[0];
+  const checks = workflow.split("\n  checks:")[1].split(/\n  [a-z]+:/)[0];
   expect(checks).toContain("needs: [changes, build]");
   expect(checks).toContain("if: always()");
   expect(workflow).toContain("if: needs.changes.outputs.build == 'true'");

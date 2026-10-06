@@ -25,7 +25,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      attestations: read
     outputs:
       image: ${{ steps.publish.outputs.image }}
       revision: ${{ github.event.workflow_run.head_sha }}
@@ -40,6 +39,11 @@ jobs:
               ...context.repo, branch: 'main'
             });
             core.setOutput('current', data.commit.sha === context.payload.workflow_run.head_sha);
+      - name: Install Cosign
+        if: steps.current.outputs.current == 'true'
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
       - name: Publish the tested image, without rebuilding
         if: steps.current.outputs.current == 'true'
         id: publish
@@ -47,10 +51,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REVISION: ${{ github.event.workflow_run.head_sha }}
           CI_RUN_ID: ${{ github.event.workflow_run.id }}
+          COSIGN_PUBLIC_KEY: ${{ vars.COSIGN_PUBLIC_KEY }}
           DOCKER_CONFIG: ${{ runner.temp }}/registry-auth
         shell: bash
         run: |
           set -euo pipefail
+          : "${COSIGN_PUBLIC_KEY:?Configure the repository COSIGN_PUBLIC_KEY variable}"
           [[ "$REVISION" =~ ^[a-f0-9]{40}$ ]]
           [[ "$CI_RUN_ID" =~ ^[0-9]+$ ]]
           trap 'docker logout ghcr.io; rm -rf "$DOCKER_CONFIG"' EXIT
@@ -60,10 +66,10 @@ jobs:
           image="$(docker image inspect "$source" --format '{{range .RepoDigests}}{{println .}}{{end}}' \
             | grep "^ghcr.io/${GITHUB_REPOSITORY,,}@sha256:")"
           [[ "$image" == "ghcr.io/${GITHUB_REPOSITORY,,}@sha256:"* && "$image" =~ @sha256:[a-f0-9]{64}$ ]]
-          gh attestation verify "oci://$image" --repo "$GITHUB_REPOSITORY" \
-            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/ci.yml" \
-            --source-ref refs/heads/main --source-digest "$REVISION" \
-            --deny-self-hosted-runners
+          cosign verify --key env://COSIGN_PUBLIC_KEY --insecure-ignore-tlog=true \
+            -a "repository=$GITHUB_REPOSITORY" \
+            -a "workflow=$GITHUB_REPOSITORY/.github/workflows/ci.yml@refs/heads/main" \
+            -a "ref=refs/heads/main" -a "revision=$REVISION" -a "run-id=$CI_RUN_ID" "$image"
           [[ "$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$REVISION" ]]
           tag="ghcr.io/${GITHUB_REPOSITORY,,}:sha-$REVISION"
           docker tag "$image" "$tag"

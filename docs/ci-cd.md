@@ -82,11 +82,13 @@ or release promotion of the tested image.
 ## Image promotion and previews
 
 Main CI publishes `ghcr.io/jupe/openjury:ci-<run-id>` and signs its digest with
-GitHub build provenance after tests pass. The run tag remains usable when a
+Cosign after tests and required checks pass. Signing runs in a separate
+GitHub-hosted job with no checkout or application execution, using a key from the
+main-only `release-signing` environment. The run tag remains usable when a
 partial CI retry reuses the successful build job. Release pulls
 that successful run's image, resolves its digest, verifies its source revision
-and attestation (this repository's CI workflow on `main`, at the tested commit,
-on a GitHub-hosted runner),
+and signature against an independently configured public key, requiring signed
+annotations for this repository, CI workflow, `main` ref, tested commit and CI run ID,
 and tags it as `ghcr.io/jupe/openjury:sha-<commit>` without rebuilding. Deployments use
 the immutable `ghcr.io/jupe/openjury@sha256:...` reference recorded in the Release
 summary. Same-repository PRs may push only to the separate
@@ -99,6 +101,11 @@ any approval wait. Releases are serialized across staging and production.
 A failed staging deployment **or smoke test blocks production**.
 Missing or invalid provenance also blocks promotion: a registry tag or revision
 label alone is not trusted, since PR workflows have registry write permission.
+Cosign signatures are stored alongside the image in GHCR, not in Actions artifacts
+or GitHub's attestation service (which is unavailable for user-owned private
+repositories). Signing explicitly disables public transparency-log uploads to
+avoid disclosing private image metadata. Verification skips only the transparency
+log requirement, not signature, digest or annotation checks.
 CI also exercises the configured, signed-out navigation path on desktop and both
 mobile browsers using mocked public configuration, even when the test container
 otherwise runs in demo mode.
@@ -114,6 +121,58 @@ of preview approval. Fork PRs still build and test, but skip deployment because
 their read-only token cannot register deployments and they cannot access dev
 secrets. A maintainer can move reviewed changes to a same-repository branch to
 preview them.
+
+### Configure private release signing
+
+Before merging this workflow change, a repository administrator must:
+
+1. Create the `release-signing` environment. Under **Deployment branches and
+   tags**, select only the `main` branch, with no tag rule or wildcard. Do not
+   rely on the job's `if` alone: a PR can change its own workflow.
+2. On a trusted administrator machine, use Cosign v3.1.3's
+   `cosign generate-key-pair` with a strong, nonempty password. Store the generated
+   `cosign.key` PEM as the environment secret `COSIGN_PRIVATE_KEY` and its password
+   as the environment secret `COSIGN_PASSWORD`. Do **not** create these as
+   repository secrets or make them available to PR jobs. Keep a secure backup;
+   never commit the private key or password.
+3. Store the contents of `cosign.pub` as the repository Actions variable
+   `COSIGN_PUBLIC_KEY`. Do not source the trusted key from the image or its
+   signature. Do not override this variable in individual environments.
+4. Preserve reviewed, protected changes to `main`, especially workflow changes.
+   Anyone able to run arbitrary workflows on an allowed signing-environment ref
+   can use the signing key. Environment availability and branch restrictions
+   depend on the repository's GitHub plan; do not replace missing restrictions
+   with an unprotected repository secret.
+
+No OIDC permission, GitHub attestation entitlement, public repository, or public
+transparency log is needed. Missing keys, a mismatched public key, failed signing,
+and failed verification remain blocking. After setup and merge, the new main CI
+run signs its tested image and triggers Release; rerunning an old commit still
+uses that commit's old workflow. A partial retry of a failed signing job can reuse
+the successful build's digest. For key rotation, update both secrets and the
+trusted public key, then rerun current-main CI before promotion.
+
+Retain Cosign's OCI signature referrers with their subject images for retries.
+Do not bulk-delete untagged GHCR versions: those may contain required signatures.
+This signing change does not sign PR preview images or change preview cleanup.
+
+### Recover Actions artifact storage
+
+The **Legacy main-CI artifact cleanup** workflow is manual and defaults to a dry
+run. After merging, run it on `main`, review its summary, and run again with
+`dry_run` disabled to delete eligible archives. It only targets `image-<run-id>`
+artifacts from completed, superseded main-push CI runs at least 24 hours old.
+It skips all cleanup while any Release is unfinished (including approvals).
+It preserves current-main artifacts,
+PR artifacts, image references, browser reports, and all GHCR images/signatures.
+The dry-run summary reports the eligible bytes; it does not free storage.
+
+GitHub's quota error reports usage recalculation every 6–12 hours, so deleting
+artifacts may not unblock uploads immediately. Existing archives still consume
+space until deleted or expired. For more capacity instead of deletion, an account
+owner can review payment settings and the Actions storage spending budget; this
+workflow does not change billing. Main release promotion remains independent of
+Actions artifact storage, and diagnostic-report upload failures remain nonblocking.
 
 ## Enable merge protection first
 
