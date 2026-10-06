@@ -183,7 +183,10 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   });
   await page.goto(`/competition/${secondId}`);
   await page.getByRole("textbox", { name: "Entry title" }).fill("My phone photo");
-  await page.getByLabel("Images (JPEG").setInputFiles({ name: "phone.png", mimeType: "image/png", buffer: png });
+  await expect(page.getByRole("button", { name: "Take a photo" })).toBeVisible();
+  const cameraInput = page.locator('input[type="file"][capture="environment"]');
+  await expect(cameraInput).toHaveAttribute("accept", "image/jpeg,image/png,image/webp");
+  await cameraInput.setInputFiles({ name: "phone.png", mimeType: "image/png", buffer: png });
   await expect(page.getByText("1 new image(s) selected.")).toBeVisible();
   await expectPhoneLayout(page);
   await page.getByRole("button", { name: "Save submission" }).click();

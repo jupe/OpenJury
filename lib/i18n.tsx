@@ -381,6 +381,7 @@ const finnish: Record<string, string> = {
   "Audience": "Yleisö",
   "Entry title": "Ehdotuksen nimi",
   "Images (JPEG, PNG, or WebP; up to 5 files, 10 MB each)": "Kuvat (JPEG, PNG tai WebP; enintään 5 tiedostoa, 10 Mt kukin)",
+  "Take a photo": "Ota kuva",
   "An entry may contain up to {count} images.": "Ehdotuksessa voi olla enintään {count} kuvaa.",
   "Unable to save submission.": "Ehdotuksen tallentaminen epäonnistui.",
   "Remove image {number}": "Poista kuva {number}",
