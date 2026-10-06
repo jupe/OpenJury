@@ -1,5 +1,5 @@
 ARG DEPENDENCIES_IMAGE=dependencies
-FROM node:26.10.0-alpine AS node
+FROM node:26.10.0-alpine3.24 AS node
 
 FROM node AS dependencies
 WORKDIR /app
@@ -13,13 +13,15 @@ ENV NEXT_TELEMETRY_DISABLED=1
 COPY . .
 RUN npm run build
 
-FROM node AS runner
+FROM alpine:3.24 AS runner
 WORKDIR /app
+RUN apk add --no-cache ca-certificates libstdc++
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     HOSTNAME=0.0.0.0 \
     PORT=3000
 RUN addgroup --system --gid 1001 app && adduser --system --uid 1001 --ingroup app app
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=builder --chown=1001:1001 /app/.next/standalone ./
 COPY --from=builder --chown=1001:1001 /app/.next/static ./.next/static
 COPY --from=builder --chown=1001:1001 /app/public ./public
