@@ -91,6 +91,11 @@ test("main release handoff does not depend on artifact storage or bypass checks"
   expect(publish).toContain("if: github.event_name == 'push' && github.ref == 'refs/heads/main'");
   expect(publish).not.toContain("continue-on-error");
   expect(ci.indexOf("- name: Test production image")).toBeLessThan(ci.indexOf("- name: Publish tested main image"));
+  const attest = workflowStep(ci, "Attest tested main image");
+  expect(attest).toContain("if: github.event_name == 'push' && github.ref == 'refs/heads/main'");
+  expect(attest).toContain("subject-digest: ${{ steps.main-image.outputs.digest }}");
+  expect(attest).not.toContain("continue-on-error");
+  expect(ci.indexOf("- name: Publish tested main image")).toBeLessThan(ci.indexOf("- name: Attest tested main image"));
   for (const name of ["Save tested image", "Upload tested image"]) {
     const step = workflowStep(ci, name);
     expect(step).toContain("if: github.event_name == 'pull_request' && steps.preview-image.outcome != 'success'");
@@ -102,7 +107,8 @@ test("main release handoff does not depend on artifact storage or bypass checks"
   expect(release).toContain("github.event.workflow_run.event == 'push'");
   expect(release).toContain("github.event.workflow_run.head_repository.full_name == github.repository");
   expect(release).toContain("CI_RUN_ID: ${{ github.event.workflow_run.id }}");
-  expect(release).toContain("CI_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}");
+  expect(publish).not.toContain("GITHUB_RUN_ATTEMPT");
+  expect(release).not.toContain("workflow_run.run_attempt");
   expect(release).toContain("if: steps.current.outputs.current == 'true'");
   expect(release).toContain("data.commit.sha === context.payload.workflow_run.head_sha");
   expect(release).toContain("needs.staging.result == 'success' && vars.CD_ENABLED == 'true'");
@@ -112,14 +118,14 @@ test("main release handoff does not depend on artifact storage or bypass checks"
 });
 
 for (const workflow of ["ci.yml", "release.yml"]) {
-  for (const failure of ["", "revision", "pull", "push", "digest"]) {
-    if (workflow === "ci.yml" && ["pull", "digest"].includes(failure)) continue;
+  for (const failure of ["", "revision", "pull", "push", "digest", "attestation"]) {
+    if (workflow === "ci.yml" && ["pull", "attestation"].includes(failure)) continue;
     test(`${workflow} tested image promotion fails closed: ${failure || "success"}`, () => {
       const directory = mkdtempSync(join(tmpdir(), "openjury-release-"));
       const output = join(directory, "output");
       const log = join(directory, "docker.log");
       const digest = `ghcr.io/jupe/openjury@sha256:${"b".repeat(64)}`;
-      const source = "ghcr.io/jupe/openjury:ci-123-2";
+      const source = "ghcr.io/jupe/openjury:ci-123";
       const text = readFileSync(resolve(".github/workflows", workflow), "utf8");
       const step = workflowStep(text, workflow === "ci.yml"
         ? "Publish tested main image" : "Publish the tested image, without rebuilding");
@@ -141,7 +147,11 @@ for (const workflow of ["ci.yml", "release.yml"]) {
               *) return 1 ;;
             esac
           }
-          export -f docker
+          gh() {
+            printf 'gh %s\\n' "$*" >> "$DOCKER_LOG"
+            test "$FAILURE" != attestation
+          }
+          export -f docker gh
           ${script}
         `], {
           env: {
@@ -151,7 +161,6 @@ for (const workflow of ["ci.yml", "release.yml"]) {
             GITHUB_RUN_ID: "123",
             GITHUB_RUN_ATTEMPT: "2",
             CI_RUN_ID: "123",
-            CI_RUN_ATTEMPT: "2",
             REVISION: sha,
             GITHUB_ACTOR: "test",
             GH_TOKEN: "test-only",
@@ -171,14 +180,19 @@ for (const workflow of ["ci.yml", "release.yml"]) {
           if (workflow === "ci.yml") {
             expect(commands).toContain(`tag openjury:ci ${source}`);
             expect(commands).toContain(`push ${source}`);
+            expect(readFileSync(output, "utf8")).toBe(`name=ghcr.io/jupe/openjury\ndigest=sha256:${"b".repeat(64)}\n`);
           } else {
             expect(commands).toContain(`pull ${source}`);
             expect(commands).toContain(`image inspect ${digest}`);
             expect(commands).toContain(`tag ${digest} ghcr.io/jupe/openjury:sha-${sha}`);
+            expect(commands).toContain(`gh attestation verify oci://${digest} --repo ${fullName} --signer-workflow ${fullName}/.github/workflows/ci.yml --source-ref refs/heads/main --source-digest ${sha} --deny-self-hosted-runners`);
+            expect(commands.indexOf("gh attestation verify")).toBeLessThan(commands.indexOf(`tag ${digest}`));
             expect(readFileSync(output, "utf8")).toBe(`image=${digest}\n`);
           }
         } else {
-          if (failure !== "push") expect(commands).not.toMatch(/^push /m);
+          if (failure !== "push" && !(workflow === "ci.yml" && failure === "digest")) {
+            expect(commands).not.toMatch(/^push /m);
+          }
           expect(() => readFileSync(output, "utf8")).toThrow();
         }
       } finally {
