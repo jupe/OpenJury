@@ -1,4 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { QRCodeSVG } from "qrcode.react";
 
 const supabaseURL = "https://foundation.supabase.co";
 const groupId = "11111111-1111-4111-8111-111111111111";
@@ -484,7 +487,7 @@ test("group admins create and edit draft competitions with scoring criteria", as
   });
 });
 
-test("group admins can remove competitions after confirmation", async ({ page }) => {
+test("group admins can remove competitions after confirmation @mobile", async ({ page }) => {
   await configure(page, true);
   const competition = {
     id: secondId,
@@ -506,26 +509,31 @@ test("group admins can remove competitions after confirmation", async ({ page })
     return route.fulfill({ status: 204 });
   });
 
-  let confirmRemoval = false;
-  const confirmations: string[] = [];
-  page.on("dialog", async (dialog) => {
-    confirmations.push(dialog.message());
-    if (confirmRemoval) await dialog.accept();
-    else await dialog.dismiss();
-  });
+  await page.addInitScript(() => { window.confirm = () => false; });
   await page.goto(`/group/${groupId}`);
   const removeButton = page.getByRole("button", { name: "Remove Autumn bake-off" });
+  const confirmation = page.getByRole("dialog", { name: "Remove competition “Autumn bake-off”?" });
   await removeButton.click();
+  await expect(confirmation).toBeVisible();
+  await expect(confirmation).toContainText("This cannot be undone.");
+  await confirmation.getByRole("button", { name: "Cancel" }).click();
+  await expect(confirmation).toBeHidden();
   expect(removals).toEqual([]);
-  expect(confirmations[0]).toContain("Autumn bake-off");
 
-  confirmRemoval = true;
   await removeButton.click();
-  await expect(page.getByText("Unable to remove competition: Audit records prevent deletion", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(confirmation).toBeHidden();
+  expect(removals).toEqual([]);
+
+  await removeButton.click();
+  await confirmation.getByRole("button", { name: "Remove competition", exact: true }).click();
+  await expect(confirmation.getByRole("alert")).toHaveText("Unable to remove competition: Audit records prevent deletion");
+  await expect(page.getByRole("link", { name: "Autumn bake-off", exact: true })).toBeVisible();
   expect(removals).toEqual([{ p_competition_id: secondId }]);
 
   failRemoval = false;
-  await removeButton.click();
+  await confirmation.getByRole("button", { name: "Remove competition", exact: true }).click();
+  await expect(confirmation).toBeHidden();
   await expect(page.getByText("No competitions have been created for this group yet.")).toBeVisible();
   expect(removals).toEqual([
     { p_competition_id: secondId },
@@ -1386,8 +1394,59 @@ test("group admins manage members, email invites, and invite links", async ({ pa
 
   await page.getByRole("button", { name: "Create invite link" }).click();
   await expect(page.getByRole("textbox", { name: "Invite link" })).toHaveValue(new RegExp(`/invite/${"a".repeat(64)}$`));
+  await page.getByText("Show QR code", { exact: true }).click();
+  await expect(page.getByRole("img", { name: "QR code for invite link" })).toBeVisible();
   await expectPhoneLayout(page);
 });
+
+for (const locale of ["en", "fi"] as const) {
+  test(`invite QR codes encode each full joining URL and disappear on revocation (${locale}) @mobile`, async ({ page }) => {
+    const labels = locale === "fi"
+      ? { invite: "Kutsu jäseniä", link: "Kutsulinkki", show: "Näytä QR-koodi", qr: "Kutsulinkin QR-koodi", revoke: "Peru linkki" }
+      : { invite: "Invite people", link: "Invite link", show: "Show QR code", qr: "QR code for invite link", revoke: "Revoke link" };
+    let links = [
+      { id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", token: "a".repeat(64) },
+      { id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", token: "b".repeat(64) },
+    ];
+    await configure(page, true);
+    await page.addInitScript((value) => localStorage.setItem("openjury:locale", value), locale);
+    await page.route(`${supabaseURL}/rest/v1/rpc/**`, (route) => {
+      const name = new URL(route.request().url()).pathname.split("/").at(-1);
+      if (name === "get_group_members") return route.fulfill({ json: [{ user_id: userId, email: "member@example.com", role: "admin" }] });
+      if (name === "get_group_email_invites") return route.fulfill({ json: [] });
+      if (name === "get_group_invite_links") return route.fulfill({ json: links });
+      if (name === "revoke_group_invite") {
+        const { p_invite_id } = route.request().postDataJSON();
+        links = links.filter((link) => link.id !== p_invite_id);
+        return route.fulfill({ status: 204 });
+      }
+      return route.fulfill({ json: [] });
+    });
+
+    await page.goto(`/group/${groupId}`);
+    await page.getByText(labels.invite, { exact: true }).click();
+    const codes = page.getByRole("img", { name: labels.qr });
+    await expect(codes).toHaveCount(0);
+    for (let index = 0; index < links.length; index++) {
+      await page.getByText(labels.show, { exact: true }).nth(index).click();
+      const url = new URL(`/invite/${links[index].token}`, page.url()).href;
+      await expect(page.getByRole("textbox", { name: labels.link, exact: true }).nth(index)).toHaveValue(url);
+      const expected = renderToStaticMarkup(createElement(QRCodeSVG, { value: url, size: 256, level: "M", marginSize: 4 }));
+      const code = codes.nth(index);
+      await expect(code).toBeVisible();
+      expect(await code.locator("path").evaluateAll((paths) => paths.map((path) => path.getAttribute("d"))))
+        .toEqual(Array.from(expected.matchAll(/ d="([^"]+)"/g), (match) => match[1]));
+    }
+    await expectPhoneLayout(page);
+    await page.getByText(labels.show, { exact: true }).first().click();
+    await expect(codes).toHaveCount(1);
+    await page.getByText(labels.show, { exact: true }).first().click();
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: labels.revoke, exact: true }).first().click();
+    await expect(codes).toHaveCount(1);
+    await expect(page.getByRole("textbox", { name: labels.link, exact: true })).toHaveValue(new RegExp(`/invite/${"b".repeat(64)}$`));
+  });
+}
 
 test("invite links survive sign-in and let members join the group", async ({ page }) => {
   const token = "b".repeat(64);
