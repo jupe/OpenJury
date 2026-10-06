@@ -489,7 +489,7 @@ test("group admins can remove competitions after confirmation", async ({ page })
 
   confirmRemoval = true;
   await removeButton.click();
-  await expect(page.getByRole("alert")).toContainText("Unable to remove competition: Audit records prevent deletion");
+  await expect(page.getByText("Unable to remove competition: Audit records prevent deletion", { exact: true })).toBeVisible();
   expect(removals).toEqual([{ p_competition_id: secondId }]);
 
   failRemoval = false;
