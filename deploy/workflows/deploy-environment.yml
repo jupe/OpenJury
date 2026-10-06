@@ -132,7 +132,7 @@ jobs:
     timeout-minutes: 15
     environment:
       name: ${{ inputs.environment }}
-      url: https://${{ vars.APP_HOST }}
+      url: ${{ steps.deploy.outputs.url }}
     permissions:
       contents: read
     outputs:
@@ -189,6 +189,7 @@ jobs:
           SOURCE_REPOSITORY: ${{ vars.SOURCE_REPOSITORY }}
           COMPOSE_PROJECT_NAME: ${{ inputs.environment == 'dev' && format('openjury-pr-{0}', inputs.pr_number) || format('openjury-{0}', inputs.environment) }}
           APP_HOST: ${{ inputs.environment == 'dev' && format('pr-{0}.{1}', inputs.pr_number, vars.DEV_BASE_DOMAIN) || vars.APP_HOST }}
+          APP_SCHEME: ${{ inputs.environment == 'dev' && (vars.APP_SCHEME || 'https') || 'https' }}
           PROXY_NETWORK: ${{ vars.PROXY_NETWORK }}
           TLS_RESOLVER: ${{ vars.TLS_RESOLVER }}
           # `upstream` when a proxy in front of the host terminates HTTPS.
@@ -217,22 +218,48 @@ jobs:
           set -euo pipefail
           [[ "$IMAGE" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]]
           [[ "$IMAGE" == "ghcr.io/${SOURCE_REPOSITORY,,}@"* ]]
+          [[ "$APP_SCHEME" == https || ( "$TARGET" == dev && "$APP_SCHEME" == http ) ]]
           if [[ "$TARGET" == dev ]]; then
             : "${PREVIEW_ADMIN_PASSWORD:?Configure an explicit dev PREVIEW_ADMIN_PASSWORD secret}"
           fi
           trap 'docker logout ghcr.io; rm -rf "$DOCKER_CONFIG"' EXIT
           printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+          # The promotion tag confirms retention protection, never image authority.
+          promotion="ghcr.io/${SOURCE_REPOSITORY,,}:sha-$REVISION"
+          promoted_digest="$(docker manifest inspect --verbose "$promotion" \
+            | python3 -c 'import json, sys; print(json.load(sys.stdin)["Descriptor"]["digest"])')"
+          [[ "$promoted_digest" == "${IMAGE#*@}" ]]
           docker pull "$IMAGE"
           [[ "$(docker image inspect "$IMAGE" --format '{{.Id}}')" == "$IMAGE_ID" ]]
           [[ "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$REVISION" ]]
           if [[ "$TARGET" == dev ]]; then bash deploy/stack.sh destroy; fi
           bash deploy/stack.sh deploy
-          echo "url=https://$APP_HOST" >> "$GITHUB_OUTPUT"
-          printf '### Deployment\nImage: %s\nURL: https://%s\n' "$IMAGE" "$APP_HOST" >> "$GITHUB_STEP_SUMMARY"
+          echo "url=$APP_SCHEME://$APP_HOST" >> "$GITHUB_OUTPUT"
+          printf '### Deployment\nImage: %s\nURL: %s://%s\n' "$IMAGE" "$APP_SCHEME" "$APP_HOST" >> "$GITHUB_STEP_SUMMARY"
 
-      # Smoke tests execute only the validated trusted source revision on the
-      # protected self-hosted runner. Its caller sequences staging before production.
-      # Keep CI images public/read-only.
+      - name: Remove an unsuccessful preview deployment
+        if: failure() && inputs.environment == 'dev' && steps.deploy.outcome == 'failure'
+        env:
+          COMPOSE_PROJECT_NAME: openjury-pr-${{ inputs.pr_number }}
+        run: bash deploy/stack.sh destroy
+
+  smoke:
+    needs: [source, deploy]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ vars.SOURCE_REPOSITORY }}
+          ref: ${{ needs.source.outputs.revision }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      # Hosted ingress tests avoid intentionally blocked guest hairpin egress.
+      # Restricted private ingress requires operator-approved VPN access on this
+      # runner; never weaken guest firewalls or add proxy/NAT bypasses for smoke.
+      # The reusable workflow succeeds only after smoke, so staging gates production.
       - name: Prepare prebuilt CI tools
         id: ci-images
         uses: ./.github/actions/ci-images
@@ -245,7 +272,7 @@ jobs:
             "$CI_TOOLS" npm run test:smoke
         env:
           CI_TOOLS: ${{ steps.ci-images.outputs.tools }}
-          PLAYWRIGHT_BASE_URL: ${{ steps.deploy.outputs.url }}
+          PLAYWRIGHT_BASE_URL: ${{ needs.deploy.outputs.url }}
       - name: Upload smoke report
         if: always()
         continue-on-error: true
@@ -254,8 +281,25 @@ jobs:
           name: smoke-${{ inputs.environment }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: playwright-report/
           retention-days: 7
-      - name: Remove an unsuccessful preview
-        if: failure() && inputs.environment == 'dev'
+  cleanup:
+    needs: [source, deploy, smoke]
+    if: >-
+      always() && inputs.environment == 'dev' &&
+      needs.source.result == 'success' && needs.deploy.result == 'success' &&
+      needs.smoke.result != 'success'
+    runs-on: [self-hosted, linux, x64, openjury-dev]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      # No new approval is needed to remove this already-approved failed preview.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ vars.SOURCE_REPOSITORY }}
+          ref: ${{ needs.source.outputs.revision }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - name: Remove a failed or cancelled smoke preview
         env:
           COMPOSE_PROJECT_NAME: openjury-pr-${{ inputs.pr_number }}
         run: bash deploy/stack.sh destroy

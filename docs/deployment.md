@@ -102,6 +102,11 @@ until that operator migration is complete.
    immutable tested image digest/revision. Verify workflow identity, repository,
    event, branch, conclusion and current `main` revision again after approval.
    Do not accept a digest, source branch or dispatch payload as proof of CI success.
+   Wait for hosted Release promotion: the controller additionally confirms that
+   `sha-<revision>` points to that exact digest, so registry retention protects
+   the deployed image. Missing/mismatched promotion fails closed; the tag is never
+   the deployment authority. The current confirmation supports single-platform
+   images only; extend verification and retention before adopting image indexes.
 5. Verify isolated staging deployment and smoke tests before enabling production.
    Keep previews disabled until their separate network/access boundary is ready.
 
@@ -133,8 +138,14 @@ On each host, provision:
 - DNS and valid TLS for staging/production and wildcard dev hostnames such as
   `*.dev.example.com`. Configure DNS-01/wildcard certificates or an appropriate
   certificate strategy to avoid per-PR ACME rate limits.
-- HTTPS reachability from the private controller for smoke tests, and
+- HTTPS reachability from the private controller's GitHub-hosted smoke job, and
   outbound access to GitHub artifacts/GHCR from deployment hosts.
+
+The smoke job is separate from the deployment VM so protected public/NAT aliases
+and hairpin-egress blocks do not prevent checking the public ingress. Restricted
+dev/staging ingress requires an operator-managed, approved VPN integration or
+equivalent trusted access for that job; do not weaken the VM firewall to make
+smoke tests pass.
 
 **Treat every PR image as arbitrary, untrusted code, including fork PRs.**
 Use a dedicated, disposable dev security boundary with no production/staging

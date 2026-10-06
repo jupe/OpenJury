@@ -303,7 +303,121 @@ test("private templates stay manual, validate inputs, and forward explicit envir
   expect(worker).toContain("PREVIEW_ADMIN_PASSWORD:?");
   expect(worker).toContain("repository: ${{ vars.SOURCE_REPOSITORY }}");
   expect(worker).toContain("ref: ${{ needs.source.outputs.revision }}");
+  expect(worker).toContain("APP_SCHEME: ${{ inputs.environment == 'dev' && (vars.APP_SCHEME || 'https') || 'https' }}");
+  expect(worker).toContain("format('pr-{0}.{1}', inputs.pr_number, vars.DEV_BASE_DOMAIN)");
+  expect(worker).toContain("url: ${{ steps.deploy.outputs.url }}");
   expect(worker).toContain("String(run.run_attempt) !== process.env.SOURCE_ATTEMPT");
   expect(stepText("deploy/workflows/deploy-environment.yml", "Smoke test through the public ingress"))
     .not.toContain("continue-on-error");
+  expect(worker).toContain("PLAYWRIGHT_BASE_URL: ${{ needs.deploy.outputs.url }}");
 });
+
+test("private smoke is hosted and gates production while failed dev smoke triggers trusted cleanup", () => {
+  const worker = readFileSync(resolve("deploy/workflows/deploy-environment.yml"), "utf8");
+  const deployment = worker.split("\n  deploy:")[1].split("\n  smoke:")[0];
+  const smoke = worker.split("\n  smoke:")[1].split("\n  cleanup:")[0];
+  expect(deployment).not.toMatch(/ci-images|npm run test:smoke/);
+  expect(smoke).toContain("needs: [source, deploy]");
+  expect(smoke).toContain("runs-on: ubuntu-24.04");
+  expect(smoke).not.toContain("self-hosted");
+  expect(smoke).toContain("repository: ${{ vars.SOURCE_REPOSITORY }}");
+  expect(smoke).toContain("ref: ${{ needs.source.outputs.revision }}");
+  expect(smoke).toContain("PLAYWRIGHT_BASE_URL: ${{ needs.deploy.outputs.url }}");
+  expect(smoke).toContain("operator-approved VPN access");
+  const cleanup = worker.split("\n  cleanup:")[1];
+  expect(cleanup).toContain("needs: [source, deploy, smoke]");
+  expect(cleanup).toContain("inputs.environment == 'dev'");
+  expect(cleanup).toContain("needs.deploy.result == 'success'");
+  expect(cleanup).toContain("needs.smoke.result != 'success'");
+  expect(cleanup).toContain("ref: ${{ needs.source.outputs.revision }}");
+  expect(cleanup).toContain("COMPOSE_PROJECT_NAME: openjury-pr-${{ inputs.pr_number }}");
+  expect(cleanup).not.toMatch(/inputs\.(sha|image)|head\.sha|packages: write/);
+  const orchestrator = readFileSync(resolve("deploy/workflows/deploy.yml"), "utf8");
+  expect(orchestrator).toContain("needs: staging");
+});
+
+for (const [target, scheme, passes, promotion = "matched"] of [
+  ["dev", "http", true],
+  ["dev", "https", true],
+  ["staging", "https", true],
+  ["production", "https", true],
+  ["staging", "http", false],
+  ["production", "http", false],
+  ["dev", "ftp", false],
+  ["staging", "https", false, "missing"],
+  ["staging", "https", false, "mismatch"],
+  ["staging", "https", false, "malformed"],
+  ["staging", "https", false, "multi-platform"],
+  ["staging", "https", false, "missing-descriptor"],
+]) {
+  test(`private ${target} scheme ${scheme}, promotion ${promotion} ${passes ? "works" : "is rejected"}`, () => {
+    const directory = mkdtempSync(resolve(".test-deployment-scheme-"));
+    const output = join(directory, "output");
+    const summary = join(directory, "summary");
+    const log = join(directory, "commands");
+    const host = target === "dev" ? "pr-7.dev.example.invalid" : `${target}.example.invalid`;
+    const script = stepText("deploy/workflows/deploy-environment.yml", "Deploy immutable image")
+      .split("run: |")[1];
+    try {
+      const execute = () => execFileSync("bash", ["-e", "-c", `
+        docker() {
+          printf 'docker %s\\n' "$*" >> "$COMMAND_LOG"
+          case "$1" in
+            login) cat >/dev/null ;;
+            pull|logout) return 0 ;;
+            manifest)
+              case "$PROMOTION_RESULT" in
+                missing) return 1 ;;
+                mismatch) printf '{"Descriptor":{"digest":"sha256:%064d"}}\\n' 1 ;;
+                malformed) printf '{"Descriptor":{"digest":"bad"}}\\n' ;;
+                multi-platform) printf '[]\\n' ;;
+                missing-descriptor) printf '{}\\n' ;;
+                *) printf '{"Descriptor":{"digest":"%s"}}\\n' "\${IMAGE#*@}" ;;
+              esac ;;
+            image)
+              if [[ "$*" == *".Id"* ]]; then printf '%s\\n' "$IMAGE_ID";
+              else printf '%s\\n' "$REVISION"; fi ;;
+            *) return 1 ;;
+          esac
+        }
+        bash() { printf 'bash %s\\n' "$*" >> "$COMMAND_LOG"; }
+        export -f docker bash
+        ${script}
+      `], {
+        stdio: "pipe",
+        env: {
+          ...process.env, IMAGE: image, IMAGE_ID: imageId, REVISION: revision,
+          SOURCE_REPOSITORY: repository, TARGET: target, APP_SCHEME: scheme, APP_HOST: host,
+          PREVIEW_ADMIN_PASSWORD: target === "dev" ? "test-only" : "",
+          GH_TOKEN: "test-only", GHCR_USERNAME: "test", DOCKER_CONFIG: join(directory, "auth"),
+          GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, COMMAND_LOG: log,
+          PROMOTION_RESULT: promotion,
+        },
+      });
+      if (passes) {
+        expect(execute).not.toThrow();
+        expect(readFileSync(output, "utf8")).toBe(`url=${scheme}://${host}\n`);
+        expect(readFileSync(summary, "utf8")).toContain(`URL: ${scheme}://${host}`);
+        const commands = readFileSync(log, "utf8");
+        const confirmation = `docker manifest inspect --verbose ghcr.io/jupe/openjury:sha-${revision}`;
+        expect(commands).toContain(confirmation);
+        expect(commands).toContain(`docker pull ${image}`);
+        expect(commands.indexOf(confirmation)).toBeLessThan(commands.indexOf(`docker pull ${image}`));
+        expect(commands).not.toContain(`docker pull ghcr.io/jupe/openjury:sha-${revision}`);
+        expect(commands).toContain("bash deploy/stack.sh deploy");
+      } else {
+        expect(execute).toThrow();
+        expect(() => readFileSync(output, "utf8")).toThrow();
+        if (promotion === "matched") {
+          expect(() => readFileSync(log, "utf8")).toThrow();
+        } else {
+          const commands = readFileSync(log, "utf8");
+          expect(commands).toContain("docker manifest inspect --verbose");
+          expect(commands).not.toMatch(/docker pull|bash deploy\/stack\.sh/);
+        }
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}

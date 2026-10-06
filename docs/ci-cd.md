@@ -98,6 +98,9 @@ to reuse a publication from a different run attempt.
 The public repository does not deploy to VMs. The private controller must validate
 the source run/digest and recheck `main` after approval; a failed staging deployment
 or smoke test must block production. See [deployment](deployment.md) for migration.
+The controller also verifies the promoted `sha-<revision>` manifest matches the
+validated digest before deployment, preventing deployment of an unpromoted image
+that CI retention could later delete.
 Cryptographic artifact attestations are not yet configured. Public-repository
 operators can add trusted build attestations and verification after checking
 GitHub feature availability and ensuring the attesting publisher has the exact

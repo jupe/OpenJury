@@ -92,8 +92,8 @@ a self-hosted Supabase stack beside the app, like a preview, but persistent:
 In each private deployment repository environment (`staging`, `production`) set `APP_HOST` to the
 public hostname, `TLS_TERMINATION=upstream`, and `SUPABASE_SELF_HOSTED=true`.
 Leave `SUPABASE_URL`/`SUPABASE_ANON_KEY` unset; the deployment derives them.
-Smoke tests run from the private controller through `https://<APP_HOST>`, so the
-hostnames must be reachable from that boundary (provide authorized VPN access
+Smoke tests run from the private controller's GitHub-hosted smoke job through
+`https://<APP_HOST>`, so the hostnames must be reachable from that boundary (provide authorized VPN access
 for restricted staging/dev). Enable deployment only after completing the private
 controller setup in the [deployment guide](deployment.md).
 
