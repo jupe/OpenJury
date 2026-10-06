@@ -1485,7 +1485,7 @@ test("revoked invite links explain what to do", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Go to your groups" })).toHaveAttribute("href", "/dashboard");
 });
 
-test("platform admins see every group and can take one over", async ({ page }) => {
+test("platform admins see every group in a table and can take one over @mobile", async ({ page }) => {
   const otherGroup = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
   let joined: Record<string, unknown> | undefined;
   await configure(page, true);
@@ -1493,6 +1493,7 @@ test("platform admins see every group and can take one over", async ({ page }) =
   await page.route(`${supabaseURL}/rest/v1/rpc/get_platform_groups`, (route) => route.fulfill({ json: [
     { id: groupId, name: "Baking club", member_count: 3, admin_count: 1, my_role: "admin" },
     { id: otherGroup, name: "Chess club", member_count: 5, admin_count: 2, my_role: null },
+    { id: secondId, name: "Book club", member_count: 2, admin_count: 1, my_role: "member" },
   ] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/platform_admin_join_group`, (route) => {
     joined = route.request().postDataJSON() as Record<string, unknown>;
@@ -1501,11 +1502,60 @@ test("platform admins see every group and can take one over", async ({ page }) =
 
   await page.goto("/dashboard");
   await expect(page.getByRole("heading", { name: "All groups (platform admin)" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open Baking club" })).toHaveAttribute("href", `/group/${groupId}`);
+  const groups = page.getByRole("table", { name: "Groups", exact: true });
+  await expect(groups.getByRole("columnheader", { name: "Group name" })).toBeVisible();
+  await expect(groups.getByRole("link", { name: "Baking club" })).toHaveAttribute("href", `/group/${groupId}`);
+  const adminGroups = page.getByRole("table", { name: "All groups (platform admin)" });
+  await expect(adminGroups.getByRole("columnheader", { name: "Group name" })).toBeVisible();
+  await expect(adminGroups.getByRole("columnheader", { name: "Actions" })).toHaveCount(1);
+  await expect(adminGroups.getByRole("row")).toHaveCount(4);
+  await expect(adminGroups.getByRole("row").filter({ hasText: "Baking club" })).toContainText("3 members · 1 admins · You are an admin");
+  await expect(adminGroups.getByRole("row").filter({ hasText: "Chess club" })).toContainText("5 members · 2 admins");
+  await expect(adminGroups.getByRole("row").filter({ hasText: "Book club" })).toContainText("You are a member");
+  await expect(adminGroups.getByRole("link", { name: "Open Baking club" })).toHaveAttribute("href", `/group/${groupId}`);
+  await expect(adminGroups.getByRole("button", { name: "Manage Book club as admin" })).toBeEnabled();
+  page.once("dialog", (dialog) => void dialog.dismiss());
+  await adminGroups.getByRole("button", { name: "Manage Chess club as admin" }).click();
+  expect(joined).toBeUndefined();
+  await expect(page).toHaveURL(/\/dashboard$/);
   page.once("dialog", (dialog) => void dialog.accept());
   await page.getByRole("button", { name: "Manage Chess club as admin" }).click();
   await expect(page).toHaveURL(new RegExp(`/group/${otherGroup}$`));
   expect(joined).toEqual({ p_group_id: otherGroup });
+});
+
+test("group tables fit narrow screens with long names @mobile", async ({ page }) => {
+  const name = "Community".repeat(12);
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/groups**`, (route) => route.fulfill({
+    json: [{ id: groupId, name }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/is_platform_admin`, (route) => route.fulfill({ json: true }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_platform_groups`, (route) => route.fulfill({ json: [
+    { id: groupId, name, member_count: 3, admin_count: 1, my_role: "admin" },
+    { id: secondId, name, member_count: 5, admin_count: 2, my_role: null },
+  ] }));
+  for (const viewport of [{ width: 320, height: 568 }, { width: 640, height: 360 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/dashboard");
+    await expect(page.getByRole("table")).toHaveCount(2);
+    await expectPhoneLayout(page);
+  }
+});
+
+test("platform group empty and error states do not render an empty table", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/rpc/is_platform_admin`, (route) => route.fulfill({ json: true }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_platform_groups`, (route) => route.fulfill({ json: [] }));
+  await page.goto("/dashboard");
+  await expect(page.getByText("No groups exist yet.")).toBeVisible();
+  await expect(page.getByRole("table", { name: "All groups (platform admin)" })).toHaveCount(0);
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_platform_groups`, (route) => route.fulfill({
+    status: 403, json: { message: "Access denied" },
+  }));
+  await page.reload();
+  await expect(page.getByRole("alert").filter({ hasText: "Unable to load all groups" })).toBeVisible();
+  await expect(page.getByRole("table", { name: "All groups (platform admin)" })).toHaveCount(0);
 });
 
 test("ordinary members do not see platform administration", async ({ page }) => {

@@ -372,23 +372,33 @@ export function PlatformGroups() {
     <Card title={t("All groups (platform admin)")}>
       {error && <p role="alert">{error}</p>}
       {groups && (groups.length ? (
-        <ul className="space-y-3">
-          {groups.map((group) => (
-            <li key={group.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 p-3">
-              <div className="min-w-0">
-                <p className="break-words font-semibold text-slate-900">{group.name}</p>
-                <p className="text-sm">{t("{count} members", { count: group.member_count })} · {t("{count} admins", { count: group.admin_count })}{group.my_role === "admin" ? ` · ${t("You are an admin")}` : group.my_role ? ` · ${t("You are a member")}` : ""}</p>
-              </div>
-              {group.my_role === "admin" ? (
-                <ButtonLink href={`/group/${encodeURIComponent(group.id)}`} aria-label={t("Open {group}", { group: group.name })}>{t("Open")}</ButtonLink>
-              ) : (
-                <Button disabled={!!working} aria-label={t("Manage {group} as admin", { group: group.name })} onClick={() => void manage(group)}>
-                  {t(working === group.id ? "Joining…" : "Manage as admin")}
-                </Button>
-              )}
-            </li>
-          ))}
-        </ul>
+        <table aria-label={t("All groups (platform admin)")} className="w-full table-fixed text-left">
+          <thead className="text-sm text-slate-500">
+            <tr className="border-b border-slate-200">
+              <th scope="col" className="pb-2 font-medium">{t("Group name")}</th>
+              <th scope="col" className="w-36 pb-2 text-right font-medium"><span className="sr-only">{t("Actions")}</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((group) => (
+              <tr key={group.id} className="border-b border-slate-100 last:border-0">
+                <td className="break-words py-1 pr-2">
+                  <p className="font-semibold text-slate-900">{group.name}</p>
+                  <p className="text-sm">{t("{count} members", { count: group.member_count })} · {t("{count} admins", { count: group.admin_count })}{group.my_role === "admin" ? ` · ${t("You are an admin")}` : group.my_role ? ` · ${t("You are a member")}` : ""}</p>
+                </td>
+                <td className="py-1 text-right">
+                  {group.my_role === "admin" ? (
+                    <ButtonLink href={`/group/${encodeURIComponent(group.id)}`} aria-label={t("Open {group}", { group: group.name })}>{t("Open")}</ButtonLink>
+                  ) : (
+                    <Button disabled={!!working} aria-label={t("Manage {group} as admin", { group: group.name })} onClick={() => void manage(group)}>
+                      {t(working === group.id ? "Joining…" : "Manage as admin")}
+                    </Button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       ) : <p>{t("No groups exist yet.")}</p>)}
     </Card>
   );

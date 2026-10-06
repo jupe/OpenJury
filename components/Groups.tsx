@@ -101,7 +101,22 @@ export function GroupList() {
       {loading ? <p role="status">{t("Loading groups…")}</p> : error ? (
         <><p role="alert">{error}</p><Button onClick={() => { setLoading(true); setError(""); setAttempt((value) => value + 1); }}>{t("Retry groups")}</Button></>
       ) : groups.length ? (
-        <ul className="space-y-2">{groups.map((group) => <li key={group.id}><Link className="break-words underline" href={`/group/${group.id}`}>{group.name}</Link></li>)}</ul>
+        <table aria-label={t("Groups")} className="w-full table-fixed text-left">
+          <thead className="text-sm text-slate-500">
+            <tr className="border-b border-slate-200">
+              <th scope="col" className="pb-2 font-medium">{t("Group name")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((group) => (
+              <tr key={group.id} className="border-b border-slate-100 last:border-0">
+                <td className="break-words py-1 text-slate-900">
+                  <Link className="inline-flex min-h-12 max-w-full items-center underline" href={`/group/${group.id}`}>{group.name}</Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       ) : <p>{t("You do not belong to any groups yet. Open an invite link from a group admin, or create a group with +.")}</p>}
       {createdId && <p role="status">{t("Group created.")} <Link className="underline" href={`/group/${createdId}`}>{t("Open group")}</Link></p>}
       <dialog ref={dialog} aria-labelledby="new-group-title" onClose={() => setCreateError("")} className="app-dialog m-auto w-[min(28rem,calc(100vw-2rem))] rounded-2xl p-5 shadow-xl">
