@@ -93,7 +93,7 @@ summary. Same-repository PRs may push only to the separate
 `ghcr.io/jupe/openjury-preview` package (tagged `pr-<number>-<sha>`) so dev
 previews pull just the changed layers; fork PRs get a read-only token and keep
 using the image artifact. PR images are never written to the release package,
-and their versions are deleted when the PR closes. Release verifies the source
+and their expired versions are pruned after the PR closes. Release verifies the source
 revision and skips superseded main builds; deployment checks main again after
 any approval wait. Releases are serialized across staging and production.
 A failed staging deployment **or smoke test blocks production**.
@@ -114,6 +114,52 @@ of preview approval. Fork PRs still build and test, but skip deployment because
 their read-only token cannot register deployments and they cannot access dev
 secrets. A maintainer can move reviewed changes to a same-repository branch to
 preview them.
+
+## Automatic GHCR retention
+
+`GHCR retention` runs daily at 03:41 UTC from `main`. Maintainers can also run it
+on `main` using **Actions → GHCR retention → Run workflow**; manual runs default
+to **dry run**, listing candidates without deleting anything. Disable that input
+to reclaim space immediately according to the same retention policy.
+
+| Package | Automatically removed | Always retained |
+| --- | --- | --- |
+| `openjury-ci` | Recognized old cache versions and untagged versions, after seven days without an update | Two newest versions of each target (`tools` and `dependencies`), recent versions, and unfamiliar tags |
+| `openjury-preview` | Versions older than three days whose **every** tag belongs to a closed PR | All open-PR images, recent versions, untagged versions, and unfamiliar tags |
+| `openjury` | Versions tagged **only** `ci-<run-id>`, after seven days without an update | Five newest CI versions, every promoted `sha-<commit>` release, recent versions, untagged versions, and unfamiliar tags |
+
+The same preview sweep runs on PR closure even when `PREVIEW_CD_ENABLED` is off:
+CI publishes same-repository PR images independently of preview deployment.
+The daily sweep catches missed close events and images published after closure.
+The three-day grace period matches the image-reference artifact lifetime.
+Opening a PR again protects its images on the next state check.
+
+Cleanup deletes **versions**, not individual tags: a digest shared by an open PR
+or a release tag is protected. It paginates inventory, rechecks version metadata
+and PR state before deletion, serializes cleanup runs, and never deletes entire
+packages. At least the newest version of each package is retained, including when
+all PRs are closed, to preserve package permissions/visibility and avoid GHCR's
+last-version restriction. Permission/API errors fail the workflow rather than
+triggering broader deletion.
+
+The workflow uses `GITHUB_TOKEN` with `packages: write`; each package must grant
+this repository Actions access with **admin** permission for version deletion.
+Check the package's **Settings → Manage Actions access** if cleanup returns 403.
+Missing/inaccessible packages (404) are logged and skipped. No PAT is needed.
+GitHub may refuse deletion of heavily downloaded public versions; those require
+maintainer intervention. Registry storage accounting may lag behind deletion.
+
+Promoted release digests are intentionally **not age-pruned**: hosts deploy and
+roll back by digest, and manual rollbacks are not tracked centrally. Age alone
+cannot establish that a release is unused. This preserves existing deployment
+and rollback behavior; release-history pruning requires an authoritative inventory
+of deployed and rollback digests first. GitHub attestations are not deleted.
+Expired unpromoted CI images cannot be used for old Release retries; rerun full CI
+on current `main` instead. Removed CI caches rebuild locally on demand using the
+exact dependency inputs, so old branches and fork builds continue working.
+Cache publication currently uses single-platform `docker build` images; before
+switching to multi-platform indexes, extend retention to protect their untagged
+child manifests.
 
 ## Enable merge protection first
 

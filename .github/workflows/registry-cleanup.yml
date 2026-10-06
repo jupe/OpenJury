@@ -1,0 +1,45 @@
+name: GHCR retention
+
+on:
+  schedule:
+    - cron: '41 3 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Report candidates without deleting images
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ghcr-retention
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prune unused image versions
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+        with:
+          script: |
+            const { cleanupRegistry } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/registry-cleanup.mjs`);
+            const result = await cleanupRegistry({
+              github, context, core, dryRun: process.env.DRY_RUN !== 'false',
+            });
+            await core.summary.addHeading('GHCR retention')
+              .addRaw(`Candidates: ${result.candidates}; deleted: ${result.deleted}; dry-run: ${process.env.DRY_RUN}.`)
+              .write();

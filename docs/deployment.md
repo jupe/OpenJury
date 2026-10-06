@@ -227,7 +227,9 @@ PR-controlled reusable workflow or a moving PR branch as a shortcut.
   set to that digest. Run `PLAYWRIGHT_BASE_URL=https://<host> npm run test:smoke`
   afterward. Do not reset persistent data or rebuild an old source tree.
 - Monitor host disk use and retain enough prior GHCR digests for rollback.
-  Keep main CI's `ci-<run-id>` tags and GitHub attestations available for Release retries.
+  [Automatic GHCR retention](ci-cd.md#automatic-ghcr-retention) preserves promoted
+  releases and attestations, but expires old unpromoted CI images after seven days
+  while retaining the five newest CI versions.
   If a tested image has been deleted, rerun all CI jobs on current `main` rather
   than rebuilding in Release or deploying an untested image. Artifact quota
   exhaustion no longer blocks main image publication or deployment smoke jobs.
