@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 // The demo runs Postgres in the browser, which is slow in WebKit and under parallel load.
 const demoExpect = expect.configure({ timeout: 30_000 });
@@ -10,7 +10,7 @@ test("health endpoint @smoke", async ({ request }) => {
   expect(await response.json()).toEqual({ status: "ok" });
 });
 
-test("landing and preview navigation @smoke", async ({ page }) => {
+async function checkLandingNavigation(page: Page) {
   test.setTimeout(120_000);
   const privateRequests: string[] = [];
   page.on("request", (request) => {
@@ -50,6 +50,20 @@ test("landing and preview navigation @smoke", async ({ page }) => {
   await demoExpect(page.getByRole("heading", { level: 1 })).toHaveText("Competition admin");
   await demoExpect(page.getByRole("heading", { name: "Competition attendees" })).toBeVisible();
   demoExpect(privateRequests).toEqual([]);
+}
+
+test("landing and preview navigation @smoke", async ({ page }) => {
+  await checkLandingNavigation(page);
+});
+
+test("configured signed-out smoke navigation @mobile", async ({ page }) => {
+  await page.route("**/runtime-config.js", (route) => route.fulfill({
+    contentType: "application/javascript",
+    body: 'window.__OPENJURY_CONFIG__ = {SUPABASE_URL: "https://foundation.supabase.co", SUPABASE_ANON_KEY: "public-test-anon"};',
+  }));
+  await page.route("https://foundation.supabase.co/**", (route) => route.abort());
+  await checkLandingNavigation(page);
+  await expect(page.getByRole("heading", { name: "Sign in to OpenJury" })).toBeVisible();
 });
 
 test("demo personas vote on fictional data saved in the browser", async ({ page }) => {

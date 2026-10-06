@@ -19,15 +19,17 @@ main → same CI checks → publish the tested image to GHCR (no rebuild)
 
 CI runs on GitHub-hosted runners, including fork PRs. It exercises the production
 Docker image, not the Next.js development server. The stable required check is
-`checks` in the `CI` workflow. Image artifacts expire after three days; browser
+`checks` in the `CI` workflow. PR image artifacts expire after three days; browser
 reports after seven. Actions are commit-pinned and Dependabot proposes updates.
 The full Playwright suite runs in Chromium; Android and iPhone run `@smoke` and
 `@mobile` tests. Four CI workers keep the browser stage under five minutes.
 Production builds use Webpack because Turbopack currently breaks PGlite's WASM
 initializer in the demo. On PRs, artifact uploads are best-effort when the
 repository reaches GitHub's storage quota; this skips the optional preview if
-its image artifact is unavailable. Main-branch image uploads remain required for
-release promotion.
+its image artifact is unavailable. Main pushes publish the tested image directly
+to GHCR after all tests pass; release promotion does not use Actions artifact
+storage. Registry publication remains required, while browser report uploads
+(including deployment smoke reports) are best-effort.
 
 Documentation-only PRs and merge-queue entries skip the build/test job. The
 documentation allowlist is root-level `*.md`, Markdown files under `docs/`, and
@@ -79,7 +81,13 @@ or release promotion of the tested image.
 
 ## Image promotion and previews
 
-Main images are published as `ghcr.io/jupe/openjury:sha-<commit>`. Deployments use
+Main CI publishes `ghcr.io/jupe/openjury:ci-<run-id>` and signs its digest with
+GitHub build provenance after tests pass. The run tag remains usable when a
+partial CI retry reuses the successful build job. Release pulls
+that successful run's image, resolves its digest, verifies its source revision
+and attestation (this repository's CI workflow on `main`, at the tested commit,
+on a GitHub-hosted runner),
+and tags it as `ghcr.io/jupe/openjury:sha-<commit>` without rebuilding. Deployments use
 the immutable `ghcr.io/jupe/openjury@sha256:...` reference recorded in the Release
 summary. Same-repository PRs may push only to the separate
 `ghcr.io/jupe/openjury-preview` package (tagged `pr-<number>-<sha>`) so dev
@@ -89,6 +97,11 @@ and their versions are deleted when the PR closes. Release verifies the source
 revision and skips superseded main builds; deployment checks main again after
 any approval wait. Releases are serialized across staging and production.
 A failed staging deployment **or smoke test blocks production**.
+Missing or invalid provenance also blocks promotion: a registry tag or revision
+label alone is not trusted, since PR workflows have registry write permission.
+CI also exercises the configured, signed-out navigation path on desktop and both
+mobile browsers using mocked public configuration, even when the test container
+otherwise runs in demo mode.
 
 The optional `PR preview` job is part of the PR's `CI` workflow, so deployment
 progress and approval appear alongside its checks. It calls trusted preview
