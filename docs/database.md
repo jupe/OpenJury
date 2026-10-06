@@ -63,7 +63,7 @@ voting closes; self-voting remains prohibited and their own entry stays hidden
 from the blind ballot. Audience voting is unchanged. PostgreSQL enforces this
 eligibility, not just the interface.
 
-Migration `18_group_overview.sql` adds `get_my_groups()`, which returns each of
+Migration `19_group_overview.sql` adds `get_my_groups()`, which returns each of
 the caller's groups with their role, member and admin counts, and the number of
 competitions in total and currently open for entries or voting. It exposes only
 aggregate counts, never other members' identities, so members can see how big
@@ -198,9 +198,9 @@ and vote reads/writes remain revoked. `get_my_submission`,
 `get_admin_submissions`, and `get_blind_voting_entries` return distinct owner,
 admin, and blind-voting projections. Private images are stored in the
 `competition-submissions` bucket under random UUID filenames; uploads are
-limited to JPEG/PNG/WebP and 10 MiB, and Storage authorization checks ownership
-and phase. Clients download via authenticated requests rather than public or
-signed URLs, and media removal is followed by Storage cleanup.
+limited to JPEG/PNG/WebP/HEIC/HEIF and 10 MiB, and Storage authorization checks
+ownership and phase. Clients download via authenticated requests rather than
+public or signed URLs, and media removal is followed by Storage cleanup.
 
 Migration `05_transactional_lifecycle.sql` adds admin-only lifecycle transitions,
 voting, stable entry numbering, and service-role-only remote deadline processing.

@@ -50,7 +50,7 @@ projection and save ballots only when the competition's default-disabled
 `allow_participant_voting` setting is enabled. Only group admins can change it,
 through the row-locked draft-save RPC before submissions open. Membership,
 deadline, full-ballot validation, and self-vote protections remain enforced.
-Migration `18_group_overview.sql` adds a security-definer `get_my_groups()`
+Migration `19_group_overview.sql` adds a security-definer `get_my_groups()`
 projection limited to the caller's memberships. It returns counts and the
 caller's own role only; member identities remain admin-only through
 `get_group_members`.
@@ -102,12 +102,12 @@ Remaining security work:
    authorization. An initial admin role alone does not grant competition access.
 
 The `competition-submissions` Storage bucket is private, limits uploads to
-JPEG/PNG/WebP images up to 10 MiB, and uses random UUID filenames without user
-identifiers or original filenames. Storage policies bind each object to its
-entry owner and competition phase. The UI downloads protected objects through
-the authenticated Storage client into temporary in-memory Blob URLs; it does
-not create public or signed media URLs. Removed media and failed uploads are
-deleted through Storage and failed cleanup can be retried.
+JPEG/PNG/WebP/HEIC/HEIF images up to 10 MiB, and uses random UUID filenames
+without user identifiers or original filenames. Storage policies bind each
+object to its entry owner and competition phase. The UI downloads protected
+objects through the authenticated Storage client into temporary in-memory Blob
+URLs; it does not create public or signed media URLs. Removed media and failed
+uploads are deleted through Storage, and failed cleanup can be retried.
 
 Run `supabase/tests/group_access.sql`,
 `supabase/tests/group_management.sql`,

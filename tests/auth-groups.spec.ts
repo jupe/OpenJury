@@ -204,14 +204,15 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   await page.getByRole("textbox", { name: "Entry title" }).fill("My phone photo");
   await expect(page.getByRole("button", { name: "Take a photo" })).toBeVisible();
   const cameraInput = page.locator('input[type="file"][capture="environment"]');
-  await expect(cameraInput).toHaveAttribute("accept", "image/jpeg,image/png,image/webp");
-  await cameraInput.setInputFiles({ name: "phone.png", mimeType: "image/png", buffer: png });
+  await expect(cameraInput).toHaveAttribute("accept", "image/jpeg,image/png,image/webp,image/heic,image/heif");
+  await cameraInput.setInputFiles({ name: "phone.heic", mimeType: "image/heic", buffer: png });
   await expect(page.getByText("1 new image(s) selected.")).toBeVisible();
   await expectPhoneLayout(page);
   await page.getByRole("button", { name: "Save submission" }).click();
   await expect(page.getByRole("heading", { name: "Edit your submission" })).toBeVisible();
   expect(saves[1].p_title).toBe("My phone photo");
   expect(saves[1].p_media_keys).toHaveLength(1);
+  expect(saves[1].p_media_keys[0]).toMatch(/\.heic$/);
   const preview = page.getByRole("img", { name: "Your submission image 1", exact: true });
   await preview.scrollIntoViewIfNeeded();
   await expect(preview).toBeVisible();
