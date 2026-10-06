@@ -171,6 +171,12 @@ Only group admins may rename or remove a group, and names are trimmed and limite
 to 1–100 characters. Removing a group deletes its group-owned data, but is
 blocked when disqualification audit records exist so the audit trail is retained.
 
+Migration `16_competition_deletion.sql` adds the admin-only,
+row-locked `delete_competition` RPC. Competition deletion cascades to its
+database-owned data and is blocked when disqualification audit records exist.
+Group admins can remove a competition from its group's competition list; the
+existing group settings also let admins remove an entire group.
+
 Migration `04_secure_submissions.sql` allows authenticated members to create
 and edit one submission per competition through `save_submission`. It locks the
 competition before validating its submission phase and deadline; direct entry
@@ -208,6 +214,7 @@ On a disposable Supabase database with all migrations applied, run:
 ```sh
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_access.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_management.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_deletion.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_setup.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/secure_submissions.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/transactional_lifecycle.sql
