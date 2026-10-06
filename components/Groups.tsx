@@ -7,7 +7,6 @@ import { useAuth } from "@/components/AuthBoundary";
 import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
 import { CompetitionManager } from "@/components/Competitions";
 import { GroupMembers } from "@/components/Membership";
-import Breadcrumbs from "@/components/Breadcrumbs";
 import AddButton from "@/components/AddButton";
 import Button from "@/components/Button";
 import IconButton, { Icon } from "@/components/IconButton";
@@ -152,24 +151,35 @@ export function GroupList() {
       {loading ? <p role="status">{t("Loading groups…")}</p> : error ? (
         <><p role="alert">{error}</p><Button onClick={() => { setLoading(true); setError(""); setAttempt((value) => value + 1); }}>{t("Retry groups")}</Button></>
       ) : groups.length ? (
-        <ul className="divide-y divide-slate-100">
-          {groups.map((group) => {
-            const overview = overviews.get(group.id);
-            return (
-              <li key={group.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
-                <div className="min-w-0 flex-1 space-y-0.5">
-                  <Link className="break-words font-semibold underline" href={`/group/${group.id}`}>{group.name}</Link>
-                  {overview && <GroupStats overview={overview} />}
-                </div>
-                {overview?.my_role === "admin" && (
-                  <span role="img" aria-label={t("You are an admin")} title={t("You are an admin")} className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-700">
-                    <Icon name="admin" />
-                  </span>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+        <table aria-label={t("Groups")} className="w-full table-fixed text-left">
+          <thead className="text-sm text-slate-500">
+            <tr className="border-b border-slate-200">
+              <th scope="col" className="pb-2 font-medium">{t("Group name")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((group) => {
+              const overview = overviews.get(group.id);
+              return (
+                <tr key={group.id} className="border-b border-slate-100 last:border-0">
+                  <td className="break-words py-1 text-slate-900">
+                    <div className="flex items-center gap-3">
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        <Link className="inline-flex min-h-12 max-w-full items-center underline" href={`/group/${group.id}`}>{group.name}</Link>
+                        {overview && <GroupStats overview={overview} />}
+                      </div>
+                      {overview?.my_role === "admin" && (
+                        <span role="img" aria-label={t("You are an admin")} title={t("You are an admin")} className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-700">
+                          <Icon name="admin" />
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       ) : <p>{t("You do not belong to any groups yet. Open an invite link from a group admin, or create a group with +.")}</p>}
       {createdId && <p role="status">{t("Group created.")} <Link className="underline" href={`/group/${createdId}`}>{t("Open group")}</Link></p>}
       <dialog ref={dialog} aria-labelledby="new-group-title" onClose={() => setCreateError("")} className="app-dialog m-auto w-[min(28rem,calc(100vw-2rem))] rounded-2xl p-5 shadow-xl">
@@ -309,7 +319,6 @@ export function GroupDetails({ id }: { id: string }) {
   if (!group) return <Card title={t("Group not found or access denied")}><p>{t("This group does not exist, or you are not a member.")}</p><Link href="/dashboard" className="underline">{t("Back to your groups")}</Link></Card>;
   return (
     <>
-      <Breadcrumbs items={[{ label: t("Dashboard"), href: "/dashboard" }, { label: group.name }]} />
       {overview && <GroupStats overview={overview} />}
       {isAdmin && (
         <>

@@ -67,3 +67,9 @@ the database. When Supabase is not configured, `/dashboard`, `/group/demo`,
 `/competition/demo`, and `/competition/demo/admin` show linked, read-only demo
 views with fictional data. Demo interactions are disabled and never reach
 Supabase.
+
+Group admins can expand **Invite people** on the group page to create invite
+links and show a QR code for each link. Scanning opens the same `/invite/[token]`
+sign-in and joining flow as the copied link. QR codes are generated locally in
+the browser; invite tokens are not sent to an external QR service. Revoking a
+link also invalidates its QR code for people who have not joined yet.
