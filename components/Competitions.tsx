@@ -256,7 +256,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
       <Card id="competitions" title={t("Competitions")}>
         {loading ? <p role="status">{t("Loading competitions…")}</p> : error ? (
           <>
-            <p role="alert">{t(error.message, { error: error.error ?? "" })}</p>
+            <p role="alert">{t(error.message, { error: t(error.error ?? "") })}</p>
             <Button onClick={() => { setLoading(true); setError(null); setAttempt((value) => value + 1); }}>{t("Retry competitions")}</Button>
           </>
         ) : competitions.length ? (
@@ -357,7 +357,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
                 </div>
               ))}
             </fieldset>
-            {saveError && <p role="alert">{t(saveError.message, { error: saveError.error ?? "" })}</p>}
+            {saveError && <p role="alert">{t(saveError.message, { error: t(saveError.error ?? "") })}</p>}
             <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
               {editing && <Button type="button" variant="secondary" disabled={saving} onClick={() => { setEditing(false); setDraft(emptyDraft()); setSaveError(null); }}>{t("Cancel edit")}</Button>}
               <Button type="submit" disabled={saving} className="sm:min-w-56 sm:text-base">{t(saving ? "Saving…" : editing ? "Save draft" : "Create competition")}</Button>

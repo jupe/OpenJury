@@ -1,5 +1,6 @@
 import AuthBoundary from "@/components/AuthBoundary";
 import { GroupDetails } from "@/components/Groups";
+import { LocalizedText } from "@/lib/i18n";
 
 export default async function GroupPage({
   params,
@@ -10,7 +11,7 @@ export default async function GroupPage({
 
   return (
     <>
-      <h1 className="text-3xl font-bold">Group lobby</h1>
+      <h1 className="text-3xl font-bold"><LocalizedText message="Group lobby" /></h1>
       <AuthBoundary>
         <GroupDetails key={id} id={id} />
       </AuthBoundary>

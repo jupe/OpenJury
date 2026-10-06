@@ -8,7 +8,7 @@ export default function Card({
 }: {
   /** Optional anchor target; the card leaves room for the header when scrolled to. */
   id?: string;
-  title: string;
+  title: ReactNode;
   /** Optional control shown next to the title, such as an add button. */
   action?: ReactNode;
   children: ReactNode;

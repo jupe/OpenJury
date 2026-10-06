@@ -1,11 +1,13 @@
 import Link from "next/link";
+import { useLocale } from "@/lib/i18n";
 
 export type Crumb = { label: string; href?: string };
 
 /** Where the current page sits: Dashboard › Group › Competition › Admin. */
 export default function Breadcrumbs({ items }: { items: Crumb[] }) {
+  const { t } = useLocale();
   return (
-    <nav aria-label="Breadcrumb">
+    <nav aria-label={t("Breadcrumb")}>
       <ol className="flex flex-wrap items-center gap-x-1 text-sm text-slate-600">
         {items.map((item, index) => (
           <li key={index} className="flex min-w-0 items-center gap-x-1">

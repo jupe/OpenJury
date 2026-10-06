@@ -52,6 +52,7 @@ export function ResumePendingInvite() {
 type InviteDetails = { group_id: string; group_name: string; is_member: boolean };
 
 export function InviteAcceptance({ token }: { token: string }) {
+  const { t } = useLocale();
   const { client } = useAuth();
   const router = useRouter();
   const [invite, setInvite] = useState<InviteDetails | null>(null);
@@ -67,16 +68,16 @@ export function InviteAcceptance({ token }: { token: string }) {
         if (!INVITE_TOKEN.test(token)) return;
         const { data, error: inviteError } = await client.rpc("get_group_invite", { p_token: token });
         if (!active) return;
-        if (inviteError) setError(`Unable to open this invite: ${inviteError.message}`);
+        if (inviteError) setError(t("Unable to open this invite: {error}", { error: t(inviteError.message) }));
         else setInvite(((data || []) as InviteDetails[])[0] || null);
       } catch {
-        if (active) setError("Unable to open this invite. Please try again.");
+        if (active) setError(t("Unable to open this invite. Please try again."));
       } finally {
         if (active) setLoading(false);
       }
     })();
     return () => { active = false; };
-  }, [client, token]);
+  }, [client, token, t]);
 
   async function join() {
     if (joining) return;
@@ -87,33 +88,33 @@ export function InviteAcceptance({ token }: { token: string }) {
       if (joinError) throw joinError;
       router.push(`/group/${encodeURIComponent(String(data))}`);
     } catch (failure) {
-      setError(`Unable to join the group: ${failureMessage(failure)}`);
+      setError(t("Unable to join the group: {error}", { error: t(failureMessage(failure)) }));
       setJoining(false);
     }
   }
 
-  if (loading) return <p role="status">Opening invite…</p>;
+  if (loading) return <p role="status">{t("Opening invite…")}</p>;
   if (!invite) {
     return (
-      <Card title="Invite unavailable">
-        {error ? <p role="alert">{error}</p> : <p>This invite link is invalid or has been revoked. Ask a group admin for a new one.</p>}
-        <ButtonLink href="/dashboard">Go to your groups</ButtonLink>
+      <Card title={t("Invite unavailable")}>
+        {error ? <p role="alert">{error}</p> : <p>{t("This invite link is invalid or has been revoked. Ask a group admin for a new one.")}</p>}
+        <ButtonLink href="/dashboard">{t("Go to your groups")}</ButtonLink>
       </Card>
     );
   }
   if (invite.is_member) {
     return (
       <Card title={invite.group_name}>
-        <p>You are already a member of this group.</p>
-        <ButtonLink href={`/group/${encodeURIComponent(invite.group_id)}`}>Open group</ButtonLink>
+        <p>{t("You are already a member of this group.")}</p>
+        <ButtonLink href={`/group/${encodeURIComponent(invite.group_id)}`}>{t("Open group")}</ButtonLink>
       </Card>
     );
   }
   return (
-    <Card title={`Join ${invite.group_name}`}>
-      <p>You have been invited to this group. After joining, you can take part in its competitions as a participant or as audience.</p>
+    <Card title={t("Join {group}", { group: invite.group_name })}>
+      <p>{t("You have been invited to this group. After joining, you can take part in its competitions as a participant or as audience.")}</p>
       {error && <p role="alert">{error}</p>}
-      <Button disabled={joining} onClick={() => void join()}>{joining ? "Joining…" : "Join group"}</Button>
+      <Button disabled={joining} onClick={() => void join()}>{t(joining ? "Joining…" : "Join group")}</Button>
     </Card>
   );
 }
@@ -123,6 +124,7 @@ type EmailInvite = { email: string; created_at: string };
 type InviteLink = { id: string; token: string; created_at: string };
 
 export function GroupMembers({ groupId }: { groupId: string }) {
+  const { t } = useLocale();
   const { client, session } = useAuth();
   const [members, setMembers] = useState<Member[]>([]);
   const [emailInvites, setEmailInvites] = useState<EmailInvite[]>([]);
@@ -150,7 +152,7 @@ export function GroupMembers({ groupId }: { groupId: string }) {
         if (!active) return;
         const failure = memberResult.error || emailResult.error || linkResult.error;
         if (failure) {
-          setError(`Unable to load members: ${failure.message}`);
+          setError(t("Unable to load members: {error}", { error: t(failure.message) }));
           return;
         }
         setError("");
@@ -158,13 +160,13 @@ export function GroupMembers({ groupId }: { groupId: string }) {
         setEmailInvites((emailResult.data || []) as EmailInvite[]);
         setLinks((linkResult.data || []) as InviteLink[]);
       } catch {
-        if (active) setError("Unable to load members. Please try again.");
+        if (active) setError(t("Unable to load members. Please try again."));
       } finally {
         if (active) setLoading(false);
       }
     })();
     return () => { active = false; };
-  }, [client, groupId, attempt]);
+  }, [client, groupId, attempt, t]);
 
   async function act(key: string, label: string, run: () => PromiseLike<{ error: unknown }>) {
     if (working) return;
@@ -175,7 +177,7 @@ export function GroupMembers({ groupId }: { groupId: string }) {
       if (rpcError) throw rpcError;
       refresh();
     } catch (failure) {
-      setActionError(`Unable to ${label}: ${failureMessage(failure)}`);
+      setActionError(t("Unable to {action}: {error}", { action: t(label), error: t(failureMessage(failure)) }));
     } finally {
       setWorking("");
     }
@@ -195,18 +197,18 @@ export function GroupMembers({ groupId }: { groupId: string }) {
       await navigator.clipboard.writeText(inviteUrl(link.token));
       setCopied(link.id);
     } catch {
-      setActionError("Unable to copy automatically. Select the link and copy it instead.");
+      setActionError(t("Unable to copy automatically. Select the link and copy it instead."));
     }
   }
 
   const adminCount = members.filter((member) => member.role === "admin").length;
   const inviteUrl = (token: string) => `${window.location.origin}/invite/${token}`;
 
-  if (loading) return <p role="status">Loading members…</p>;
-  if (error) return <Card title="Members"><p role="alert">{error}</p><Button onClick={refresh}>Retry members</Button></Card>;
+  if (loading) return <p role="status">{t("Loading members…")}</p>;
+  if (error) return <Card title={t("Members")}><p role="alert">{error}</p><Button onClick={refresh}>{t("Retry members")}</Button></Card>;
 
   return (
-    <Card title="Members">
+    <Card title={t("Members")}>
       <ul className="space-y-3">
         {members.map((member) => {
           const self = member.user_id === session.user.id;
@@ -214,31 +216,31 @@ export function GroupMembers({ groupId }: { groupId: string }) {
           return (
             <li key={member.user_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 p-3">
               <div className="min-w-0">
-                <p className="break-all font-semibold text-slate-900">{member.email}{self && " (you)"}</p>
-                <p className="text-sm">{member.role === "admin" ? "Group admin" : "Member"}</p>
+                <p className="break-all font-semibold text-slate-900">{member.email}{self && ` (${t("you")})`}</p>
+                <p className="text-sm">{t(member.role === "admin" ? "Group admin" : "Member")}</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 {member.role === "member" ? (
-                  <Button disabled={!!working} aria-label={`Make ${member.email} a group admin`} onClick={() => void act(member.user_id, "change role", () =>
+                  <Button disabled={!!working} aria-label={t("Make {email} a group admin", { email: member.email })} onClick={() => void act(member.user_id, "change role", () =>
                     client.rpc("set_group_member_role", { p_group_id: groupId, p_user_id: member.user_id, p_role: "admin" }))}>
-                    Make admin
+                    {t("Make admin")}
                   </Button>
                 ) : (
-                  <Button disabled={!!working || lastAdmin} aria-label={`Remove group admin role from ${member.email}`} onClick={() => {
-                    if (self && !window.confirm("Stop being a group admin? You will lose access to group management.")) return;
+                  <Button disabled={!!working || lastAdmin} aria-label={t("Remove group admin role from {email}", { email: member.email })} onClick={() => {
+                    if (self && !window.confirm(t("Stop being a group admin? You will lose access to group management."))) return;
                     void act(member.user_id, "change role", () =>
                       client.rpc("set_group_member_role", { p_group_id: groupId, p_user_id: member.user_id, p_role: "member" }));
                   }}>
-                    Remove admin
+                    {t("Remove admin")}
                   </Button>
                 )}
                 {!self && (
-                  <Button className="bg-red-700 hover:bg-red-800 active:bg-red-900" disabled={!!working || lastAdmin} aria-label={`Remove ${member.email} from the group`} onClick={() => {
-                    if (!window.confirm(`Remove ${member.email} from this group?`)) return;
+                  <Button className="bg-red-700 hover:bg-red-800 active:bg-red-900" disabled={!!working || lastAdmin} aria-label={t("Remove {email} from the group", { email: member.email })} onClick={() => {
+                    if (!window.confirm(t("Remove {email} from this group?", { email: member.email }))) return;
                     void act(member.user_id, "remove member", () =>
                       client.rpc("remove_group_member", { p_group_id: groupId, p_user_id: member.user_id }));
                   }}>
-                    Remove
+                    {t("Remove")}
                   </Button>
                 )}
               </div>
@@ -246,24 +248,24 @@ export function GroupMembers({ groupId }: { groupId: string }) {
           );
         })}
       </ul>
-      {adminCount === 1 && <p className="text-sm">A group needs at least one admin, so make someone else an admin before removing the last one.</p>}
+      {adminCount === 1 && <p className="text-sm">{t("A group needs at least one admin, so make someone else an admin before removing the last one.")}</p>}
 
       <form onSubmit={invite} className="space-y-3 border-t border-slate-200 pt-4" aria-busy={working === "invite"}>
-        <h3 className="font-semibold text-slate-900">Invite by email</h3>
-        <label className="block">Email address
+        <h3 className="font-semibold text-slate-900">{t("Invite by email")}</h3>
+        <label className="block">{t("Email address")}
           <input type="email" required maxLength={320} value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2" />
         </label>
-        <p className="text-sm">No email is sent. They join when they next sign in with this address, so let them know.</p>
-        <Button type="submit" disabled={!!working || !email.trim()}>{working === "invite" ? "Inviting…" : "Invite"}</Button>
+        <p className="text-sm">{t("No email is sent. They join when they next sign in with this address, so let them know.")}</p>
+        <Button type="submit" disabled={!!working || !email.trim()}>{t(working === "invite" ? "Inviting…" : "Invite")}</Button>
       </form>
       {emailInvites.length > 0 && (
         <ul className="space-y-2">
           {emailInvites.map((pending) => (
             <li key={pending.email} className="flex flex-wrap items-center justify-between gap-3">
-              <span className="break-all">{pending.email} · waiting to sign in</span>
-              <Button disabled={!!working} aria-label={`Cancel invite for ${pending.email}`} onClick={() => void act(pending.email, "cancel invite", () =>
+              <span className="break-all">{pending.email} · {t("waiting to sign in")}</span>
+              <Button disabled={!!working} aria-label={t("Cancel invite for {email}", { email: pending.email })} onClick={() => void act(pending.email, "cancel invite", () =>
                 client.rpc("revoke_group_email_invite", { p_group_id: groupId, p_email: pending.email }))}>
-                Cancel invite
+                {t("Cancel invite")}
               </Button>
             </li>
           ))}
@@ -271,27 +273,27 @@ export function GroupMembers({ groupId }: { groupId: string }) {
       )}
 
       <div className="space-y-3 border-t border-slate-200 pt-4">
-        <h3 className="font-semibold text-slate-900">Invite links</h3>
-        <p className="text-sm">Anyone signed in who opens a link joins the group as a member. Revoke a link to stop it working.</p>
+        <h3 className="font-semibold text-slate-900">{t("Invite links")}</h3>
+        <p className="text-sm">{t("Anyone signed in who opens a link joins the group as a member. Revoke a link to stop it working.")}</p>
         {links.map((link) => (
           <div key={link.id} className="space-y-2 rounded-xl border border-slate-200 p-3">
-            <label className="block">Invite link
+            <label className="block">{t("Invite link")}
               <input readOnly value={inviteUrl(link.token)} onFocus={(event) => event.target.select()} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => void copy(link)}>{copied === link.id ? "Copied" : "Copy link"}</Button>
+              <Button onClick={() => void copy(link)}>{t(copied === link.id ? "Copied" : "Copy link")}</Button>
               <Button className="bg-red-700 hover:bg-red-800 active:bg-red-900" disabled={!!working} onClick={() => {
-                if (!window.confirm("Revoke this invite link? People who have not joined yet can no longer use it.")) return;
+                if (!window.confirm(t("Revoke this invite link? People who have not joined yet can no longer use it."))) return;
                 void act(link.id, "revoke link", () => client.rpc("revoke_group_invite", { p_invite_id: link.id }));
               }}>
-                Revoke link
+                {t("Revoke link")}
               </Button>
             </div>
           </div>
         ))}
         <Button disabled={!!working} onClick={() => void act("link", "create invite link", () =>
           client.rpc("create_group_invite", { p_group_id: groupId }))}>
-          {working === "link" ? "Creating…" : "Create invite link"}
+          {t(working === "link" ? "Creating…" : "Create invite link")}
         </Button>
       </div>
       {actionError && <p role="alert">{actionError}</p>}
@@ -303,6 +305,7 @@ type PlatformGroup = { id: string; name: string; member_count: number; admin_cou
 
 /** Every group, for platform admins configured by the deployment. */
 export function PlatformGroups() {
+  const { t } = useLocale();
   const { client } = useAuth();
   const router = useRouter();
   const [groups, setGroups] = useState<PlatformGroup[] | null>(null);
@@ -317,17 +320,17 @@ export function PlatformGroups() {
         if (!active || isPlatformAdmin !== true) return;
         const { data, error: listError } = await client.rpc("get_platform_groups");
         if (!active) return;
-        if (listError) setError(`Unable to load all groups: ${listError.message}`);
+        if (listError) setError(t("Unable to load all groups: {error}", { error: t(listError.message) }));
         else setGroups((data || []) as PlatformGroup[]);
       } catch {
         // Not a platform admin, or the check is unavailable: show nothing.
       }
     })();
     return () => { active = false; };
-  }, [client]);
+  }, [client, t]);
 
   async function manage(group: PlatformGroup) {
-    if (working || !window.confirm(`Become a group admin of “${group.name}”? Its members will see you in the member list.`)) return;
+    if (working || !window.confirm(t("Become a group admin of “{group}”? Its members will see you in the member list.", { group: group.name }))) return;
     setWorking(group.id);
     setError("");
     try {
@@ -335,14 +338,14 @@ export function PlatformGroups() {
       if (joinError) throw joinError;
       router.push(`/group/${encodeURIComponent(group.id)}`);
     } catch (failure) {
-      setError(`Unable to manage group: ${failureMessage(failure)}`);
+      setError(t("Unable to manage group: {error}", { error: t(failureMessage(failure)) }));
       setWorking("");
     }
   }
 
   if (!groups && !error) return null;
   return (
-    <Card title="All groups (platform admin)">
+    <Card title={t("All groups (platform admin)")}>
       {error && <p role="alert">{error}</p>}
       {groups && (groups.length ? (
         <ul className="space-y-3">
@@ -350,19 +353,19 @@ export function PlatformGroups() {
             <li key={group.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 p-3">
               <div className="min-w-0">
                 <p className="break-words font-semibold text-slate-900">{group.name}</p>
-                <p className="text-sm">{group.member_count} members · {group.admin_count} admins{group.my_role === "admin" ? " · You are an admin" : group.my_role ? " · You are a member" : ""}</p>
+                <p className="text-sm">{t("{count} members", { count: group.member_count })} · {t("{count} admins", { count: group.admin_count })}{group.my_role === "admin" ? ` · ${t("You are an admin")}` : group.my_role ? ` · ${t("You are a member")}` : ""}</p>
               </div>
               {group.my_role === "admin" ? (
-                <ButtonLink href={`/group/${encodeURIComponent(group.id)}`} aria-label={`Open ${group.name}`}>Open</ButtonLink>
+                <ButtonLink href={`/group/${encodeURIComponent(group.id)}`} aria-label={t("Open {group}", { group: group.name })}>{t("Open")}</ButtonLink>
               ) : (
-                <Button disabled={!!working} aria-label={`Manage ${group.name} as admin`} onClick={() => void manage(group)}>
-                  {working === group.id ? "Joining…" : "Manage as admin"}
+                <Button disabled={!!working} aria-label={t("Manage {group} as admin", { group: group.name })} onClick={() => void manage(group)}>
+                  {t(working === group.id ? "Joining…" : "Manage as admin")}
                 </Button>
               )}
             </li>
           ))}
         </ul>
-      ) : <p>No groups exist yet.</p>)}
+      ) : <p>{t("No groups exist yet.")}</p>)}
     </Card>
   );
 }
@@ -406,7 +409,7 @@ export function CompetitionRole({
       if (joinError) throw joinError;
       onChanged();
     } catch (failure) {
-      setError(t("Unable to join: {error}", { error: failureMessage(failure) }));
+      setError(t("Unable to join: {error}", { error: t(failureMessage(failure)) }));
     } finally {
       setWorking(false);
     }
