@@ -123,6 +123,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
   const [error, setError] = useState<CompetitionError | null>(null);
   const [saveError, setSaveError] = useState<CompetitionError | null>(null);
   const [deleteError, setDeleteError] = useState<CompetitionError | null>(null);
+  const [competitionToRemove, setCompetitionToRemove] = useState<Competition | null>(null);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -131,6 +132,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
   const [draft, setDraft] = useState<CompetitionDraft>(emptyDraft);
   const [attempt, setAttempt] = useState(0);
   const formDialog = useRef<HTMLDialogElement>(null);
+  const removeDialog = useRef<HTMLDialogElement>(null);
   const refresh = useCallback(() => {
     setLoading(true);
     setError(null);
@@ -277,10 +279,15 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
     }
   }
 
-  async function deleteCompetition(competition: Competition) {
-    if (deletingId) return;
-    if (!window.confirm(t("Remove “{name}” and permanently delete its competition data? This cannot be undone.", { name: competition.name }))) return;
+  function openRemoveDialog(competition: Competition) {
+    setDeleteError(null);
+    setCompetitionToRemove(competition);
+    removeDialog.current?.showModal();
+  }
 
+  async function deleteCompetition() {
+    if (deletingId || !competitionToRemove || !isAdmin) return;
+    const competition = competitionToRemove;
     setDeletingId(competition.id);
     setDeleteError(null);
     try {
@@ -295,6 +302,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         setDraft(emptyDraft());
         setEditing(false);
       }
+      removeDialog.current?.close();
       setLoading(true);
       setCompetitions([]);
       setAttempt((value) => value + 1);
@@ -308,7 +316,6 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
   return (
     <>
       <Card id="competitions" title={t("Competitions")} action={isAdmin && <AddButton aria-label={t("New competition")} onClick={newCompetition} />}>
-        {deleteError && <p role="alert">{t(deleteError.message, { error: t(deleteError.error ?? "") })}</p>}
         {loading ? <p role="status">{t("Loading competitions…")}</p> : error ? (
           <>
             <p role="alert">{t(error.message, { error: t(error.error ?? "") })}</p>
@@ -349,7 +356,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
                         tone="danger"
                         disabled={deletingId !== null || saving || loadingEdit}
                         aria-label={t(deletingId === competition.id ? "Working…" : "Remove {name}", { name: competition.name })}
-                        onClick={() => void deleteCompetition(competition)}
+                        onClick={() => openRemoveDialog(competition)}
                       />
                     </div>
                   )}
@@ -360,6 +367,33 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         ) : <p>{t("No competitions have been created for this group yet.")}</p>}
         {editError && <p role="alert">{t(editError.message, { error: t(editError.error ?? "") })}</p>}
       </Card>
+
+      {isAdmin && (
+        <dialog
+          ref={removeDialog}
+          aria-labelledby="remove-competition-title"
+          aria-describedby="remove-competition-warning"
+          onCancel={(event) => { if (deletingId) event.preventDefault(); }}
+          onClose={() => { setCompetitionToRemove(null); setDeleteError(null); }}
+          className="app-dialog m-auto max-h-[calc(100dvh-2rem)] w-[min(28rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl p-5 shadow-xl"
+        >
+          <div className="space-y-4" aria-busy={deletingId !== null}>
+            <h2 id="remove-competition-title" className="text-lg font-semibold break-words">
+              {t("Remove competition “{name}”?", { name: competitionToRemove?.name ?? "" })}
+            </h2>
+            <p id="remove-competition-warning" className="text-slate-600 break-words">
+              {t("Remove “{name}” and permanently delete its competition data? This cannot be undone.", { name: competitionToRemove?.name ?? "" })}
+            </p>
+            {deleteError && <p role="alert">{t(deleteError.message, { error: t(deleteError.error ?? "") })}</p>}
+            <div className="flex flex-wrap justify-end gap-3">
+              <button type="button" autoFocus disabled={deletingId !== null} onClick={() => removeDialog.current?.close()} className="min-h-12 cursor-pointer rounded-xl px-4 text-sm font-semibold text-slate-700 hover:bg-slate-100">{t("Cancel")}</button>
+              <Button className="bg-red-700 hover:bg-red-800 active:bg-red-900" disabled={deletingId !== null} onClick={() => void deleteCompetition()}>
+                {t(deletingId ? "Working…" : "Remove competition")}
+              </Button>
+            </div>
+          </div>
+        </dialog>
+      )}
 
       {isAdmin && (
         <dialog ref={formDialog} aria-labelledby="competition-form-title" onClose={resetForm} className="app-dialog m-auto max-h-[calc(100dvh-2rem)] w-[min(42rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl p-5 shadow-xl">
