@@ -63,17 +63,20 @@ cancel an already-running workflow as well for an immediate stop.
 
 ## Feedback deployment notifications
 
-Set repository variable `DEPLOYMENT_NOTIFICATIONS_ENABLED=true` to notify
-reporters on same-repository issues linked through a PR's closing references
+Deployment notification code is retained as a reference integration, but the public
+Release workflow no longer deploys or sends production-success notifications.
+Enable notifications only in the private controller after successful production
+smoke tests, with separately scoped source-repository issue permissions, to notify
+reporters on source issues linked through a PR's closing references
 (for example, `Fixes #123`). Notifications are GitHub issue comments mentioning
 the reporter, **not in-app notifications**: this scaffold does not yet have
 authenticated feedback conversations or an app/GitHub identity mapping.
 
 Notifications run only after production deployment **and production smoke tests**
 succeed. A merge, skipped deployment, failed staging, or failed production smoke
-test does not generate a success notification. `CD_ENABLED`, environment
-approvals, and tested-image promotion are unchanged; minor PR automation does
-not enable CD or bypass approvals.
+test must not generate a success notification. Minor PR automation does not enable
+the private controller or bypass deployment approvals. Do not put a cross-repository
+notification token in public PR jobs.
 
 The notifier verifies that each merged PR's merge commit is contained in the
 deployed revision. It includes earlier PRs whose own CI/release was superseded,

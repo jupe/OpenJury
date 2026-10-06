@@ -31,6 +31,20 @@ test("release cleanup preserves promoted, unknown, untagged, recent and five new
   expect(candidates("release", versions)).toEqual([5, 6, 7]);
 });
 
+test("release cleanup recognizes run-attempt tags alongside legacy tags without deleting promoted digests", () => {
+  const versions = [
+    ...Array.from({ length: 5 }, (_, i) => version(i + 1, [`ci-${i + 1}-2`], i + 10)),
+    version(6, ["ci-6-1"]),
+    version(7, ["ci-7"]),
+    version(8, ["ci-8", "ci-8-2"]),
+    version(9, ["ci-9-2", `sha-${sha}`]),
+    version(10, ["ci-10-2", "production"]),
+    ...["ci-0-1", "ci-11-0", "ci-11-01", "ci-11-2-extra"].map((tag, i) =>
+      version(11 + i, [tag])),
+  ];
+  expect(candidates("release", versions)).toEqual([6, 7, 8]);
+});
+
 test("cache cleanup preserves two versions per target, unknown tags and refreshed old digests", () => {
   const versions = [
     version(1, [`tools-${hash}`], 10),
@@ -198,9 +212,9 @@ test("deletion errors never trigger whole-package deletion", async () => {
   expect(env.deleted).toEqual([]);
 });
 
-test("retention workflows use trusted code, bounded permissions, and a shared lock", () => {
+test("public registry retention stays hosted while private preview cleanup is an inactive template", () => {
   const scheduled = readFileSync(resolve(".github/workflows/registry-cleanup.yml"), "utf8");
-  const closure = readFileSync(resolve(".github/workflows/preview-cleanup.yml"), "utf8").split("\n  registry:")[1];
+  const closure = readFileSync(resolve("deploy/workflows/preview-cleanup.yml"), "utf8");
   expect(scheduled).toContain("schedule:");
   expect(scheduled).toContain("workflow_dispatch:");
   expect(scheduled).toContain("default: true");
@@ -208,10 +222,14 @@ test("retention workflows use trusted code, bounded permissions, and a shared lo
   expect(scheduled).not.toMatch(/pull_request:|pull_request_target:/);
   expect(closure).not.toContain("PREVIEW_CD_ENABLED");
   expect(closure).toContain("ref: main");
-  expect(closure).toContain("previewOnly: true");
+  expect(closure).toContain("repository: ${{ vars.SOURCE_REPOSITORY }}");
+  expect(closure).toContain("github.event.repository.private == true");
+  expect(closure).not.toContain("packages: write");
+  expect(closure).not.toMatch(/^\s+pull_request_target:/m);
+  expect(scheduled).toContain("group: ghcr-retention");
+  expect(scheduled).toContain("packages: write");
+  expect(scheduled).not.toContain("self-hosted");
   for (const workflow of [scheduled, closure]) {
-    expect(workflow).toContain("group: ghcr-retention");
-    expect(workflow).toContain("packages: write");
     expect(workflow).toContain("persist-credentials: false");
     expect(workflow).not.toContain("deletePackageFor");
   }

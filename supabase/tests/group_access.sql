@@ -97,10 +97,16 @@ begin
      or (select count(*) from public.categories) <> 1 then
     raise exception 'Group members must read competition setup';
   end if;
-  if exists (select 1 from public.entries)
-     or exists (select 1 from public.votes) then
-    raise exception 'Entry and vote data must remain closed';
-  end if;
+  begin
+    perform 1 from public.entries;
+    raise exception 'Direct entry data must remain closed';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform 1 from public.votes;
+    raise exception 'Direct vote data must remain closed';
+  exception when insufficient_privilege then null;
+  end;
   begin
     insert into public.group_members (group_id, user_id, role)
     select id, auth.uid(), 'admin' from public.groups;

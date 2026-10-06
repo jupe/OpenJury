@@ -1,0 +1,90 @@
+# Reference only: install in a PRIVATE deployment repository.
+# Cleanup is operator-triggered there, never public pull_request_target.
+# Configure SOURCE_REPOSITORY and read-only SOURCE_TOKEN. Runner groups must
+# allow only the private deployment repo. Source PR data is never executed.
+name: Private preview cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Closed source PR preview to destroy
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-preview-${{ inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  source:
+    if: github.event.repository.private == true && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      revision: ${{ steps.source.outputs.revision }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ vars.SOURCE_REPOSITORY }}
+          ref: main
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - name: Validate closed PR and pin trusted cleanup code
+        id: source
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_REPOSITORY: ${{ vars.SOURCE_REPOSITORY }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          github-token: ${{ secrets.SOURCE_TOKEN }}
+          script: |
+            if (!/^[1-9][0-9]*$/.test(process.env.PR_NUMBER)) throw new Error('Invalid PR number');
+            const [owner, repo] = process.env.SOURCE_REPOSITORY.split('/');
+            const { data: pr } = await github.rest.pulls.get({
+              owner, repo, pull_number: Number(process.env.PR_NUMBER),
+            });
+            if (pr.state !== 'closed') throw new Error('Refusing to destroy an open PR preview');
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              owner, repo, workflow_id: 'ci.yml', branch: 'main',
+              event: 'push', status: 'success', per_page: 1,
+            });
+            if (!data.workflow_runs.length) throw new Error('No successful trusted source main run');
+            const { validateSourceRun } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/trusted-publication.mjs`);
+            const { data: workflow } = await github.rest.actions.getWorkflow({
+              owner, repo, workflow_id: 'ci.yml',
+            });
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              owner, repo, run_id: data.workflow_runs[0].id,
+            });
+            validateSourceRun(run, workflow, process.env.SOURCE_REPOSITORY);
+            core.setOutput('revision', run.head_sha);
+  cleanup:
+    needs: source
+    runs-on: [self-hosted, linux, x64, openjury-dev]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ vars.SOURCE_REPOSITORY }}
+          ref: ${{ needs.source.outputs.revision }}
+          token: ${{ secrets.SOURCE_TOKEN }}
+          persist-credentials: false
+      - name: Recheck closure before destroying only this PR's resources
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_REPOSITORY: ${{ vars.SOURCE_REPOSITORY }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          COMPOSE_PROJECT_NAME: openjury-pr-${{ inputs.pr_number }}
+        with:
+          github-token: ${{ secrets.SOURCE_TOKEN }}
+          script: |
+            const [owner, repo] = process.env.SOURCE_REPOSITORY.split('/');
+            const { data: pr } = await github.rest.pulls.get({
+              owner, repo, pull_number: Number(process.env.PR_NUMBER),
+            });
+            if (pr.state !== 'closed') throw new Error('PR reopened before cleanup');
+            await exec.exec('bash', ['deploy/stack.sh', 'destroy']);

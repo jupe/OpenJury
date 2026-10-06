@@ -6,29 +6,30 @@
 
 ```text
 PR / merge queue      → detect relevant changes
-                      → lint + typecheck + Docker build + browser E2E if needed
-                       → optional clean dev preview in the same CI run
-PR closed or merged   → delete its dev preview, including volumes
+                      → lint + typecheck + real database policies
+                      → Docker build + browser E2E if needed (read-only token)
 
-main → same CI checks → publish the tested image to GHCR (no rebuild)
-                     → optional staging deployment by image digest
-                     → staging browser smoke tests through HTTPS ingress
-                     → production approval (if configured)
-                     → production deployment of the SAME digest + smoke tests
+main → same CI checks → tested-image artifact → isolated hosted publication
+                     → GHCR immutable digest → hosted Release promotion
+
+private controller   → validate successful source main CI and immutable digest
+                     → staging + smoke tests → production approval + deployment
 ```
 
 CI runs on GitHub-hosted runners, including fork PRs. It exercises the production
 Docker image, not the Next.js development server. The stable required check is
-`checks` in the `CI` workflow. PR image artifacts expire after three days; browser
-reports after seven. Actions are commit-pinned and Dependabot proposes updates.
+`checks` in the `CI` workflow. Main tested-image archives expire after three days,
+publication records after 30 days, and browser reports after seven.
+Actions are commit-pinned and Dependabot proposes updates.
 The full Playwright suite runs in Chromium; Android and iPhone run `@smoke` and
 `@mobile` tests. Four CI workers keep the browser stage under five minutes.
 Production builds use Webpack because Turbopack currently breaks PGlite's WASM
-initializer in the demo. On PRs, artifact uploads are best-effort when the
-repository reaches GitHub's storage quota; this skips the optional preview if
-its image artifact is unavailable. Main pushes publish the tested image directly
-to GHCR after all tests pass; release promotion does not use Actions artifact
-storage. Registry publication remains required, while browser report uploads
+initializer in the demo. Browser-report uploads are best-effort when the
+repository reaches GitHub's storage quota. Main's tested-image artifact and
+published digest handoff are required:
+publication fails closed if either is unavailable. Build/test jobs have only a
+read-only token; an isolated main-only hosted job publishes without executing the
+image or loading repository dependencies. Registry publication remains required, while browser report uploads
 (including deployment smoke reports) are best-effort.
 
 Documentation-only PRs and merge-queue entries skip the build/test job. The
@@ -39,8 +40,7 @@ Mixed changes and moves between code and documentation also run the full job.
 Detection compares the event's base revision with the checked-out merge revision,
 not just the latest commit, without a changed-file API limit.
 The `checks` status still runs and succeeds for documentation-only changes; a
-failed detector or required build fails it. Previews are skipped when CI produces
-no tested image. Pushes to `main` still run full CI and publish a tested image.
+failed detector or required build fails it. No previews run in source CI. Pushes to `main` still run full CI and publish a tested image.
 
 ## Prebuilt CI environment
 
@@ -65,6 +65,9 @@ pull matching inputs and run tools in disposable containers on GitHub-hosted
 runners. They use the locally resolved image ID throughout each job; browser
 containers use host networking to reach the production container's loopback port.
 Dependencies are linked into the workspace only inside these tooling containers.
+Private-controller smoke jobs set the preparation action's `repository` input to
+`SOURCE_REPOSITORY`, so they reuse the source's public tooling cache instead of
+looking for images belonging to the private deployment repository.
 Normal cache hits require no Node, npm, application dependency, browser, OS
 package, or Ansible installation.
 
@@ -81,39 +84,33 @@ or release promotion of the tested image.
 
 ## Image promotion and previews
 
-Main CI publishes `ghcr.io/jupe/openjury:ci-<run-id>` after tests pass. The run
-tag remains usable when a partial CI retry reuses the successful build job.
-Release accepts only a successful same-repository `main` push run, pulls that
-run's image, verifies its revision label, and tags its digest as
-`ghcr.io/jupe/openjury:sha-<commit>` without rebuilding. Deployments use
-the immutable `ghcr.io/jupe/openjury@sha256:...` reference recorded in the Release
-summary. Same-repository PRs may push only to the separate
-`ghcr.io/jupe/openjury-preview` package (tagged `pr-<number>-<sha>`) so dev
-previews pull just the changed layers; fork PRs get a read-only token and keep
-using the image artifact. PR images are never written to the release package,
-and their expired versions are pruned after the PR closes. Release verifies the source
-revision and skips superseded main builds; deployment checks main again after
-any approval wait. Releases are serialized across staging and production.
-A failed staging deployment **or smoke test blocks production**.
-GitHub artifact attestations are not used because they are unavailable for
-user-owned private repositories. Promotion therefore trusts the successful
-same-repository `main` CI run, its run-specific image tag, and the revision
-label; it does not independently verify cryptographic build provenance.
+An isolated main-only publication job publishes
+`ghcr.io/jupe/openjury:ci-<run-id>-<attempt>` after tests and `checks` pass. PR jobs never
+publish packages, even for same-repository branches. Release accepts only a
+validated successful same-repository `main` push from the expected CI workflow,
+uses its published digest handoff, verifies the revision label, and tags the same
+digest as `ghcr.io/jupe/openjury:sha-<commit>` without rebuilding. A mutable run
+tag is not the deployment authority. Superseded main builds are rejected.
+Publication records are attempt-scoped: rerun **all CI jobs** when an archive or
+record has expired or a partial retry did not rerun publication. Promotion refuses
+to reuse a publication from a different run attempt.
+
+The public repository does not deploy to VMs. The private controller must validate
+the source run/digest and recheck `main` after approval; a failed staging deployment
+or smoke test must block production. See [deployment](deployment.md) for migration.
+Cryptographic artifact attestations are not yet configured. Public-repository
+operators can add trusted build attestations and verification after checking
+GitHub feature availability and ensuring the attesting publisher has the exact
+tested digest; do not mistake a revision label alone for cryptographic provenance.
 CI also exercises the configured, signed-out navigation path on desktop and both
 mobile browsers using mocked public configuration, even when the test container
 otherwise runs in demo mode.
 
-The optional `PR preview` job is part of the PR's `CI` workflow, so deployment
-progress and approval appear alongside its checks. It calls trusted preview
-orchestration pinned to an immutable commit, downloads the tested image from that same run, and
-records a `dev` deployment against the PR head SHA (not the synthetic merge
-commit), with the preview URL. The PR-specific description keeps deployment
-cleanup scoped to that preview without creating one GitHub environment per PR.
-The required `checks` job remains independent
-of preview approval. Fork PRs still build and test, but skip deployment because
-their read-only token cannot register deployments and they cannot access dev
-secrets. A maintainer can move reviewed changes to a same-repository branch to
-preview them.
+There is no reusable self-hosted workflow call from source CI. Optional manual
+trusted-main previews associated with same-repository PRs and cleanup live in
+private-controller templates under `deploy/workflows/`. These previews do not run
+PR changes. Fork PRs build/test only and remain ineligible for deployment.
+The required `checks` job is independent of any private-controller approval.
 
 ## Automatic GHCR retention
 
@@ -126,13 +123,11 @@ to reclaim space immediately according to the same retention policy.
 | --- | --- | --- |
 | `openjury-ci` | Recognized old cache versions and untagged versions, after seven days without an update | Two newest versions of each target (`tools` and `dependencies`), recent versions, and unfamiliar tags |
 | `openjury-preview` | Versions older than three days whose **every** tag belongs to a closed PR | All open-PR images, recent versions, untagged versions, and unfamiliar tags |
-| `openjury` | Versions tagged **only** `ci-<run-id>`, after seven days without an update | Five newest CI versions, every promoted `sha-<commit>` release, recent versions, untagged versions, and unfamiliar tags |
+| `openjury` | Versions tagged **only** `ci-<run-id>` or `ci-<run-id>-<attempt>`, after seven days without an update | Five newest CI versions, every promoted `sha-<commit>` release, recent versions, untagged versions, and unfamiliar tags |
 
-The same preview sweep runs on PR closure even when `PREVIEW_CD_ENABLED` is off:
-CI publishes same-repository PR images independently of preview deployment.
-The daily sweep catches missed close events and images published after closure.
-The three-day grace period matches the image-reference artifact lifetime.
-Opening a PR again protects its images on the next state check.
+The daily sweep still handles legacy preview images created before migration.
+Source CI no longer publishes new preview packages or schedules VM teardown on
+PR closure. Cleanup of running previews belongs to the private controller.
 
 Cleanup deletes **versions**, not individual tags: a digest shared by an open PR
 or a release tag is protected. It paginates inventory, rechecks version metadata
@@ -165,11 +160,18 @@ child manifests.
 
 In GitHub's ruleset/branch protection settings for `main`:
 
-- Require a pull request, reviews, and the `checks` status check.
+- Require a pull request, current-revision maintainer/code-owner reviews, dismiss
+  stale approvals, and require the `checks` status check.
 - Require branches to be up to date, or enable the merge queue (CI handles
   `merge_group` events).
 - Prevent bypasses/direct pushes, and require review of workflow, Docker,
-  deployment, and dependency changes by trusted maintainers.
+  deployment, and dependency changes by trusted maintainers. Enable code-owner
+  review for `.github/CODEOWNERS`; that file alone does not enforce protection.
+
+Set Actions' default token to read-only, require approval for all outside
+contributors' workflows, and do not send secrets or write tokens to forks.
+Remove all source-repository self-hosted runner access, including inherited runner
+groups. Environment reviewers and labels cannot restrict runner scheduling.
 
 Workflow files alone cannot enforce merge protection; these repository settings
 must be applied by an administrator. CI is not filtered at the workflow trigger,

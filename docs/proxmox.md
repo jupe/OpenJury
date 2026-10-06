@@ -25,12 +25,16 @@ or change GitHub settings. No Proxmox infrastructure is contacted by CI.
 For just a dev preview host on a home network, skip the playbooks below.
 `deploy/proxmox/vm.sh` clones a cloud-init template into one VM (DHCP,
 default VM ID `201`, 4 GB RAM), installs Docker, 2 GB of swap, and an
-**HTTP-only** Traefik ingress, and registers it as the `openjury-dev` runner. It
-needs root SSH to Proxmox and an authenticated `gh` with admin rights on the
-repository. It is safe to rerun.
+**HTTP-only** Traefik ingress, and registers it as the `openjury-dev` runner
+in an explicitly selected **private deployment repository**, never this public
+source repository. It needs root SSH to Proxmox and an authenticated `gh` with
+admin rights on that private repository. Existing public-source runner registrations
+must be removed manually before reuse.
 
 ```sh
-PVE_HOST=root@192.168.1.3 TEMPLATE_ID=9000 ./deploy/proxmox/vm.sh
+DEPLOYMENT_REPOSITORY=<owner/private-deployment-repo> \
+  TRUSTED_PRIVATE_DEPLOYMENT_REPO=<owner/private-deployment-repo> \
+  PVE_HOST=root@192.168.1.3 TEMPLATE_ID=9000 ./deploy/proxmox/vm.sh
 ```
 
 Override `VMID`, `CORES`, `MEMORY_MB`, `DISK_GB`, or `SSH_KEY` as needed. Reserve
@@ -38,16 +42,19 @@ the printed address for the VM's MAC in your router, then set the `dev`
 environment variables `DEV_BASE_DOMAIN=<ip-with-dashes>.nip.io` (for example
 `192-168-1-114.nip.io`; nip.io resolves the dotted `pr-21.192.168.1.114` to
 `21.192.168.1`) and
-`APP_SCHEME=http` and the repository variable `PREVIEW_CD_ENABLED=true`.
+`APP_SCHEME=http` in the private deployment boundary.
 Previews are served at `http://pr-<number>.<ip-with-dashes>.nip.io`, each with
-its own disposable Supabase backend, and magic-link emails land in Mailpit at
-`http://mail.<ip-with-dashes>.nip.io`. Some routers' DNS rebinding protection blocks
+its own disposable Supabase backend. Mailpit is loopback-only: use
+`ssh -L 8025:127.0.0.1:8025 ubuntu@<vm-ip>`, then `http://localhost:8025`.
+Some routers' DNS rebinding protection blocks
 private nip.io answers; allow `nip.io` there or use another resolver.
 
 This trades the isolation below for simplicity: there is no TLS, VLAN, or
 Proxmox VM firewall, so preview images can reach your LAN. Use it only for a
-private repository where you review every PR before approving its `dev`
-deployment. `stack.sh` refuses plain HTTP for staging and production.
+trusted private deployment repository with manually reviewed workloads, and only
+after adding upstream isolation. It is **not suitable for arbitrary public PR
+images**, even after moving runner registrations. Prefer the firewall-protected
+playbooks below. `stack.sh` refuses plain HTTP for staging and production.
 
 ## Quick start: LAN staging and production VMs
 
@@ -56,8 +63,12 @@ The same script builds staging (VM ID `202`) and production (`203`) VMs with
 later if needed:
 
 ```sh
-ENVIRONMENT=staging ./deploy/proxmox/vm.sh
-ENVIRONMENT=production ./deploy/proxmox/vm.sh
+DEPLOYMENT_REPOSITORY=<owner/private-deployment-repo> \
+  TRUSTED_PRIVATE_DEPLOYMENT_REPO=<owner/private-deployment-repo> \
+  ENVIRONMENT=staging ./deploy/proxmox/vm.sh
+DEPLOYMENT_REPOSITORY=<owner/private-deployment-repo> \
+  TRUSTED_PRIVATE_DEPLOYMENT_REPO=<owner/private-deployment-repo> \
+  ENVIRONMENT=production ./deploy/proxmox/vm.sh
 ```
 
 Each VM serves plain HTTP on port 80 and registers the `openjury-staging` or
@@ -78,16 +89,18 @@ a self-hosted Supabase stack beside the app, like a preview, but persistent:
   is reachable only through an SSH tunnel:
   `ssh -L 8025:127.0.0.1:8025 ubuntu@<vm-ip>`, then `http://localhost:8025`.
 
-In each GitHub environment (`staging`, `production`) set `APP_HOST` to the
+In each private deployment repository environment (`staging`, `production`) set `APP_HOST` to the
 public hostname, `TLS_TERMINATION=upstream`, and `SUPABASE_SELF_HOSTED=true`.
 Leave `SUPABASE_URL`/`SUPABASE_ANON_KEY` unset; the deployment derives them.
-Smoke tests run from GitHub-hosted runners through `https://<APP_HOST>`, so the
-hostnames must be reachable from the internet. Then set the repository variable
-`CD_ENABLED=true`.
+Smoke tests run from the private controller through `https://<APP_HOST>`, so the
+hostnames must be reachable from that boundary (provide authorized VPN access
+for restricted staging/dev). Enable deployment only after completing the private
+controller setup in the [deployment guide](deployment.md).
 
-As with the dev quick start, these runners are repository-level runners on a
-single flat network, so this suits a private repository where every workflow
-change is reviewed; a PR that edits its workflows could target them.
+As with the dev quick start, these runners are on a flat network. A private
+repository registration prevents source PRs from scheduling them, but does not
+provide network isolation. Keep the deployment repository maintainer-only and
+verify firewall protections before running untrusted images.
 
 ## Prerequisites and trust boundaries
 
@@ -127,7 +140,8 @@ protected networks before allowing configured public DNS/NTP endpoints and web
 traffic. Put the Proxmox/admin networks in `openjury_management_cidrs` and
 **all other sensitive networks and NAT/public aliases** in
 `openjury_protected_cidrs`. The other guests and PBS endpoint are also blocked
-explicitly. Management and guest subnets must not overlap.
+explicitly. DNS/NTP exceptions cannot overlap protected destinations. With VLAN
+isolation enabled, management and guest subnets must not overlap.
 IPv6 is blocked by the VM policy; this setup uses static IPv4 networking.
 The firewall is outside the guest, so Docker port publishing cannot bypass it.
 
@@ -194,16 +208,17 @@ certificates per hostname. For many previews, plan a wildcard/DNS-01 certificate
 strategy and ACME rate-limit handling separately. Do not place broad DNS account
 credentials on the dev runner.
 
-Before registration, configure **runner groups restricted to the trusted
-deployment workflow paths on `main`** as described in
-[deployment infrastructure](deployment.md#prepare-self-hosted-infrastructure).
-If that restriction is unavailable for this repository/account, stop here and
-use a separate trusted deployment repository or controller. Three isolated VMs
-do not stop a malicious PR workflow from requesting an unrestricted production
-runner.
+Before registration, stop/unregister the existing source-repository runners and
+register only in the **private, maintainer-controlled deployment repository** as
+described in [deployment infrastructure](deployment.md#prepare-self-hosted-infrastructure).
+Restrict organization runner groups so the public source repository cannot select
+them. Where supported, additionally restrict runner groups to trusted workflow
+paths/revisions. Three isolated VMs and runner labels are not scheduling access
+controls; environment approval is not a substitute either.
 
 On each guest, use the short-lived registration token from GitHub's runner setup
-page interactively; do not persist it in inventory or command history:
+page of the private deployment repository interactively; do not persist it in
+inventory or command history:
 
 ```sh
 sudo -iu openjury-runner
@@ -226,7 +241,8 @@ The runner account has Docker access, which is effectively root-equivalent
 **inside its VM**. It must never have hypervisor credentials or host mounts.
 Verify firewall isolation from the dev VM, HTTPS reachability from outside your
 LAN, a successful production backup, and GitHub environment protections before
-setting `PREVIEW_CD_ENABLED` or `CD_ENABLED` to `true`.
+enabling the private deployment controller. Previews remain off until explicitly
+enabled in that trusted boundary.
 
 ## Backups and recovery
 

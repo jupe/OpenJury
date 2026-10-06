@@ -9,7 +9,6 @@ on:
 permissions:
   contents: read
 
-# Keep staging and production on the same release, including during approvals.
 concurrency:
   group: release-main
   cancel-in-progress: false
@@ -19,105 +18,84 @@ jobs:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
+      actions: read
       packages: write
-    outputs:
-      image: ${{ steps.publish.outputs.image }}
-      revision: ${{ github.event.workflow_run.head_sha }}
-      current: ${{ steps.current.outputs.current }}
     steps:
-      - name: Reject superseded main builds
-        id: current
+      # workflow_run checks out trusted default-branch code, never source artifacts.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate source run identity and reject superseded main builds
+        id: source
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const { data } = await github.rest.repos.getBranch({
-              ...context.repo, branch: 'main'
+            const { getTrustedPublication } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/trusted-publication.mjs`);
+            const repository = `${context.repo.owner}/${context.repo.repo}`;
+            const { run, artifact } = await getTrustedPublication({
+              github, repository, runId: context.payload.workflow_run.id,
             });
-            core.setOutput('current', data.commit.sha === context.payload.workflow_run.head_sha);
-      - name: Publish the tested image, without rebuilding
-        if: steps.current.outputs.current == 'true'
-        id: publish
+            if (run.run_attempt !== context.payload.workflow_run.run_attempt) {
+              throw new Error('Source run was rerun after this event');
+            }
+            const { data: branch } = await github.rest.repos.getBranch({
+              ...context.repo, branch: 'main',
+            });
+            core.setOutput('current', branch.commit.sha === run.head_sha);
+            core.setOutput('artifact', artifact.id);
+            core.setOutput('revision', run.head_sha);
+            core.setOutput('attempt', run.run_attempt);
+      - name: Download only the validated publication record
+        if: steps.source.outputs.current == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ steps.source.outputs.artifact }}
+          path: ${{ runner.temp }}/published
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Validate publication record
+        if: steps.source.outputs.current == 'true'
+        id: image
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          REVISION: ${{ steps.source.outputs.revision }}
+          SOURCE_ATTEMPT: ${{ steps.source.outputs.attempt }}
+        with:
+          script: |
+            const { readFile } = await import('node:fs/promises');
+            const { validatePublication } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/trusted-publication.mjs`);
+            const publication = validatePublication(JSON.parse(await readFile(
+              `${process.env.RUNNER_TEMP}/published/image.json`, 'utf8'
+            )), {
+              head_sha: process.env.REVISION, id: context.payload.workflow_run.id,
+              run_attempt: process.env.SOURCE_ATTEMPT,
+            }, `${context.repo.owner}/${context.repo.repo}`);
+            core.setOutput('image', publication.image);
+            core.setOutput('id', publication.imageId);
+      - name: Promote the tested digest, never a mutable CI tag
+        if: steps.source.outputs.current == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          REVISION: ${{ github.event.workflow_run.head_sha }}
-          CI_RUN_ID: ${{ github.event.workflow_run.id }}
+          IMAGE: ${{ steps.image.outputs.image }}
+          IMAGE_ID: ${{ steps.image.outputs.id }}
+          REVISION: ${{ steps.source.outputs.revision }}
           DOCKER_CONFIG: ${{ runner.temp }}/registry-auth
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$REVISION" =~ ^[a-f0-9]{40}$ ]]
-          [[ "$CI_RUN_ID" =~ ^[0-9]+$ ]]
           trap 'docker logout ghcr.io; rm -rf "$DOCKER_CONFIG"' EXIT
           printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          source="ghcr.io/${GITHUB_REPOSITORY,,}:ci-$CI_RUN_ID"
-          docker pull "$source"
-          image="$(docker image inspect "$source" --format '{{range .RepoDigests}}{{println .}}{{end}}' \
-            | grep "^ghcr.io/${GITHUB_REPOSITORY,,}@sha256:")"
-          [[ "$image" == "ghcr.io/${GITHUB_REPOSITORY,,}@sha256:"* && "$image" =~ @sha256:[a-f0-9]{64}$ ]]
-          [[ "$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$REVISION" ]]
+          docker pull "$IMAGE"
+          [[ "$(docker image inspect "$IMAGE" --format '{{.Id}}')" == "$IMAGE_ID" ]]
+          [[ "$(docker image inspect "$IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$REVISION" ]]
           tag="ghcr.io/${GITHUB_REPOSITORY,,}:sha-$REVISION"
-          docker tag "$image" "$tag"
+          docker tag "$IMAGE" "$tag"
           docker push "$tag"
-          echo "image=$image" >> "$GITHUB_OUTPUT"
-          printf '### Published image\n`%s`\n' "$image" >> "$GITHUB_STEP_SUMMARY"
-
-  staging:
-    needs: publish
-    if: needs.publish.outputs.current == 'true' && vars.CD_ENABLED == 'true'
-    uses: ./.github/workflows/deploy.yml
-    permissions:
-      contents: read
-      packages: read
-    with:
-      environment: staging
-      image: ${{ needs.publish.outputs.image }}
-      revision: ${{ needs.publish.outputs.revision }}
-    secrets: inherit
-
-  production:
-    needs: [publish, staging]
-    if: needs.staging.result == 'success' && vars.CD_ENABLED == 'true'
-    uses: ./.github/workflows/deploy.yml
-    permissions:
-      contents: read
-      packages: read
-    with:
-      environment: production
-      image: ${{ needs.publish.outputs.image }}
-      revision: ${{ needs.publish.outputs.revision }}
-    secrets: inherit
-
-  notify:
-    needs: [publish, production]
-    if: >-
-      needs.production.result == 'success' &&
-      vars.DEPLOYMENT_NOTIFICATIONS_ENABLED == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      pull-requests: read
-      issues: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.publish.outputs.revision }}
-          persist-credentials: false
-      - name: Notify feedback reporters after production smoke tests
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          DEPLOYED_REVISION: ${{ needs.publish.outputs.revision }}
-          PRODUCTION_RESULT: ${{ needs.production.result }}
-        with:
-          script: |
-            const { notifyDeployment } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/deployment-feedback.mjs`);
-            await notifyDeployment({
-              github, context, core,
-              revision: process.env.DEPLOYED_REVISION,
-              productionResult: process.env.PRODUCTION_RESULT
-            });
+          printf '### Promoted tested image\n%s\n' "$IMAGE" >> "$GITHUB_STEP_SUMMARY"

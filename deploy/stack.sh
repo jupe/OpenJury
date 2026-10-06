@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set +x
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -73,6 +74,24 @@ if [[ -n "${SUPABASE_MIGRATIONS:-}" ]]; then
     echo "SUPABASE_MIGRATIONS must be a directory" >&2
     exit 1
   fi
+  if [[ "$preview" == true ]]; then
+    if [[ -z "${PREVIEW_ADMIN_PASSWORD:-}" ]]; then
+      echo "PREVIEW_ADMIN_PASSWORD is required to seed a preview; configure it in the trusted deployment workflow" >&2
+      exit 1
+    fi
+    PREVIEW_ADMIN_EMAIL="${PREVIEW_ADMIN_EMAIL:-admin@openjury.test}"
+    if [[ ! "$PREVIEW_ADMIN_EMAIL" =~ ^[^@[:space:]]+@[a-zA-Z0-9.-]+\.(test|invalid)$ ]]; then
+      echo "PREVIEW_ADMIN_EMAIL must use a fictional .test or .invalid domain" >&2
+      exit 1
+    fi
+    export PREVIEW_ADMIN_EMAIL PREVIEW_ADMIN_PASSWORD
+  fi
+  AUTH_RATE_LIMIT_EMAIL_SENT="${AUTH_RATE_LIMIT_EMAIL_SENT:-10}"
+  if [[ ! "$AUTH_RATE_LIMIT_EMAIL_SENT" =~ ^[1-9][0-9]*$ ]]; then
+    echo "AUTH_RATE_LIMIT_EMAIL_SENT must be a positive integer" >&2
+    exit 1
+  fi
+  export AUTH_RATE_LIMIT_EMAIL_SENT
   b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
   jwt() {
     local header payload now
@@ -126,9 +145,8 @@ fi
 
 docker compose "${files[@]}" up --detach --wait --wait-timeout 300 --remove-orphans
 if [[ -n "${SUPABASE_MIGRATIONS:-}" && "$preview" == true ]]; then
-  # This default is only for disposable previews; persistent environments never seed it.
-  PREVIEW_ADMIN_PASSWORD="${PREVIEW_ADMIN_PASSWORD:-openjury-preview}" \
-    PREVIEW_ADMIN_EMAIL="${PREVIEW_ADMIN_EMAIL:-admin@openjury.test}" python3 -c 'import json, os; print(json.dumps({
+  # Only disposable previews seed an account, with an explicitly supplied secret.
+  python3 -c 'import json, os; print(json.dumps({
       "email": os.environ["PREVIEW_ADMIN_EMAIL"],
       "password": os.environ["PREVIEW_ADMIN_PASSWORD"],
       "email_confirm": True}))' |

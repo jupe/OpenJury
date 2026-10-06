@@ -15,8 +15,8 @@ remote events use deadlines.
 The implementation supports **magic-link sign-in, group creation, draft
 competition and category management, private submissions, and anonymous
 category-based voting with ballot revisions, admin review and disqualification,
-and atomic result publication**. Invitations and membership management remain
-unimplemented.
+and atomic result publication**, plus group invitations, membership administration,
+platform administration, and separate participant/audience competition roles.
 
 It includes shared UI components, database-enforced authorization, and CI/CD
 and infrastructure tooling. Entry and vote tables remain inaccessible directly;
@@ -40,11 +40,11 @@ uploads, email-link handoff, on-screen keyboards, and low-memory performance.
 
 - **Next.js App Router**, React, and TypeScript for pages and application structure.
 - **Tailwind CSS** for styling shared UI components.
-- **Supabase**: PostgreSQL database, Auth (magic links; OAuth planned), Storage
-  (planned entry media), and Realtime (planned state updates).
-- **Deployment**: Docker images with optional GitHub Actions deployments to
-  self-hosted Docker hosts, plus optional Vercel hosting; Supabase Cloud for the
-  persistent backend.
+- **Supabase**: PostgreSQL database, Auth (magic links; OAuth planned), private
+  Storage for entry media, and authorized Realtime notifications.
+- **Deployment**: tested Docker images published by GitHub-hosted CI; self-hosted
+  deployments belong in a separate private deployment repository or controller.
+  Supabase may be hosted or self-hosted; Vercel is an optional frontend host.
 
 ## Documentation
 
@@ -62,3 +62,19 @@ All setup commands and detailed operational guidance live in the topic guides:
   environments, preview cleanup, and recovery.
 - [Proxmox VM setup](docs/proxmox.md) — provisioning, isolation, DNS/TLS, runners,
   backups, and recovery.
+
+## Contributing
+
+Follow [local development](docs/development.md) and open a focused pull request
+with a description of the behavior change and tests. Run `npm run lint`,
+`npm run typecheck`, and the relevant browser and database tests before submitting.
+Use fictional fixtures, not production data, credentials, or private infrastructure
+addresses. Workflow, deployment, dependency, and database changes require maintainer
+review; passing CI alone does not authorize deployment. Fork contributions run on
+GitHub-hosted runners and receive no deployment credentials or automatic previews.
+
+Report suspected vulnerabilities privately using the
+[security reporting policy](docs/security.md#reporting-a-vulnerability), not a public
+issue. Operators should complete the
+[public-release checklist](docs/security.md#before-making-the-repository-public)
+before changing repository visibility.

@@ -40,12 +40,17 @@ Available commands:
 | `npm start` | Serve the production build |
 | `npm run test:e2e` | Run desktop Chromium, Android Chromium, and iPhone WebKit tests |
 | `npm run test:smoke` | Run the deployment smoke subset |
+| `bash supabase/test.sh` | Run SQL authorization tests against disposable real Supabase (Docker Compose 2.24.4+) |
 
 For local browser tests, run `npx playwright install --with-deps chromium webkit` first.
 Playwright builds and starts the production server automatically.
 Set `PLAYWRIGHT_BASE_URL` to test an already running container or deployment.
-Tests cover navigation, health checks, and mocked authentication/group journeys.
-They do not replace database policy tests or a real Supabase magic-link check.
+Browser tests cover navigation, health checks, and mocked authentication/group
+journeys. They do not replace database policy tests or a real Supabase magic-link
+check. `bash supabase/test.sh` creates a disposable Supabase stack on its own Docker bridge
+with fresh throwaway credentials, applies all migrations and runs every SQL test.
+It publishes no host ports and removes only its uniquely named test volumes on
+exit. Never substitute a persistent deployment database for this test stack.
 
 ## 2. Configure Supabase
 
@@ -89,8 +94,9 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/11_review_enhancements.sql`,
 `supabase/migrations/12_roles_and_invites.sql`,
 `supabase/migrations/13_disqualified_result_vote_count.sql`,
-`supabase/migrations/14_published_result_media.sql`, and
-`supabase/migrations/15_competition_details.sql`, once each, in that order.
+`supabase/migrations/14_published_result_media.sql`,
+`supabase/migrations/15_competition_details.sql`, and
+`supabase/migrations/16_published_result_permissions.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
@@ -100,6 +106,8 @@ functions run with their owner's permissions to perform the otherwise-denied
 writes.
 Migration 15 adds competition description/rules and admin-only metadata editing
 in every phase; existing draft-save calls may omit the two new optional arguments.
+Migration 16 restores the published-results function's authenticated-only API
+execution boundary after the media projection was recreated in migration 14.
 Competition setup and details support English and Finnish through `lib/i18n.tsx`.
 Choose the language from the account menu; the preference is stored in the browser.
 Translate interface labels and messages, not user-provided competition names,

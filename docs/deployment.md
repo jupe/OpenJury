@@ -23,15 +23,17 @@ to use different Supabase projects without rebuilding the image. The original
 The frontend uses browser sessions and group data in Supabase. **Each dev
 preview gets its own disposable Supabase backend** (`deploy/compose.supabase.yml`:
 Postgres, Auth, PostgREST, Realtime, and Storage) with secrets generated per
-deployment. The PR's own `supabase/migrations` are applied to it, and its API is
+deployment. The private preview template applies trusted `main` migrations, and its API is
 served on the preview host under `/auth/v1`, `/rest/v1`, `/realtime/v1`, and
 `/storage/v1`. Every revision starts empty, and closing the PR deletes the
 database and storage volumes. It needs about 0.5 GB RAM per preview. Magic-link
-emails go to the dev VM's shared Mailpit (`http://mail.<DEV_BASE_DOMAIN>`).
-Disposable previews seed a password account by default so admins can sign in
-without opening email: `admin@openjury.test` / `openjury-preview`. Set
-`PREVIEW_ADMIN_EMAIL` or the `PREVIEW_ADMIN_PASSWORD` secret to override those
-defaults. These shared default credentials are only for disposable previews;
+emails go to the dev VM's loopback-only Mailpit; inspect them through an SSH
+tunnel to port 8025. Disposable previews may seed a password account so admins
+can sign in without opening email. Set `PREVIEW_ADMIN_EMAIL` (default
+`admin@openjury.test`, restricted to fictional `.test`/`.invalid` domains)
+and an explicit strong `PREVIEW_ADMIN_PASSWORD` secret
+in the private deployment boundary. There is no shared default password.
+Seeded accounts are only for disposable previews;
 staging and production never enable password sign-in or seed this account. Never
 point dev at staging or production. Persistent Supabase projects, backups, and
 schema migrations are managed separately; this frontend deployment does not
@@ -68,8 +70,43 @@ deployment with the repository's CI checks and Vercel deployment controls.
 For Proxmox VE, use the provisioning and guest playbooks described in
 [Proxmox VM setup](proxmox.md).
 
-CD is **off by default**: unset flags skip self-hosted jobs rather than queueing
-them while runners are absent. Image publication from main stays enabled.
+The public source repository has **no active self-hosted deployment workflows**.
+Image publication from trusted `main` stays enabled on GitHub-hosted runners.
+Reference workflows under `deploy/workflows/` are not active Actions workflows
+here. They must be reviewed and installed in a separate private deployment
+repository before use. This change deliberately stops automatic VM deployment
+until that operator migration is complete.
+
+**Do this before making the source public:**
+
+1. Stop/unregister every runner attached to this source repository, including
+   inherited organization runner groups, cancel queued legacy deployments, and
+   clean up existing previews with trusted scripts. Removing workflow files or
+   turning off CD flags does not prevent a new PR workflow from requesting an
+   already registered runner.
+2. Create a private maintainer-only deployment repository. Copy the reviewed
+   `deploy/workflows/*.yml` templates into its `.github/workflows/` directory.
+   They check out trusted source `main` for validation and the selected successful
+   source revision for deployment scripts, configuration and migrations; they
+   never check out PR code.
+   Configure `SOURCE_REPOSITORY=jupe/OpenJury`, `SOURCE_TOKEN` (source Actions,
+   Contents and Pull requests read) and `GHCR_TOKEN` (source package read)
+   as private-controller secrets. These are the controller credentials needed
+   to read source Actions metadata/artifacts and pull its GHCR images. Its default
+   `GITHUB_TOKEN` belongs to the private repository and does not automatically
+   authorize cross-repository API/package access.
+3. Register the VMs only to that private repository. Move SMTP, production and
+   preview credentials into its environments; remove those secrets from the public
+   source repository. Protect the controller's `main` and require production approval.
+4. Accept only a validated successful source CI `main` push run and its exact
+   immutable tested image digest/revision. Verify workflow identity, repository,
+   event, branch, conclusion and current `main` revision again after approval.
+   Do not accept a digest, source branch or dispatch payload as proof of CI success.
+5. Verify isolated staging deployment and smoke tests before enabling production.
+   Keep previews disabled until their separate network/access boundary is ready.
+
+Repository creation, runner re-registration, permissions, secrets and live
+firewall changes cannot be performed by committing this source change.
 
 Provision separate Linux x64 Docker hosts/runners with these custom labels:
 
@@ -96,7 +133,7 @@ On each host, provision:
 - DNS and valid TLS for staging/production and wildcard dev hostnames such as
   `*.dev.example.com`. Configure DNS-01/wildcard certificates or an appropriate
   certificate strategy to avoid per-PR ACME rate limits.
-- Public HTTPS reachability from GitHub-hosted runners for smoke tests, and
+- HTTPS reachability from the private controller for smoke tests, and
   outbound access to GitHub artifacts/GHCR from deployment hosts.
 
 **Treat every PR image as arbitrary, untrusted code, including fork PRs.**
@@ -105,8 +142,8 @@ network access, credentials, cloud metadata access, or shared Docker daemon.
 Restrict egress and isolate previews from sensitive services. Container
 hardening is defense in depth, not a VM security boundary. Never run this dev
 runner on a persistent trusted machine. Restrict **all deployment runner groups**
-to the trusted deployment workflow paths on `refs/heads/main` (or the exact
-approved preview workflow commit described below); labels alone are
+to the private deployment repository and, where supported, its trusted workflow
+paths on `refs/heads/main`; labels alone are
 not an access control. Otherwise a PR can change its own workflow to request a
 production runner without using these deployment gates. If your GitHub plan or
 repository cannot enforce that restriction, do not attach trusted self-hosted
@@ -115,48 +152,35 @@ separate trusted deployment repository first. For public repositories, assess
 GitHub's self-hosted-runner risks and use isolated disposable dev VMs/hosts.
 GitHub's fork-workflow approval is separate from dev deployment approval.
 
-The PR's `CI` workflow calls `.github/workflows/preview.yml` at the immutable
-commit `50d123dcc5a2600c27fa91a540be7501ed46e252` as a reusable workflow; it has
-no separate `workflow_run` trigger. Pin only commits on `main`: GitHub cannot
-resolve a commit whose branch was deleted, which fails every CI run with a
-workflow file error. Keep the dev runner
-group restricted to
-`jupe/OpenJury/.github/workflows/preview.yml@50d123dcc5a2600c27fa91a540be7501ed46e252`,
-not the PR-controlled caller. Keep staging/production runner policies restricted
-to their trusted workflows on `main`. Preview orchestration always checks out
-trusted `main` scripts, never PR
-scripts, and pulls the tested image by digest from
-`ghcr.io/jupe/openjury-preview` using the artifact from the same CI run.
-Fork PRs build and test but do not deploy: their read-only token cannot create
-deployment records and dev secrets are unavailable. To preview reviewed fork
-changes, a maintainer must put them on a same-repository branch.
-Dev should contain **no secrets**. Protect the `dev` environment with required
-maintainer reviewers and prevent self-review before enabling preview CD.
-Do not approve images from unreviewed/untrusted contributors. Fully automatic
-previews require infrastructure capable of safely containing hostile workloads.
+Public CI does not invoke a deployment workflow and does not publish PR images
+to GHCR. Fork PRs build and test but never deploy. The optional private preview
+template deliberately runs only the **tested trusted main image** in a disposable
+backend associated with an open same-repository PR number; it does **not** show
+the PR's changes. It is manually dispatched, never executes PR scripts/migrations,
+and rejects fork PRs. Deploying actual PR code is deferred until a separate
+disposable hostile-workload boundary has been designed and verified.
+Keep the dev host free of persistent secrets/data. Protect preview access with VPN
+or ingress authentication, require maintainer approval, and prevent self-review.
+Do not approve unreviewed images; fully automatic hostile-code previews require
+disposable per-PR VM/microVM boundaries and additional automation.
 
-## Configure GitHub environments and flags
+## Configure private GitHub environments
 
-Create the `dev`, `staging`, and `production` environments **before** enabling CD.
-Restrict staging/production deployment branches to `main`; require production
-reviewers if desired. Permit PR merge refs (`refs/pull/<number>/merge`) in `dev`;
-the reusable workflow retains the caller's event ref. `dev` supplies approval,
-variables, and secrets with `deployment: false`; do not configure custom
-deployment protection rules, which are incompatible with this setting.
-The preview job appears in the PR's CI checks. It records each preview against
-the existing `dev` environment for the PR head commit, with the URL
-`https://pr-<number>.<DEV_BASE_DOMAIN>` in the PR deployment and workflow summary.
-The deployment description identifies its PR; cleanup deactivates only that PR's
-records, so previews do not deactivate each other or create per-PR environments.
-The `dev` environment supplies approval, variables, and secrets as configured.
+Create `dev`, `staging`, and `production` environments **in the private deployment
+repository**, not the public source repository. Restrict deployments to the
+controller's trusted `main`, and require production and preview reviewers.
+Private-controller deployment records/checks are not automatically attached to
+public PRs; publishing a URL back to the source requires a separately scoped
+integration and must not disclose private hostnames or credentials.
 
 | Scope | Variable/secret | Value |
 | --- | --- | --- |
-| Repository variable | `PREVIEW_CD_ENABLED` | `true` to deploy PR previews |
-| Repository variable | `CD_ENABLED` | `true` to deploy staging then production |
+| Private controller variable | `SOURCE_REPOSITORY` | `jupe/OpenJury` |
+| Private controller secret | `SOURCE_TOKEN` | Source Contents/Actions/Pull requests read only |
+| Private controller secret | `GHCR_TOKEN` | Source package read only |
 | `dev` variable | `DEV_BASE_DOMAIN` | e.g. `dev.example.com`, without a scheme |
-| `dev` variable | `PREVIEW_ADMIN_EMAIL` | Seeded preview account; defaults to `admin@openjury.test` |
-| `dev` secret | `PREVIEW_ADMIN_PASSWORD` | Seeded preview password; defaults to `openjury-preview` |
+| `dev` variable | `PREVIEW_ADMIN_EMAIL` | Fictional `.test`/`.invalid` address; defaults to `admin@openjury.test` |
+| `dev` secret | `PREVIEW_ADMIN_PASSWORD` | Explicit strong password; no default |
 | `dev` variable | `APP_SCHEME` | Optional; `http` only for a [LAN-only dev VM](proxmox.md#quick-start-lan-only-dev-vm), defaults to `https` |
 | `staging` / `production` variable | `APP_HOST` | Environment hostname, without a scheme |
 | Each environment variable | `PROXY_NETWORK` | Optional; defaults to `openjury-proxy` |
@@ -168,54 +192,45 @@ The `dev` environment supplies approval, variables, and secrets as configured.
 | `staging` / `production` variable | `TLS_TERMINATION` | `upstream` when your own proxy terminates HTTPS in front of the host; defaults to `traefik` |
 | `staging` / `production` variables | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_ADMIN_EMAIL`, `SMTP_SENDER_NAME` | Self-hosted Supabase only: magic-link mail server; unset sends mail to the host's Mailpit |
 | `staging` / `production` secret | `SMTP_PASS` | Self-hosted Supabase only: SMTP password |
+| `staging` / `production` variable | `AUTH_RATE_LIMIT_EMAIL_SENT` | Positive hourly email budget; default 10 |
 
 Allow Actions to publish/read this repository's GHCR package. The workflows use
 short-lived `GITHUB_TOKEN` credentials; no PAT is required. If the package already
 exists, grant this repository Actions access in its package settings.
 
-Enable the flags independently after infrastructure and environment protections
-are ready. Push a new PR revision/main commit (or rerun its CI) to start delivery.
-The pinned reusable preview workflow must exist at its referenced commit; the
-Release `workflow_run` workflow must exist on the default branch (`main`).
-Do not approve an old
-deployment after its three-day image artifact expires; rerun CI instead.
+Source `workflow_run` triggers do not cross repository boundaries. Use the private
+controller's reviewed dispatch/polling interface; never add a deployment dispatch
+secret to public PR jobs. Install its workflows only after infrastructure protections
+are ready. Do not approve an old deployment after its image artifact expires;
+rerun the relevant trusted CI instead.
 
-### Migrating from the separate PR preview workflow
+### Migrating existing installations
 
-GitHub resolves reusable workflows before evaluating job conditions; disabling
-`PREVIEW_CD_ENABLED` cannot fix a call to a workflow without `workflow_call`.
-The immutable pin avoids that bootstrap failure without loading orchestration
-from the PR's current revision. Review and allow the exact pinned workflow in
-the dev runner policy before enabling preview CD. Until this change is merged,
-disable preview CD to avoid also triggering the legacy `workflow_run` preview
-on `main`. After merging, update open PR branches from `main`, re-enable the flag,
-and rerun CI on a reviewed same-repository PR to verify approval, the preview
-check, and the deployment URL on its head commit.
-
-When changing preview orchestration later, update the caller's pin and the dev
-runner allowlist to an existing reviewed commit with `workflow_call`; changes
-to the working copy alone do not change the pinned workflow. Do not use a local
-PR-controlled reusable workflow or a moving PR branch as a shortcut.
+Disabling flags is not runner removal. Existing runner registrations and VM state
+are not changed by merging this PR. Stop the services, remove their old registrations
+and re-register them in the private repository. Keep persistent database/storage
+volumes and their secrets file intact. Rerun guest configuration to remove any
+previously public Mailpit route. Reapply the external VM firewall with all sensitive
+public/NAT aliases in `openjury_protected_cidrs`; verify the actual policy afterward.
+Do not enable preview access merely because the source repository is public.
 
 ## Cleanup, failures, and recovery
 
-- Each successful PR revision destroys its previous container and project
+- Each approved private preview deploy destroys its previous container and project
   volumes before starting the tested image. There are no persistent dev mounts.
-  Failed, stale, or closed-during-deployment previews are also removed.
-  CI runs with preview CD enabled are not interrupted by newer PR commits;
-  newer checks run independently of older preview approvals, and outdated heads
-  are skipped after approval. Replacing a preview marks its previous deployment
-  records inactive, even if the replacement fails. Each PR's deployment statuses
-  are independent, so a successful preview does not deactivate another PR's URL.
-- PR closure (merged **or unmerged**) triggers trusted cleanup without a dev
-  approval. Deployment and cleanup share a per-PR lock; other PRs are independent.
-  Reopening a PR triggers CI and a fresh preview.
-  Cleanup also marks that PR's deployment records inactive.
+  Failed previews are removed; stale/closed PRs are rejected before deployment.
+  A PR closed during deployment still needs private-controller cleanup.
+  Public CI is independent of private preview approvals; outdated heads must be
+  skipped after approval. Each preview is scoped by its PR number, and a new
+  deployment must not delete another PR's resources.
+- Public PR closure no longer schedules VM cleanup. The private controller must
+  poll PR state or provide maintainer-dispatched cleanup. Deployment and cleanup
+  must share a per-PR lock. Clean up closed/superseded previews promptly.
 - If a runner is offline or an event was missed, run **PR preview cleanup → Run workflow**
-  on `main`, supplying `pr_number`, to destroy that preview. This cleanup-only
-  dispatch also works when `PREVIEW_CD_ENABLED` is disabled. Clean up existing
-  previews before disabling the flag; disabling it is not a mass teardown.
-- Failed smoke reports are attached to the Release run when artifact storage is
+  in the private controller on `main`, supplying `pr_number`, to destroy that preview. This cleanup-only
+  dispatch does not depend on source-repository flags. Clean up existing
+  previews before removing the controller; disabling it is not a mass teardown.
+- Failed smoke reports are attached to the private deployment run when artifact storage is
   available; report upload failures do not block promotion, but smoke test
   failures still do. Production is untouched
   if staging fails. A production smoke failure marks the release failed but
@@ -228,10 +243,11 @@ PR-controlled reusable workflow or a moving PR branch as a shortcut.
   afterward. Do not reset persistent data or rebuild an old source tree.
 - Monitor host disk use and retain enough prior GHCR digests for rollback.
   [Automatic GHCR retention](ci-cd.md#automatic-ghcr-retention) preserves promoted
-  releases and attestations, but expires old unpromoted CI images after seven days
+  releases, but expires old unpromoted CI images after seven days
   while retaining the five newest CI versions.
   If a tested image has been deleted, rerun all CI jobs on current `main` rather
-  than rebuilding in Release or deploying an untested image. Artifact quota
-  exhaustion no longer blocks main image publication or deployment smoke jobs.
+  than rebuilding in Release or deploying an untested image. The isolated
+  publication handoff requires a tested-image artifact; artifact quota exhaustion
+  therefore blocks main publication rather than bypassing that trust boundary.
   Cleanup removes the preview's old image when it is not shared; it never runs
   a global Docker prune or deletes the shared proxy/network.

@@ -1,5 +1,5 @@
 const DAY = 24 * 60 * 60 * 1000;
-const CI_TAG = /^ci-[1-9][0-9]*$/;
+const CI_TAG = /^ci-[1-9][0-9]*(?:-[1-9][0-9]*)?$/;
 const CACHE_TAG = /^(tools|dependencies)-[a-f0-9]{64}$/;
 const PREVIEW_TAG = /^pr-([1-9][0-9]*)-[a-f0-9]{40}$/;
 

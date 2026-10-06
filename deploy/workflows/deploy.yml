@@ -1,0 +1,33 @@
+# Reference only: copy with deploy-environment.yml to a PRIVATE deployment repo.
+# No source image, revision, or run can be supplied through workflow_dispatch.
+# Restrict private runner groups and protect staging/production environments.
+# Bootstrap runners against the private repo, never the public source repo.
+# DEPLOYMENT_REPOSITORY must match the explicit TRUSTED_PRIVATE_DEPLOYMENT_REPO.
+# Start with manual dispatch; add polling only with durable deduplication/state.
+name: Deploy trusted main
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-trusted-main
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    if: github.event.repository.private == true && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: staging
+    secrets: inherit
+  production:
+    needs: staging
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: production
+      source_run: ${{ fromJSON(needs.staging.outputs.source-run) }}
+      source_attempt: ${{ fromJSON(needs.staging.outputs.source-attempt) }}
+    secrets: inherit

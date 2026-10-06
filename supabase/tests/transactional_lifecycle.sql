@@ -31,7 +31,8 @@ insert into auth.users (id) values
   ('00000000-0000-0000-0000-000000000031'),
   ('00000000-0000-0000-0000-000000000032'),
   ('00000000-0000-0000-0000-000000000033'),
-  ('00000000-0000-0000-0000-000000000034');
+  ('00000000-0000-0000-0000-000000000034'),
+  ('00000000-0000-0000-0000-000000000035');
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000031', true);
@@ -45,6 +46,9 @@ $$;
 reset role;
 insert into public.group_members (group_id, user_id, role)
 select id, '00000000-0000-0000-0000-000000000032', 'member'
+from public.groups where name = 'Transactional lifecycle tenant';
+insert into public.group_members (group_id, user_id, role)
+select id, '00000000-0000-0000-0000-000000000035', 'member'
 from public.groups where name = 'Transactional lifecycle tenant';
 insert into public.group_members (group_id, user_id, role)
 select id, '00000000-0000-0000-0000-000000000034', 'member'
@@ -146,10 +150,12 @@ begin
 end;
 $$;
 
+select public.join_competition('00000000-0000-0000-0000-000000000041', 'participant');
 select public.save_submission(
   '00000000-0000-0000-0000-000000000041', null, 'First entry', '{}'
 );
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000034', true);
+select public.join_competition('00000000-0000-0000-0000-000000000041', 'participant');
 select public.save_submission(
   '00000000-0000-0000-0000-000000000041', null, 'Second entry', '{}'
 );
@@ -193,7 +199,8 @@ end;
 $$;
 
 set local role authenticated;
-select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000032', true);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000035', true);
+select public.join_competition('00000000-0000-0000-0000-000000000041', 'audience');
 do $$
 declare
   entry_number bigint;
@@ -202,24 +209,18 @@ begin
   from public.get_blind_voting_entries(
     '00000000-0000-0000-0000-000000000041'
   ) as voting_entry
-  limit 1;
+  where voting_entry.entry_number = (select random_number from lifecycle_entry_number_snapshot
+    where creator_id = '00000000-0000-0000-0000-000000000034');
 
-  perform public.cast_vote(
-    '00000000-0000-0000-0000-000000000041',
-    entry_number,
-    (select category.id from public.categories as category
-      where category.competition_id = '00000000-0000-0000-0000-000000000041'
-        and category.name = 'Taste'),
-    4
-  );
-  perform public.cast_vote(
-    '00000000-0000-0000-0000-000000000041',
-    entry_number,
-    (select category.id from public.categories as category
-      where category.competition_id = '00000000-0000-0000-0000-000000000041'
-        and category.name = 'Taste'),
-    3
-  );
+  begin
+    perform public.cast_vote(
+      '00000000-0000-0000-0000-000000000041', entry_number,
+      (select id from public.categories where competition_id = '00000000-0000-0000-0000-000000000041'
+        and name = 'Taste'), 4
+    );
+    raise exception 'Revoked single-score vote RPC was callable';
+  exception when insufficient_privilege then null;
+  end;
 
   perform public.save_ballot(
     '00000000-0000-0000-0000-000000000041',
@@ -259,13 +260,12 @@ begin
       3
     ))
   );
-  perform public.cast_vote(
+  perform public.save_ballot(
     '00000000-0000-0000-0000-000000000041',
     entry_number,
-    (select category.id from public.categories as category
-      where category.competition_id = '00000000-0000-0000-0000-000000000041'
-        and category.name = 'Taste'),
-    2
+    (select jsonb_agg(jsonb_build_object('category_id', id,
+      'score', case when name = 'Taste' then 2 else 3 end))
+     from public.categories where competition_id = '00000000-0000-0000-0000-000000000041')
   );
 
   begin
@@ -347,8 +347,8 @@ begin
           and category.name = 'Taste'),
       6
     );
-    raise exception 'A score above the category maximum was accepted';
-  exception when invalid_parameter_value then null;
+    raise exception 'Revoked cast_vote accepted an invalid score';
+  exception when insufficient_privilege then null;
   end;
 
   begin
@@ -359,8 +359,8 @@ begin
         where category.competition_id = '00000000-0000-0000-0000-000000000042'),
       3
     );
-    raise exception 'A category from another competition was accepted';
-  exception when invalid_parameter_value then null;
+    raise exception 'Revoked cast_vote accepted another competition category';
+  exception when insufficient_privilege then null;
   end;
 end;
 $$;
@@ -378,11 +378,11 @@ begin
   from public.categories
   where competition_id = '00000000-0000-0000-0000-000000000041';
 
-  if (select count(*) from public.get_blind_voting_entries(
-    '00000000-0000-0000-0000-000000000041'
-  )) <> 1 then
-    raise exception 'A member was shown their own entry card';
-  end if;
+  begin
+    perform public.get_blind_voting_entries('00000000-0000-0000-0000-000000000041');
+    raise exception 'Participant was shown blind voting cards';
+  exception when insufficient_privilege then null;
+  end;
   if (select count(*) from public.get_my_ballot(
     '00000000-0000-0000-0000-000000000041'
   )) <> 0 then
@@ -397,7 +397,7 @@ begin
       3
     );
     raise exception 'Self-voting through cast_vote was allowed';
-  exception when invalid_parameter_value then null;
+  exception when insufficient_privilege then null;
   end;
 
   begin
@@ -409,7 +409,7 @@ begin
       ))
     );
     raise exception 'Self-voting through save_ballot was allowed';
-  exception when invalid_parameter_value then null;
+  exception when insufficient_privilege then null;
   end;
 end;
 $$;
@@ -476,7 +476,7 @@ end;
 $$;
 
 set local role authenticated;
-select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000032', true);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000035', true);
 do $$
 begin
   begin
@@ -489,7 +489,7 @@ begin
       3
     );
     raise exception 'A vote after the deadline was accepted';
-  exception when object_not_in_prerequisite_state then null;
+  exception when insufficient_privilege then null;
   end;
   begin
     perform public.save_ballot(

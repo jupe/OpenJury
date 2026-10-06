@@ -2,15 +2,33 @@
 # Runs as root on a LAN VM (copied and started by vm.sh). Installs Docker, an
 # HTTP-only Traefik ingress, Mailpit, and the openjury-<environment> runner.
 # Reads a short-lived runner registration token on stdin; safe to rerun.
+set +x
 set -euo pipefail
 
-repo="${1:?Usage: vm-bootstrap.sh <owner/repo> <dev|staging|production> < registration-token}"
-environment="${2:?Usage: vm-bootstrap.sh <owner/repo> <dev|staging|production> < registration-token}"
+repo="${1:?Usage: vm-bootstrap.sh <owner/repo> <dev|staging|production> <confirmed-private-repo> < registration-token}"
+environment="${2:?Usage: vm-bootstrap.sh <owner/repo> <dev|staging|production> <confirmed-private-repo> < registration-token}"
+if [[ ! "$repo" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ || "${3:-}" != "$repo" ]]; then
+  echo "Refusing runner attachment: use vm.sh to verify and explicitly confirm a trusted PRIVATE deployment repository" >&2
+  exit 1
+fi
 [[ "$environment" =~ ^(dev|staging|production)$ ]] || { echo "Invalid environment" >&2; exit 1; }
 runner_version=2.337.0
 runner_sha256=70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613
 runner_user=openjury-runner
 runner_dir=/opt/actions-runner
+if [[ -f "$runner_dir/.runner" ]]; then
+  if ! python3 - "$runner_dir/.runner" "$repo" <<'PY'
+import json, sys
+with open(sys.argv[1]) as f:
+    config = json.load(f)
+if config.get("gitHubUrl") != f"https://github.com/{sys.argv[2]}":
+    sys.exit(1)
+PY
+  then
+    echo "Existing runner is not attached to the confirmed private deployment repository. Stop its service, unregister it from the old repository, and re-register it; refusing all bootstrap changes or service startup." >&2
+    exit 1
+  fi
+fi
 traefik_image=traefik:v3.7.13
 mailpit_image=axllent/mailpit:v1.31.4
 token=""
@@ -53,20 +71,6 @@ usermod --append --groups docker "$runner_user"
 
 docker network inspect openjury-proxy >/dev/null 2>&1 || docker network create openjury-proxy
 
-# Dev serves Mailpit at http://mail.<domain>. Elsewhere magic links are login
-# credentials, so Mailpit is reachable only through an SSH tunnel to the VM.
-if [[ "$environment" == dev ]]; then
-  # shellcheck disable=SC2016 # Backticks are Traefik rule syntax.
-  mail_access='    labels:
-      - traefik.enable=true
-      - traefik.http.routers.openjury-mail.rule=HostRegexp(`^mail\..+`)
-      - traefik.http.routers.openjury-mail.entrypoints=web
-      - traefik.http.services.openjury-mail.loadbalancer.server.port=8025'
-else
-  mail_access='    ports:
-      - "127.0.0.1:8025:8025"'
-fi
-
 install -d -m 0700 /opt/openjury-ingress
 cat > /opt/openjury-ingress/compose.yml <<EOF
 services:
@@ -108,7 +112,11 @@ services:
     networks:
       proxy:
         aliases: [openjury-mail]
-$mail_access
+    # Magic links are credentials, including on dev. Use an SSH tunnel.
+    ports:
+      - "127.0.0.1:8025:8025"
+    labels:
+      - traefik.enable=false
 
 networks:
   proxy:

@@ -1,6 +1,9 @@
 name: Prepare CI images
 description: Reuse preinstalled tools and dependencies, building locally only on a cache miss.
 inputs:
+  repository:
+    description: Source repository owning the prebuilt GHCR images (for private deployment controllers).
+    default: ''
   dependencies:
     description: Also prepare Alpine production dependencies.
     default: 'false'
@@ -30,6 +33,7 @@ runs:
       id: images
       shell: bash
       env:
+        CI_IMAGE_REPOSITORY: ${{ inputs.repository || github.repository }}
         INCLUDE_DEPENDENCIES: ${{ inputs.dependencies }}
         REBUILD: ${{ inputs.rebuild }}
         PREPARE_WORKSPACE: ${{ inputs.prepare-workspace }}
@@ -38,7 +42,9 @@ runs:
         key="$(sha256sum .nvmrc package.json package-lock.json \
           deploy/proxmox/requirements.txt Dockerfile.ci Dockerfile.ci.dockerignore \
           .github/actions/ci-images/action.yml | sha256sum | cut -d ' ' -f 1)"
-        registry="ghcr.io/${GITHUB_REPOSITORY,,}-ci"
+        repository="${CI_IMAGE_REPOSITORY:-$GITHUB_REPOSITORY}"
+        [[ "$repository" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ ]]
+        registry="ghcr.io/${repository,,}-ci"
         for target in tools dependencies; do
           if [[ "$target" == dependencies && "$INCLUDE_DEPENDENCIES" != true ]]; then
             continue

@@ -4,6 +4,7 @@
 # Run from your workstation; needs SSH to the Proxmox host as root and an
 # authenticated `gh` with repository admin.
 # Safe to rerun: an existing VM is reused and a registered runner is kept.
+set +x
 set -euo pipefail
 
 ENVIRONMENT="${ENVIRONMENT:-dev}"
@@ -21,7 +22,20 @@ CORES="${CORES:-2}"
 MEMORY_MB="${MEMORY_MB:-$default_memory}"
 DISK_GB="${DISK_GB:-32}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519.pub}"
-REPO="${REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
+REPO="${DEPLOYMENT_REPOSITORY:-}"
+if [[ ! "$REPO" =~ ^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$ || "${TRUSTED_PRIVATE_DEPLOYMENT_REPO:-}" != "$REPO" ]]; then
+  echo "Set DEPLOYMENT_REPOSITORY and TRUSTED_PRIVATE_DEPLOYMENT_REPO to the same explicitly trusted PRIVATE deployment repository; runner attachment is refused by default" >&2
+  exit 1
+fi
+verify_private_repo() {
+  if [[ "$(gh api "repos/$REPO" --jq .visibility)" != private ]]; then
+    echo "Runner repository must be PRIVATE; public/internal repositories are refused" >&2
+    exit 1
+  fi
+}
+verify_private_repo
+# Labels only route jobs; they do not restrict which workflows may execute.
+# The private deployment repository must never run untrusted PR code.
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 pve() { ssh -o BatchMode=yes "$PVE_HOST" "$@"; }
@@ -68,9 +82,10 @@ for _ in $(seq 30); do "${vm[@]}" true 2>/dev/null && break; sleep 5; done
 # Exit code 2 means done with recoverable warnings, e.g. an interface rename.
 "${vm[@]}" cloud-init status --wait >/dev/null || [[ $? -eq 2 ]]
 
+verify_private_repo
 token="$(gh api --method POST "repos/$REPO/actions/runners/registration-token" --jq .token)"
 scp -q vm-bootstrap.sh "ubuntu@$ip:/tmp/openjury-bootstrap.sh"
-printf '%s\n' "$token" | "${vm[@]}" sudo bash /tmp/openjury-bootstrap.sh "$REPO" "$ENVIRONMENT"
+printf '%s\n' "$token" | "${vm[@]}" sudo bash /tmp/openjury-bootstrap.sh "$REPO" "$ENVIRONMENT" "$REPO"
 
 if [[ "$ENVIRONMENT" != dev ]]; then
   cat <<EOF
@@ -95,4 +110,7 @@ Dev VM ready. Set these in GitHub, then push a PR revision (or rerun its CI):
   gh variable set APP_SCHEME --env dev --body http
   gh variable set PREVIEW_CD_ENABLED --body true
 Previews will be served at http://pr-<number>.$domain
+Configure PREVIEW_ADMIN_PASSWORD in the trusted deployment workflow before seeding previews.
+Mailpit is available only through SSH:
+  ssh -L 8025:127.0.0.1:8025 ubuntu@$ip   # then open http://localhost:8025
 EOF

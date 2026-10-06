@@ -60,6 +60,14 @@
             assert len({g[key] for g in guests}) == 3, f"Duplicate {key}"
         admin = ipaddress.IPv4Network(c["admin"])
         management = [ipaddress.IPv4Network(n) for n in c["management"]]
+        assert isinstance(c["protected"], list), "Protected CIDRs must be a list"
+        assert all(isinstance(n, str) and "/" in n for n in c["protected"]), \
+            "Protected CIDRs must be IPv4 CIDR strings"
+        protected = [ipaddress.IPv4Network(n) for n in c["protected"]]
+        assert all(str(p) == n for p, n in zip(protected, c["protected"])), \
+            "Use canonical IPv4 CIDRs, for example 198.51.100.40/32"
+        assert not any(n.overlaps(p) for n in nets for p in protected), \
+            "Protected CIDRs must not overlap guest subnets"
         assert management and any(admin.subnet_of(n) for n in management)
         host = ipaddress.IPv4Address(c["host"])
         assert any(host in n for n in management), "Management CIDRs must include Proxmox"
@@ -70,12 +78,13 @@
                       "169.254.0.0/16",
                       "224.0.0.0/4", "240.0.0.0/4")]
         assert c["dns"], "At least one approved DNS resolver is required"
-        for value in c["dns"] + [c["ntp"]]:
-            ip = ipaddress.IPv4Address(value)
-            assert not any(ip in n for n in forbidden + management + nets), \
-                "DNS/NTP must not bypass protected networks"
         backup = ipaddress.IPv4Address(c["backup"])
         assert backup != host and backup not in ips, "PBS must be off-host"
+        assert not any(backup in n for n in nets), "PBS must not be on a guest subnet"
+        for value in c["dns"] + [c["ntp"]]:
+            ip = ipaddress.IPv4Address(value)
+            assert ip != backup and not any(ip in n for n in forbidden + management + protected + nets), \
+                "DNS/NTP must not bypass protected networks"
         print("IPv4, distinct VMIDs/VLANs, and isolation configuration validated")
     stdin: >-
       {{ {
@@ -98,6 +107,7 @@
         ],
         'admin': openjury_management_admin_cidr,
         'management': openjury_management_cidrs,
+        'protected': openjury_protected_cidrs,
         'dns': openjury_dns_servers,
         'ntp': openjury_ntp_server,
         'host': ansible_host,

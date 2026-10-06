@@ -1,0 +1,51 @@
+# Reuse deployment images, initialization scripts and service configuration.
+# Compose >= 2.24.4 is required for !override. No app, published ports or proxy.
+services:
+  db:
+    extends:
+      file: compose.supabase.yml
+      service: db
+    restart: "no"
+    networks: !override [default]
+  auth:
+    extends:
+      file: compose.supabase.yml
+      service: auth
+    restart: "no"
+    networks: !override [default]
+    labels: !override {traefik.enable: "false"}
+  rest:
+    extends:
+      file: compose.supabase.yml
+      service: rest
+    restart: "no"
+    networks: !override [default]
+    labels: !override {traefik.enable: "false"}
+  storage:
+    extends:
+      file: compose.supabase.yml
+      service: storage
+    restart: "no"
+    networks: !override [default]
+    labels: !override {traefik.enable: "false"}
+  realtime:
+    extends:
+      file: compose.supabase.yml
+      service: realtime
+    restart: "no"
+    networks: !override [default]
+    labels: !override {traefik.enable: "false"}
+  migrate:
+    extends:
+      file: compose.supabase.yml
+      service: migrate
+    networks: !override [default]
+
+networks:
+  default:
+    driver: bridge
+
+volumes:
+  db-data:
+  db-config:
+  storage-data:

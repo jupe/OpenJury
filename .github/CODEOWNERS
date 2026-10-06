@@ -1,0 +1,19 @@
+# Require code-owner review in the main branch protection settings.
+/.github/ @jupe
+/deploy/ @jupe
+/Dockerfile* @jupe
+/.dockerignore @jupe
+/package.json @jupe
+/package-lock.json @jupe
+/.nvmrc @jupe
+/next.config.ts @jupe
+/supabase/ @jupe
+/lib/supabase.ts @jupe
+/lib/auth* @jupe
+/components/AuthBoundary.tsx @jupe
+/components/AccountMenu.tsx @jupe
+/components/Membership.tsx @jupe
+/app/runtime-config.js/ @jupe
+/docs/security.md @jupe
+/docs/deployment.md @jupe
+/docs/proxmox.md @jupe

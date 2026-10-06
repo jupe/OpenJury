@@ -2,7 +2,7 @@
 
 [Project overview](../README.md) · [Database](database.md) · [Deployment isolation](deployment.md#prepare-self-hosted-infrastructure)
 
-**Row Level Security is enabled on all six tables.** After migration
+**Row Level Security is enabled on application tables.** After migration
 `02_group_access.sql`, authenticated users can read only their own membership
 rows and the groups those memberships grant access to. Anonymous clients have
 no group access. Group creation uses the `create_group` RPC, which creates the
@@ -87,10 +87,11 @@ A trusted scheduled service must invoke
 `process_scheduled_competition_publications()` periodically using the service-role
 credential; never expose that credential to the browser.
 
-Remaining security work:
-
-1. Implement invitations and authorized membership management, including admin
-   authorization. An initial admin role alone does not grant competition access.
+Migration `12_roles_and_invites.sql` adds confirmed-email platform administration,
+admin-controlled link/email invitations and membership management, and separate
+participant/audience competition roles. Direct invitation and platform-admin table
+access remains revoked. A group admin role alone does not replace the competition
+role required for submission or voting.
 
 The `competition-submissions` Storage bucket is private, limits uploads to
 JPEG/PNG/WebP images up to 10 MiB, and uses random UUID filenames without user
@@ -100,7 +101,11 @@ the authenticated Storage client into temporary in-memory Blob URLs; it does
 not create public or signed media URLs. Removed media and failed uploads are
 deleted through Storage and failed cleanup can be retried.
 
-Run `supabase/tests/group_access.sql`,
+CI runs `bash supabase/test.sh` against a disposable real Supabase stack. It applies
+all migrations and executes every `supabase/tests/*.sql` file, including platform
+administration, invitations and participant/audience role tests. Its dedicated
+Docker bridge publishes no ports and cleanup removes only uniquely named test resources.
+For manual verification, run `supabase/tests/group_access.sql`,
 `supabase/tests/group_management.sql`,
 `supabase/tests/competition_setup.sql`,
 `supabase/tests/secure_submissions.sql`,
@@ -124,8 +129,82 @@ historical participants, role/label fallbacks, email-free published labels,
 anonymous/member/other-tenant denial, membership revocation, and denied direct
 sensitive-table access. Fixtures roll back.
 
+Migration `16_published_result_permissions.sql` revokes the `service_role` EXECUTE
+grant inherited from real Supabase default privileges when migration 14 recreated
+the published-results function. Apply it to existing deployments as well; changing
+an already-recorded migration would not repair their grants.
+
 Operational safeguards are covered alongside the procedures they protect:
 [public client configuration](development.md#2-configure-supabase),
 [merge protection](ci-cd.md#enable-merge-protection-first),
 [automation permissions](automation.md), [deployment isolation](deployment.md),
 and [Proxmox trust boundaries](proxmox.md#prerequisites-and-trust-boundaries).
+
+## Reporting a vulnerability
+
+Do not publish credentials, participant data, or exploit details in an issue or
+pull request. Use this repository's **Security → Report a vulnerability** private
+reporting feature when enabled. If it is unavailable, ask the maintainer to enable
+private reporting without including sensitive details. There is no monitored
+security email address published by this project.
+
+Include the affected revision, impact, and a minimal reproduction using a local
+disposable environment and fictional data. Do not probe the maintainer's machines,
+production service, or other participants' accounts without explicit authorization.
+Fixes target the current maintained `main` revision; older deployments should be
+updated after review. No response-time guarantee is offered.
+
+## Before making the repository public
+
+These are operator requirements, not settings enforced by a code commit:
+
+- Stop and unregister **all** runners attached to this source repository, including
+  organization runners whose groups permit it. Disable queued legacy deployment
+  runs and destroy old previews from a trusted administrator session.
+- Create a private, maintainer-only deployment repository or controller; migrate
+  runner registrations and environment secrets there. Do not expose it to public
+  PRs through dispatch tokens or reusable self-hosted workflows.
+- Protect `main`: require PRs, current-revision maintainer/code-owner approval,
+  dismiss stale approvals, require `checks`, and prevent unreviewed bypasses.
+  CODEOWNERS alone does not enforce reviews. Require approval for all outside
+  contributors' Actions runs, keep fork tokens read-only, and never send fork
+  workflows secrets. Retain production deployment approval in the private boundary.
+- Audit **all accessible history, branches and tags**, issues, PR discussions,
+  screenshots, deployment summaries, Actions logs/artifacts, and package layers.
+  A clean checkout or `.gitignore` does not prove that history is safe. Scan binary
+  artifacts/backups separately. Avoid publishing raw scanner output containing
+  suspected credentials. Revoke/rotate exposed credentials before any history
+  cleanup; cleanup does not invalidate a leaked credential.
+- Enable GitHub secret scanning/push protection and private vulnerability reporting
+  where available. Check repository, environment, App and package permissions.
+  Public source visibility does not automatically make GHCR packages public.
+- Verify VM and upstream firewall policies against private and public/NAT aliases,
+  IPv6, metadata endpoints, hypervisor, backup and other environment networks.
+  Keep dev/staging behind VPN or ingress authentication and Mailpit loopback-only.
+- Exercise a fork PR: CI must pass without secrets and without any self-hosted
+  runner job. Verify backups through an isolated restore with runners stopped.
+
+Deleted refs, inaccessible logs, private configuration and live firewall/GitHub
+settings require an administrator audit. Do not claim a complete exposure audit
+based only on the repository's available refs.
+
+## Public service abuse controls
+
+Publishing source does not require opening account registration. Before allowing
+unrestricted service access, configure the self-hosted Auth email budget with
+`AUTH_RATE_LIMIT_EMAIL_SENT` (default 10 per hour), real SMTP delivery and monitoring.
+Use supported Supabase Auth CAPTCHA and per-IP limits where appropriate; CAPTCHA
+requires both backend/provider configuration and a client token integration.
+
+At the upstream HTTPS terminator, enforce request/body/connection limits, restrict
+accepted hostnames, overwrite untrusted forwarded headers, and allow backend VM
+HTTP access only from that proxy or approved administrators. Add HSTS only after
+HTTPS is reliable, `X-Content-Type-Options: nosniff`, a suitable Referrer-Policy,
+frame restrictions, and a tested Content-Security-Policy compatible with Next.js,
+Supabase connections and private blob image previews. Do not blindly deploy a
+policy that breaks sign-in or voting. Keep WebSocket upgrades for Realtime.
+
+The per-image bucket limit is not a per-user storage quota. Set operational
+storage/account quotas, monitor disk and database growth, and alert on email/auth
+abuse and unusual traffic. These external controls must be verified on the live
+service; this repository does not implement a WAF, CAPTCHA UI, or quota service.

@@ -24,6 +24,10 @@ OUT DROP -dest {{ hostvars[name].ansible_host }}/32
 {% for cidr in openjury_management_cidrs %}
 OUT DROP -dest {{ cidr }}
 {% endfor %}
+{% for cidr in openjury_protected_cidrs %}
+OUT DROP -dest {{ cidr }}
+{% endfor %}
+OUT DROP -dest {{ openjury_backup_server }}/32
 {% for resolver in openjury_dns_servers %}
 OUT ACCEPT -dest {{ resolver }} -p udp -dport 53
 OUT ACCEPT -dest {{ resolver }} -p tcp -dport 53

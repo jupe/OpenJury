@@ -30,6 +30,7 @@ from public.groups where name = 'Submission access tenant';
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000022', true);
+select public.join_competition('00000000-0000-0000-0000-000000000024', 'participant');
 select public.save_submission(
   '00000000-0000-0000-0000-000000000024', null, 'Private title', '{}'
 );
@@ -185,22 +186,13 @@ update public.competitions
 set local role authenticated;
 do $$
 begin
-  if (select count(*) from public.get_blind_voting_entries(
-    '00000000-0000-0000-0000-000000000024'
-  )) <> 0 then
-    raise exception 'A voter was shown their own entry in the blind projection';
-  end if;
-  if exists (
-    select 1
-    from public.get_blind_voting_entries(
+  begin
+    perform public.get_blind_voting_entries(
       '00000000-0000-0000-0000-000000000024'
-    ) as entry
-    where to_jsonb(entry) ? 'creator_id'
-       or to_jsonb(entry) ? 'title'
-       or to_jsonb(entry) ? 'id'
-  ) then
-    raise exception 'Blind voting projection exposed identifying fields';
-  end if;
+    );
+    raise exception 'Participant accessed audience-only blind voting';
+  exception when insufficient_privilege then null;
+  end;
   if public.can_read_submission_media(
     '00000000-0000-0000-0000-000000000024/' ||
       (select id::text from public.get_my_submission(
@@ -219,6 +211,25 @@ begin
 end;
 $$;
 
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000021', true);
+select public.join_competition('00000000-0000-0000-0000-000000000024', 'audience');
+do $$
+begin
+  if (select count(*) from public.get_blind_voting_entries(
+    '00000000-0000-0000-0000-000000000024'
+  )) <> 1 or exists (
+    select 1 from public.get_blind_voting_entries(
+      '00000000-0000-0000-0000-000000000024'
+    ) as entry
+    where to_jsonb(entry) ? 'creator_id'
+       or to_jsonb(entry) ? 'title'
+       or to_jsonb(entry) ? 'id'
+  ) then
+    raise exception 'Blind audience projection omitted an entry or exposed identifying fields';
+  end if;
+end;
+$$;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000022', true);
 reset role;
 update public.competitions
   set voting_deadline = clock_timestamp() - interval '1 second'

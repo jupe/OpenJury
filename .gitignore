@@ -21,6 +21,10 @@
 # misc
 .DS_Store
 *.pem
+*.key
+.npmrc
+id_rsa
+id_ed25519
 
 # debug
 npm-debug.log*

@@ -30,6 +30,12 @@ all:
         # Include ALL management networks, including publicly addressed management.
         openjury_management_cidrs:
           - 192.0.2.0/24
+        # REQUIRED REVIEW: list ALL sensitive destinations not already covered by
+        # management CIDRs, including public aliases/NAT addresses for Proxmox,
+        # PBS, routers, other guests, and internal services. Use IPv4 CIDRs (/32
+        # for single addresses). Private ranges alone do not protect public aliases.
+        # Must not overlap guest subnets or approved DNS/NTP endpoints.
+        openjury_protected_cidrs: []
         openjury_dns_servers:
           - 198.51.100.53
         openjury_ntp_server: 198.51.100.123
@@ -59,8 +65,8 @@ all:
         # administrator SSH. This playbook does NOT configure routers, DNS, NAT,
         # switches, TLS, or upstream ACLs. Gateways must not bridge the VLANs.
         # Approved DNS/NTP may be private IPv4 endpoints, but must not be within
-        # management/guest subnets or link-local space. Only their exact DNS/NTP
-        # ports are exceptions to the private-destination block.
+        # management/protected/guest subnets, PBS, or link-local space. Only their
+        # exact DNS/NTP ports are exceptions to the private-destination block.
         # Use routed guest addresses or preserve management source CIDRs through
         # NAT; these addresses must also be reachable from the Ansible controller.
       hosts:

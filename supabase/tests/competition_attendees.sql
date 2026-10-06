@@ -160,12 +160,12 @@ begin
   exception when insufficient_privilege then null;
   end;
   if exists (
-    with expected(rank, score, vote_count, title, creator_id, creator_name) as (values
-      (1, 80::numeric, 1, 'Full name entry', '00000000-0000-0000-0000-000000000202'::uuid, 'Full Name'),
-      (1, 80::numeric, 1, 'Short name entry', '00000000-0000-0000-0000-000000000204'::uuid, 'Short Name'),
-      (1, 80::numeric, 1, 'Email fallback entry', '00000000-0000-0000-0000-000000000205'::uuid, 'Participant'),
-      (1, 80::numeric, 1, 'Participant entry', '00000000-0000-0000-0000-000000000206'::uuid, 'Participant'),
-      (1, 80::numeric, 1, 'Dual entry', '00000000-0000-0000-0000-000000000209'::uuid, 'Dual')
+    with expected(rank, score, vote_count, title, creator_id, creator_name, is_disqualified, media_keys) as (values
+      (1, 80::numeric, 1, 'Full name entry', '00000000-0000-0000-0000-000000000202'::uuid, 'Full Name', false, '{}'::text[]),
+      (1, 80::numeric, 1, 'Short name entry', '00000000-0000-0000-0000-000000000204'::uuid, 'Short Name', false, '{}'::text[]),
+      (1, 80::numeric, 1, 'Email fallback entry', '00000000-0000-0000-0000-000000000205'::uuid, 'Participant', false, '{}'::text[]),
+      (1, 80::numeric, 1, 'Participant entry', '00000000-0000-0000-0000-000000000206'::uuid, 'Participant', false, '{}'::text[]),
+      (1, 80::numeric, 1, 'Dual entry', '00000000-0000-0000-0000-000000000209'::uuid, 'Dual', false, '{}'::text[])
     ),
     actual as (
       select * from public.get_published_competition_results('00000000-0000-0000-0000-000000000221')
@@ -258,6 +258,20 @@ begin
   end if;
 end;
 $$;
+
+-- The service role must not bypass published-result authorization.
+set local role service_role;
+select set_config('request.jwt.claim.sub', '', true);
+do $$
+begin
+  begin
+    perform public.get_published_competition_results('00000000-0000-0000-0000-000000000221');
+    raise exception 'Service role without a user bypassed published-result authorization';
+  exception when insufficient_privilege then null;
+  end;
+end;
+$$;
+reset role;
 
 delete from public.group_members
 where group_id = '00000000-0000-0000-0000-000000000231'

@@ -1,0 +1,33 @@
+# Reference only: copy with deploy-environment.yml to a PRIVATE deployment repo.
+# This deliberately previews ONLY a tested trusted MAIN digest, not PR code.
+# Only open same-repository PRs are eligible; fork PRs are rejected.
+# PR images need a separate disposable isolation design before being enabled.
+# SOURCE_TOKEN needs source Actions/contents/pull-requests read; GHCR_TOKEN
+# needs source packages read. Protect dev with approval and private-only runners.
+# Set an explicit dev PREVIEW_ADMIN_PASSWORD secret; no predictable default exists.
+# Optional PREVIEW_ADMIN_EMAIL must use a fictional .test or .invalid domain.
+name: Trusted main preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Open source PR receiving an isolated trusted-main preview
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-preview-${{ inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    if: github.event.repository.private == true && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: dev
+      pr_number: ${{ inputs.pr_number }}
+    secrets: inherit
