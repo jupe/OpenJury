@@ -205,8 +205,17 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   await expect(page.getByRole("button", { name: "Take a photo" })).toBeVisible();
   const cameraInput = page.locator('input[type="file"][capture="environment"]');
   await expect(cameraInput).toHaveAttribute("accept", "image/jpeg,image/png,image/webp,image/heic,image/heif");
-  await cameraInput.setInputFiles({ name: "phone.heic", mimeType: "image/heic", buffer: png });
+  await cameraInput.setInputFiles({ name: "phone.png", mimeType: "image/png", buffer: png });
   await expect(page.getByText("1 new image(s) selected.")).toBeVisible();
+  const pendingPreview = page.getByRole("img", { name: "Your submission image 1", exact: true });
+  await expect(pendingPreview).toBeVisible();
+  await expect.poll(() => pendingPreview.evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBe(1);
+  await page.locator('input[type="file"][multiple]').setInputFiles({ name: "phone.heic", mimeType: "image/heic", buffer: png });
+  await expect(page.getByText("2 new image(s) selected.")).toBeVisible();
+  await expect(page.getByRole("img", { name: "Your submission image 2", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Remove image 1" }).click();
+  await expect(page.getByText("1 new image(s) selected.")).toBeVisible();
+  await expect(page.getByRole("img", { name: "Your submission image 1", exact: true })).toBeVisible();
   await expectPhoneLayout(page);
   await page.getByRole("button", { name: "Save submission" }).click();
   await expect(page.getByRole("heading", { name: "Edit your submission" })).toBeVisible();

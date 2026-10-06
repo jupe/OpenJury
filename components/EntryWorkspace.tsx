@@ -167,6 +167,8 @@ function MediaGallery({
   label,
   removeLabel,
   onRemove,
+  pendingFiles = [],
+  onRemovePending,
 }: {
   client: ReturnType<typeof useAuth>["client"];
   mediaKeys: string[];
@@ -174,9 +176,12 @@ function MediaGallery({
   /** With onRemove, each image gets a remove button with this accessible name. */
   removeLabel?: (key: string) => string;
   onRemove?: (key: string) => void;
+  pendingFiles?: File[];
+  onRemovePending?: (index: number) => void;
 }) {
   const { t } = useLocale();
   const [images, setImages] = useState<Array<{ key: string; url: string }>>([]);
+  const [pendingImages, setPendingImages] = useState<Array<{ key: string; url: string; fileIndex: number }>>([]);
   const [error, setError] = useState("");
   const [visible, setVisible] = useState(false);
   const [openAt, setOpenAt] = useState<number | null>(null);
@@ -230,14 +235,27 @@ function MediaGallery({
     };
   }, [client, keyList, visible]);
 
-  const shown = images.filter(({ key }) => mediaKeys.includes(key));
+  useEffect(() => {
+    const urls = pendingFiles.map((file) => URL.createObjectURL(file));
+    setPendingImages(urls.map((url, fileIndex) => ({
+      key: `pending:${fileIndex}:${pendingFiles[fileIndex].name}`,
+      url,
+      fileIndex,
+    })));
+    return () => urls.forEach((url) => URL.revokeObjectURL(url));
+  }, [pendingFiles]);
+
+  const shown: Array<{ key: string; url: string; fileIndex?: number }> = [
+    ...images.filter(({ key }) => mediaKeys.includes(key)),
+    ...pendingImages,
+  ];
   return (
-    <div ref={gallery} className={mediaKeys.length ? "min-h-24 sm:min-h-28" : ""}>
+    <div ref={gallery} className={mediaKeys.length || pendingFiles.length ? "min-h-24 sm:min-h-28" : ""}>
       {error && mediaKeys.length > 0 && <p role="alert">{t(error)}</p>}
       {shown.length > 0 && (
         <ul className="flex snap-x gap-2 overflow-x-auto pb-1">
-          {shown.map(({ key, url }, index) => (
-            <li key={key} className="relative shrink-0 snap-start">
+          {shown.map((image, index) => (
+            <li key={image.key} className="relative shrink-0 snap-start">
               <button
                 type="button"
                 title={t("Open gallery")}
@@ -245,7 +263,7 @@ function MediaGallery({
                 className="block cursor-zoom-in overflow-hidden rounded-lg border border-slate-200 hover:border-indigo-400"
               >
                 <Image
-                  src={url}
+                  src={image.url}
                   alt={`${label} ${index + 1}`}
                   width={224}
                   height={224}
@@ -253,12 +271,18 @@ function MediaGallery({
                   className="h-24 w-24 object-cover sm:h-28 sm:w-28"
                 />
               </button>
-              {onRemove && removeLabel && (
+              {onRemove && (removeLabel || onRemovePending) && (
                 <button
                   type="button"
-                  aria-label={removeLabel(key)}
-                  title={removeLabel(key)}
-                  onClick={() => onRemove(key)}
+                  aria-label={image.fileIndex !== undefined
+                    ? t("Remove image {number}", { number: mediaKeys.length + image.fileIndex + 1 })
+                    : removeLabel?.(image.key)}
+                  title={image.fileIndex !== undefined
+                    ? t("Remove image {number}", { number: mediaKeys.length + image.fileIndex + 1 })
+                    : removeLabel?.(image.key)}
+                  onClick={() => image.fileIndex !== undefined
+                    ? onRemovePending?.(image.fileIndex)
+                    : onRemove(image.key)}
                   className="absolute top-0 right-0 flex size-11 cursor-pointer items-start justify-end p-1"
                 >
                   <span className="flex size-6 items-center justify-center rounded-full bg-slate-900/75 text-white hover:bg-red-700">
@@ -642,6 +666,8 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
               label={t("Your submission image")}
               removeLabel={(key) => t("Remove image {number}", { number: (submission?.media_keys.indexOf(key) ?? 0) + 1 })}
               onRemove={(key) => setRemovedKeys((current) => [...current, key])}
+              pendingFiles={newFiles}
+              onRemovePending={(index) => setNewFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))}
             />
             <div className="flex items-center gap-1">
               <IconButton icon="camera" aria-label={t("Take a photo")} onClick={() => captureInput.current?.click()} />
@@ -654,7 +680,10 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
               accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
               multiple
               aria-label={t("Add images")}
-              onChange={(event) => selectFiles(event.target.files)}
+              onChange={(event) => {
+                selectFiles(event.target.files, true);
+                event.currentTarget.value = "";
+              }}
               className="hidden"
             />
             <input
