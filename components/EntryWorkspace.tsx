@@ -12,6 +12,22 @@ import ImageLightbox from "@/components/ImageLightbox";
 import Toast, { type ToastMessage } from "@/components/Toast";
 import { StatusBadge, nextTransition } from "@/components/CompetitionStatus";
 import { CompetitionRole, type CompetitionRoleName } from "@/components/Membership";
+import { useLocale } from "@/lib/i18n";
+
+type LocalizedError = { message: string; error?: string };
+
+function localizedFailure(message: string, failure: unknown): LocalizedError {
+  return {
+    message,
+    error: failure && typeof failure === "object" && "message" in failure && typeof failure.message === "string"
+      ? failure.message : undefined,
+  };
+}
+
+function ErrorText({ error }: { error: string | LocalizedError }) {
+  const { t } = useLocale();
+  return <>{typeof error === "string" ? error : t(error.message, { error: error.error ?? t("Please try again.") })}</>;
+}
 
 /** Scores are percentages of the maximum; whole numbers read better than the stored precision. */
 const formatPercent = (score: number) => `${Math.round(score)}%`;
@@ -39,39 +55,41 @@ type Competition = {
   competition_participants?: { role: CompetitionRoleName }[] | null;
 };
 
-function competitionCrumbs(competitionId: string, competition: Competition, groupId: string | null): Crumb[] {
+function competitionCrumbs(competitionId: string, competition: Competition, groupId: string | null, t: ReturnType<typeof useLocale>["t"]): Crumb[] {
   return [
-    { label: "Dashboard", href: "/dashboard" },
-    ...(groupId ? [{ label: [competition.groups].flat()[0]?.name || "Group", href: `/group/${encodeURIComponent(groupId)}` }] : []),
+    { label: t("Dashboard"), href: "/dashboard" },
+    ...(groupId ? [{ label: [competition.groups].flat()[0]?.name || t("Group"), href: `/group/${encodeURIComponent(groupId)}` }] : []),
     { label: competition.name, href: `/competition/${encodeURIComponent(competitionId)}` },
   ];
 }
 
 function Deadlines({ competition }: { competition: Competition }) {
+  const { t, formatDateTime } = useLocale();
   return (
     <>
       {competition.submission_deadline && (
-        <p>Submissions close {new Date(competition.submission_deadline).toLocaleString()}</p>
+        <p>{t("Submissions close {date}", { date: formatDateTime(competition.submission_deadline) })}</p>
       )}
       {competition.voting_deadline && (
-        <p>Voting closes {new Date(competition.voting_deadline).toLocaleString()}</p>
+        <p>{t("Voting closes {date}", { date: formatDateTime(competition.voting_deadline) })}</p>
       )}
     </>
   );
 }
 
 function CompetitionDetails({ competition }: { competition: Competition }) {
+  const { t } = useLocale();
   return (
     <>
       {competition.description && (
         <section className="mt-4">
-          <h3 className="font-semibold">Description</h3>
+          <h3 className="font-semibold">{t("Description")}</h3>
           <p className="whitespace-pre-wrap break-words">{competition.description}</p>
         </section>
       )}
       {competition.rules && (
         <section className="mt-4">
-          <h3 className="font-semibold">Rules</h3>
+          <h3 className="font-semibold">{t("Rules")}</h3>
           <p className="whitespace-pre-wrap break-words">{competition.rules}</p>
         </section>
       )}
@@ -237,6 +255,7 @@ function MediaGallery({
 }
 
 export function EntryWorkspace({ competitionId }: { competitionId: string }) {
+  const { t, formatDateTime } = useLocale();
   const { client, session } = useAuth();
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
@@ -263,7 +282,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   const [cleanupKeys, setCleanupKeys] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | LocalizedError>("");
   const fileInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -285,7 +304,9 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         .maybeSingle();
       if (result.error || !result.data) {
         setGroupId(null);
-        setError(result.error?.message || "Competition not found or access denied.");
+        setError(result.error
+          ? localizedFailure("Unable to load competition: {error}", result.error)
+          : { message: "Competition not found or access denied." });
         return;
       }
       setGroupId(result.data.group_id);
@@ -336,7 +357,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         return;
       }
       if (categoryResult.error) {
-        setError(`Unable to load scoring categories: ${categoryResult.error.message}`);
+        setError(localizedFailure("Unable to load scoring categories: {error}", categoryResult.error));
         return;
       }
       if (savedBallot.error) {
@@ -368,7 +389,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       setBallotScores(saved);
       setSavedBallots(saved);
     } catch {
-      setError("Unable to load competition submissions. Please try again.");
+      setError({ message: "Unable to load competition submissions. Please try again." });
     } finally {
       setLoading(false);
     }
@@ -547,20 +568,20 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     pending.set(entryNumber, { timer: window.setTimeout(save, 400), save });
   }
 
-  if (loading) return <p role="status">Loading competition…</p>;
-  if (!competition) return <p role="alert">{error || "Competition is unavailable."}</p>;
+  if (loading) return <p role="status">{t("Loading competition…")}</p>;
+  if (!competition) return <p role="alert"><ErrorText error={error || { message: "Competition is unavailable." }} /></p>;
 
   return (
     <div className="space-y-6">
-      <Breadcrumbs items={competitionCrumbs(competitionId, competition, groupId).map((crumb, index, all) =>
+      <Breadcrumbs items={competitionCrumbs(competitionId, competition, groupId, t).map((crumb, index, all) =>
         index === all.length - 1 ? { label: crumb.label } : crumb)} />
       <Card title={competition.name}>
-        <p className="flex flex-wrap items-center gap-2">Status: <StatusBadge status={competition.status} /></p>
+        <p className="flex flex-wrap items-center gap-2">{t("Status:")} <StatusBadge status={competition.status} /></p>
         <Deadlines competition={competition} />
         <CompetitionDetails competition={competition} />
         {isAdmin && (
           <ButtonLink href={`/competition/${encodeURIComponent(competitionId)}/admin`}>
-            Manage competition
+            {t("Manage competition")}
           </ButtonLink>
         )}
       </Card>
@@ -608,7 +629,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
               />
             </label>
             {newFiles.length > 0 && <p>{newFiles.length} new image(s) selected.</p>}
-            {error && <p role="alert">{error}</p>}
+            {error && <p role="alert"><ErrorText error={error} /></p>}
             <Button type="submit" disabled={saving}>{saving ? "Saving…" : "Save submission"}</Button>
           </form>
         </Card>
@@ -619,8 +640,8 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       )}
 
       {competition.status === "voting" && votingOpen && role === "participant" && (
-        <Card title="Voting in progress">
-          <p>The audience is voting on anonymous entries now. Participants do not vote.</p>
+        <Card title={t("Voting in progress")}>
+          <p>{t("The audience is voting on anonymous entries now. Participants do not vote.")}</p>
         </Card>
       )}
       {competition.status === "voting" && votingOpen && role === "audience" && (
@@ -672,15 +693,15 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         </Card>
       )}
       {competition.status === "voting" && !votingOpen && (
-        <Card title="Voting closed">
-          <p>The voting deadline has passed. Preliminary results are not available to members.</p>
+        <Card title={t("Voting closed")}>
+          <p>{t("The voting deadline has passed. Preliminary results are not available to members.")}</p>
         </Card>
       )}
       {competition.status === "review_pending" && (
-        <Card title="Voting ended">
-          <p>Voting has ended! The administrator is reviewing the results. Please wait for the results to be published.</p>
+        <Card title={t("Voting ended")}>
+          <p>{t("Voting has ended! The administrator is reviewing the results. Please wait for the results to be published.")}</p>
           {competition.results_publish_at && (
-            <p>Results are scheduled to be published {new Date(competition.results_publish_at).toLocaleString()}.</p>
+            <p>{t("Results are scheduled to be published {date}.", { date: formatDateTime(competition.results_publish_at) })}</p>
           )}
         </Card>
       )}
@@ -725,7 +746,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           )}
         </Card>
       )}
-      {error && !editable && <p role="alert">{error}</p>}
+      {error && !editable && <p role="alert"><ErrorText error={error} /></p>}
     </div>
   );
 }
@@ -737,6 +758,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
 }
 
 function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
+  const { t } = useLocale();
   const { client, session } = useAuth();
   const [groupId, setGroupId] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -753,15 +775,15 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
   const [workingEntry, setWorkingEntry] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | LocalizedError>("");
   const [forbidden, setForbidden] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [transitioning, setTransitioning] = useState(false);
-  const [transitionError, setTransitionError] = useState("");
+  const [transitionError, setTransitionError] = useState<LocalizedError | null>(null);
   const [detailsDraft, setDetailsDraft] = useState<{ name: string; description: string; rules: string } | null>(null);
   const [savingDetails, setSavingDetails] = useState(false);
-  const [detailsError, setDetailsError] = useState("");
+  const [detailsError, setDetailsError] = useState<LocalizedError | null>(null);
   const [detailsMessage, setDetailsMessage] = useState("");
   const refresh = useCallback(() => {
     setLoading(true);
@@ -792,15 +814,17 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
           return;
         }
         if (submissionResult.error) {
-          setError(`Unable to load admin submissions: ${submissionResult.error.message}`);
+          setError(localizedFailure("Unable to load admin submissions: {error}", submissionResult.error));
           return;
         }
         if (competitionResult.error || !competitionResult.data) {
-          setError(`Unable to load competition status: ${competitionResult.error?.message || "Competition not found."}`);
+          setError(competitionResult.error
+            ? localizedFailure("Unable to load competition status: {error}", competitionResult.error)
+            : { message: "Competition not found." });
           return;
         }
         if (attendeeResult.error) {
-          setError(`Unable to load competition attendees: ${attendeeResult.error.message}`);
+          setError(localizedFailure("Unable to load competition attendees: {error}", attendeeResult.error));
           return;
         }
         setGroupId(competitionResult.data.group_id);
@@ -824,7 +848,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
           else setReviewCategories((categories.data || []) as AdminCategoryResult[]);
         }
       } catch {
-        if (active) setError("Unable to load admin submissions. Please try again.");
+        if (active) setError({ message: "Unable to load admin submissions. Please try again." });
       } finally {
         if (active) setLoading(false);
       }
@@ -838,7 +862,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
     event.preventDefault();
     if (!detailsDraft || savingDetails) return;
     setSavingDetails(true);
-    setDetailsError("");
+    setDetailsError(null);
     try {
       const { error: saveError } = await client.rpc("save_competition_details", {
         p_competition_id: competitionId,
@@ -851,7 +875,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       setDetailsMessage("Competition details saved.");
       refresh();
     } catch (failure) {
-      setDetailsError(`Unable to save competition details: ${failureMessage(failure)}`);
+      setDetailsError(localizedFailure("Unable to save competition details: {error}", failure));
     } finally {
       setSavingDetails(false);
     }
@@ -870,9 +894,9 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
 
   async function advance() {
     const step = nextTransition[competitionStatus];
-    if (!step || transitioning || !window.confirm(step.confirm)) return;
+    if (!step || transitioning || !window.confirm(t(step.confirm))) return;
     setTransitioning(true);
-    setTransitionError("");
+    setTransitionError(null);
     try {
       const { error: transitionFailure } = await client.rpc("transition_competition", {
         p_competition_id: competitionId,
@@ -881,7 +905,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       if (transitionFailure) throw transitionFailure;
       refresh();
     } catch (failure) {
-      setTransitionError(`Unable to ${step.action.toLowerCase()}: ${failureMessage(failure)}`);
+      setTransitionError(localizedFailure(step.error, failure));
     } finally {
       setTransitioning(false);
     }
@@ -977,7 +1001,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       setActionMessage(publishAt ? "Publication schedule saved." : "Scheduled publication cancelled.");
       refresh();
     } catch (scheduleError) {
-      setError(`Unable to save publication schedule: ${failureMessage(scheduleError)}`);
+      setError(localizedFailure("Unable to save publication schedule: {error}", scheduleError));
     }
   }
 
@@ -995,22 +1019,22 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       setReviewResults(null);
       setActionMessage("Results published. Group members can now view the final rankings and identities.");
     } catch (publishError) {
-      setError(`Unable to publish results: ${failureMessage(publishError)}`);
+      setError(localizedFailure("Unable to publish results: {error}", publishError));
     } finally {
       setPublishing(false);
     }
   }
 
-  if (loading) return <p role="status">Loading admin submissions…</p>;
+  if (loading) return <p role="status">{t("Loading admin submissions…")}</p>;
   if (forbidden) {
     return (
-      <Card title="Admin access required">
-        <p>Only group administrators can manage this competition.</p>
-        <ButtonLink href={`/competition/${encodeURIComponent(competitionId)}`}>View competition</ButtonLink>
+      <Card title={t("Admin access required")}>
+        <p>{t("Only group administrators can manage this competition.")}</p>
+        <ButtonLink href={`/competition/${encodeURIComponent(competitionId)}`}>{t("View competition")}</ButtonLink>
       </Card>
     );
   }
-  if (error && !competition) return <p role="alert">{error}</p>;
+  if (error && !competition) return <p role="alert"><ErrorText error={error} /></p>;
   const step = nextTransition[competitionStatus];
 
   const attendeeName = (userId: string) =>
@@ -1019,18 +1043,18 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
   return (
     <div className="space-y-6">
       {competition && (
-        <Breadcrumbs items={[...competitionCrumbs(competitionId, competition, groupId), { label: "Manage" }]} />
+        <Breadcrumbs items={[...competitionCrumbs(competitionId, competition, groupId, t), { label: t("Manage") }]} />
       )}
-      <Card title={competition?.name || "Competition status"}>
-        <p className="flex flex-wrap items-center gap-2">Status: <StatusBadge status={competitionStatus} /></p>
+      <Card title={competition?.name || t("Competition status")}>
+        <p className="flex flex-wrap items-center gap-2">{t("Status:")} <StatusBadge status={competitionStatus} /></p>
         {competition && <Deadlines competition={competition} />}
         {competitionStatus === "draft" && (
-          <p>Edit scoring categories, event type, and deadlines from the group page before opening submissions. Competition details remain editable.</p>
+          <p>{t("Edit scoring categories, event type, and deadlines from the group page before opening submissions. Competition details remain editable.")}</p>
         )}
         {competitionStatus === "review_pending" && (
           <>
-            <p>Review the preliminary rankings below, then publish the final results.</p>
-            <label className="mt-3 block max-w-sm">Schedule results publication
+            <p>{t("Review the preliminary rankings below, then publish the final results.")}</p>
+            <label className="mt-3 block max-w-sm">{t("Schedule results publication")}
               <input
                 type="datetime-local"
                 value={publishAt}
@@ -1038,49 +1062,49 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
                 className="mt-1 block w-full rounded border border-slate-300 p-2"
               />
             </label>
-            <p className="text-sm text-slate-600">Change the time or leave it blank to cancel the schedule. You can update it any time before publication.</p>
-            <Button onClick={() => void saveSchedule()}>Save publication schedule</Button>
+            <p className="text-sm text-slate-600">{t("Change the time or leave it blank to cancel the schedule. You can update it any time before publication.")}</p>
+            <Button onClick={() => void saveSchedule()}>{t("Save publication schedule")}</Button>
           </>
         )}
-        {transitionError && <p role="alert">{transitionError}</p>}
+        {transitionError && <p role="alert"><ErrorText error={transitionError} /></p>}
         {step && (
           <Button disabled={transitioning} onClick={() => void advance()}>
-            {transitioning ? "Updating…" : step.action}
+            {t(transitioning ? "Updating…" : step.action)}
           </Button>
         )}
       </Card>
       {competition && (
-        <Card title="Competition details">
+        <Card title={t("Competition details")}>
           {detailsDraft ? (
             <form onSubmit={saveDetails} className="space-y-4" aria-busy={savingDetails}>
               <fieldset disabled={savingDetails} className="space-y-4">
-                <label className="block">Competition name
+                <label className="block">{t("Competition name")}
                   <input required maxLength={100} value={detailsDraft.name} onChange={(event) => setDetailsDraft({ ...detailsDraft, name: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
                 </label>
-                <label className="block">Description (optional)
+                <label className="block">{t("Description (optional)")}
                   <textarea maxLength={10000} rows={3} value={detailsDraft.description} onChange={(event) => setDetailsDraft({ ...detailsDraft, description: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
                 </label>
-                <label className="block">Rules (optional)
+                <label className="block">{t("Rules (optional)")}
                   <textarea maxLength={10000} rows={4} value={detailsDraft.rules} onChange={(event) => setDetailsDraft({ ...detailsDraft, rules: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
                 </label>
                 <div className="flex flex-wrap gap-3">
-                  <Button type="submit">{savingDetails ? "Saving…" : "Save details"}</Button>
-                  <Button type="button" variant="secondary" onClick={() => { setDetailsDraft(null); setDetailsError(""); }}>Cancel edit</Button>
+                  <Button type="submit">{t(savingDetails ? "Saving…" : "Save details")}</Button>
+                  <Button type="button" variant="secondary" onClick={() => { setDetailsDraft(null); setDetailsError(null); }}>{t("Cancel edit")}</Button>
                 </div>
               </fieldset>
-              {detailsError && <p role="alert">{detailsError}</p>}
+              {detailsError && <p role="alert"><ErrorText error={detailsError} /></p>}
             </form>
           ) : (
             <>
               <CompetitionDetails competition={competition} />
               <Button onClick={() => {
                 setDetailsDraft({ name: competition.name, description: competition.description ?? "", rules: competition.rules ?? "" });
-                setDetailsError("");
+                setDetailsError(null);
                 setDetailsMessage("");
-              }}>Edit competition details</Button>
+              }}>{t("Edit competition details")}</Button>
             </>
           )}
-          {detailsMessage && <p role="status">{detailsMessage}</p>}
+          {detailsMessage && <p role="status">{t(detailsMessage)}</p>}
         </Card>
       )}
       <Card title="Competition attendees">
@@ -1208,14 +1232,14 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
               ))}
             </section>
           )}
-          {actionMessage && <p role="status">{actionMessage}</p>}
+          {actionMessage && <p role="status">{t(actionMessage)}</p>}
           <Button disabled={publishing || workingEntry !== ""} onClick={() => void publishResults()}>
-            {publishing ? "Publishing…" : "Publish final results"}
+            {t(publishing ? "Publishing…" : "Publish final results")}
           </Button>
         </Card>
       )}
-      {competitionStatus === "results_published" && actionMessage && <p role="status">{actionMessage}</p>}
-      {error && <p role="alert">{error}</p>}
+      {competitionStatus === "results_published" && actionMessage && <p role="status">{t(actionMessage)}</p>}
+      {error && <p role="alert"><ErrorText error={error} /></p>}
     </div>
   );
 }

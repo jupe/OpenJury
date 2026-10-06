@@ -100,6 +100,10 @@ functions run with their owner's permissions to perform the otherwise-denied
 writes.
 Migration 15 adds competition description/rules and admin-only metadata editing
 in every phase; existing draft-save calls may omit the two new optional arguments.
+Competition setup and details support English and Finnish through `lib/i18n.tsx`.
+Choose the language from the account menu; the preference is stored in the browser.
+Translate interface labels and messages, not user-provided competition names,
+descriptions, or rules.
 
 Alternatively, with the Supabase CLI installed and Docker running, initialize a
 local Supabase workspace with `supabase init`, then run `supabase start` and

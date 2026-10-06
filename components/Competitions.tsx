@@ -9,6 +9,9 @@ import Button, { ButtonLink } from "@/components/Button";
 import { StatusBadge } from "@/components/CompetitionStatus";
 import Card from "@/components/Card";
 import type { CompetitionRoleName } from "@/components/Membership";
+import { useLocale } from "@/lib/i18n";
+
+type CompetitionError = { message: string; error?: string };
 
 type Competition = {
   id: string;
@@ -39,6 +42,7 @@ const roleBadges: Record<CompetitionRoleName, { tip: string; className: string; 
 
 /** The signed-in user's own role in a competition, as an icon with a tooltip shown on hover, tap or focus. */
 function RoleBadge({ role }: { role: CompetitionRoleName }) {
+  const { t } = useLocale();
   const badge = roleBadges[role];
   return (
     // The tooltip positions against the surrounding badge row, so it stays inside the card.
@@ -46,7 +50,7 @@ function RoleBadge({ role }: { role: CompetitionRoleName }) {
       <span
         role="img"
         tabIndex={0}
-        aria-label={badge.tip}
+        aria-label={t(badge.tip)}
         className={`flex h-7 w-7 cursor-help items-center justify-center rounded-full border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 ${badge.className}`}
       >
         <svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
@@ -57,7 +61,7 @@ function RoleBadge({ role }: { role: CompetitionRoleName }) {
         aria-hidden
         className="pointer-events-none absolute top-full right-0 z-20 mt-1.5 w-max max-w-56 rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
       >
-        {badge.tip}
+        {t(badge.tip)}
       </span>
     </span>
   );
@@ -107,12 +111,13 @@ function toTimestamp(value: string) {
 }
 
 export function CompetitionManager({ groupId }: { groupId: string }) {
+  const { t, formatDateTime } = useLocale();
   const { client, session } = useAuth();
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [saveError, setSaveError] = useState("");
+  const [error, setError] = useState<CompetitionError | null>(null);
+  const [saveError, setSaveError] = useState<CompetitionError | null>(null);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
@@ -120,7 +125,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
   const [attempt, setAttempt] = useState(0);
   const refresh = useCallback(() => {
     setLoading(true);
-    setError("");
+    setError(null);
     setCompetitions([]);
     setIsAdmin(false);
     setAttempt((value) => value + 1);
@@ -147,14 +152,14 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             .abortSignal(controller.signal),
         ]);
         if (!active) return;
-        if (membership.error) setError(`Unable to check group access: ${membership.error.message}`);
-        else if (result.error) setError(`Unable to load competitions: ${result.error.message}`);
+        if (membership.error) setError({ message: "Unable to check group access: {error}", error: membership.error.message });
+        else if (result.error) setError({ message: "Unable to load competitions: {error}", error: result.error.message });
         else {
           setIsAdmin(membership.data?.role === "admin");
           setCompetitions([...(result.data || [])].sort((a, b) => latestDate(b) - latestDate(a)));
         }
       } catch {
-        if (active) setError("Unable to load competitions. Please try again.");
+        if (active) setError({ message: "Unable to load competitions. Please try again." });
       } finally {
         if (active) setLoading(false);
       }
@@ -171,14 +176,14 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
 
   async function editCompetition(competition: Competition) {
     setLoadingEdit(true);
-    setSaveError("");
+    setSaveError(null);
     try {
       const { data, error: queryError } = await client.from("categories")
         .select("name,max_score")
         .eq("competition_id", competition.id)
         .order("name");
       if (queryError) {
-        setSaveError(`Unable to load scoring categories: ${queryError.message}`);
+        setSaveError({ message: "Unable to load scoring categories: {error}", error: queryError.message });
         return;
       }
       setDraft({
@@ -196,7 +201,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
       });
       setEditing(true);
     } catch {
-      setSaveError("Unable to load scoring categories. Please try again.");
+      setSaveError({ message: "Unable to load scoring categories. Please try again." });
     } finally {
       setLoadingEdit(false);
     }
@@ -210,12 +215,12 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
       && draft.votingDeadline
       && new Date(draft.votingDeadline) <= new Date(draft.submissionDeadline)
     ) {
-      setSaveError("Voting deadline must be after the submission deadline.");
+      setSaveError({ message: "Voting deadline must be after the submission deadline." });
       return;
     }
 
     setSaving(true);
-    setSaveError("");
+    setSaveError(null);
     try {
       const { error: rpcError } = await client.rpc("save_draft_competition", {
         p_competition_id: draft.id,
@@ -232,7 +237,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         })),
       });
       if (rpcError) {
-        setSaveError(`Unable to save competition: ${rpcError.message}`);
+        setSaveError({ message: "Unable to save competition: {error}", error: rpcError.message });
         return;
       }
       setDraft(emptyDraft());
@@ -240,7 +245,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
       setLoading(true);
       setAttempt((value) => value + 1);
     } catch {
-      setSaveError("Unable to save competition. Please try again.");
+      setSaveError({ message: "Unable to save competition. Please try again." });
     } finally {
       setSaving(false);
     }
@@ -248,11 +253,11 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
 
   return (
     <>
-      <Card id="competitions" title="Competitions">
-        {loading ? <p role="status">Loading competitions…</p> : error ? (
+      <Card id="competitions" title={t("Competitions")}>
+        {loading ? <p role="status">{t("Loading competitions…")}</p> : error ? (
           <>
-            <p role="alert">{error}</p>
-            <Button onClick={() => { setLoading(true); setError(""); setAttempt((value) => value + 1); }}>Retry competitions</Button>
+            <p role="alert">{t(error.message, { error: error.error ?? "" })}</p>
+            <Button onClick={() => { setLoading(true); setError(null); setAttempt((value) => value + 1); }}>{t("Retry competitions")}</Button>
           </>
         ) : competitions.length ? (
           <ul className="space-y-4">
@@ -265,81 +270,81 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
                   <p className="relative ml-auto flex min-h-11 shrink-0 items-center gap-2 text-sm text-slate-600">
                     {competition.competition_participants?.[0] && <RoleBadge role={competition.competition_participants[0].role} />}
                     <StatusBadge status={competition.status} />
-                    {competition.event_type === "live" ? "Live" : "Remote"}
+                    {t(competition.event_type === "live" ? "Live" : "Remote")}
                   </p>
                 </div>
                 {(competition.submission_deadline || competition.voting_deadline) && (
                   <p className="text-sm text-slate-600">
-                    {competition.submission_deadline && `Submissions close ${new Date(competition.submission_deadline).toLocaleString()}`}
+                    {competition.submission_deadline && t("Submissions close {date}", { date: formatDateTime(competition.submission_deadline) })}
                     {competition.submission_deadline && competition.voting_deadline && " · "}
-                    {competition.voting_deadline && `Voting closes ${new Date(competition.voting_deadline).toLocaleString()}`}
+                    {competition.voting_deadline && t("Voting closes {date}", { date: formatDateTime(competition.voting_deadline) })}
                   </p>
                 )}
                 {isAdmin && (
                   <div className="mt-3 flex flex-wrap gap-3">
                     {competition.status === "draft" && (
                       <Button disabled={loadingEdit} onClick={() => void editCompetition(competition)}>
-                        {loadingEdit ? "Loading…" : "Edit draft"}
+                        {t(loadingEdit ? "Loading…" : "Edit draft")}
                       </Button>
                     )}
                     <ButtonLink
                       href={`/competition/${encodeURIComponent(competition.id)}/admin`}
-                      aria-label={`Manage ${competition.name}`}
+                      aria-label={t("Manage {name}", { name: competition.name })}
                     >
-                      Manage
+                      {t("Manage")}
                     </ButtonLink>
                   </div>
                 )}
               </li>
             ))}
           </ul>
-        ) : <p>No competitions have been created for this group yet.</p>}
+        ) : <p>{t("No competitions have been created for this group yet.")}</p>}
       </Card>
 
       {isAdmin && (
-        <Card title={editing ? "Edit draft competition" : "Create a draft competition"}>
+        <Card title={t(editing ? "Edit draft competition" : "Create a draft competition")}>
           <form onSubmit={saveCompetition} className="space-y-4" aria-busy={saving}>
-            <label className="block">Competition name
+            <label className="block">{t("Competition name")}
               <input required maxLength={100} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
-            <label className="block">Description (optional)
+            <label className="block">{t("Description (optional)")}
               <textarea maxLength={10000} rows={3} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
-            <label className="block">Rules (optional)
+            <label className="block">{t("Rules (optional)")}
               <textarea maxLength={10000} rows={4} value={draft.rules} onChange={(event) => setDraft({ ...draft, rules: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
             <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-[minmax(8rem,10rem)_minmax(0,1fr)_minmax(0,1fr)]">
-              <label className="block sm:col-span-2 md:col-span-1">Event type
+              <label className="block sm:col-span-2 md:col-span-1">{t("Event type")}
                 <select value={draft.eventType} onChange={(event) => setDraft({ ...draft, eventType: event.target.value as "live" | "remote" })} className="mt-1 block w-full rounded border border-slate-300 p-2">
-                  <option value="remote">Remote</option>
-                  <option value="live">Live</option>
+                  <option value="remote">{t("Remote")}</option>
+                  <option value="live">{t("Live")}</option>
                 </select>
               </label>
-              <label className="block">Submission deadline
+              <label className="block">{t("Submission deadline")}
                 <input type="datetime-local" value={draft.submissionDeadline} onChange={(event) => setDraft({ ...draft, submissionDeadline: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
               </label>
-              <label className="block">Voting deadline
+              <label className="block">{t("Voting deadline")}
                 <input type="datetime-local" value={draft.votingDeadline} onChange={(event) => setDraft({ ...draft, votingDeadline: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
               </label>
             </div>
             <fieldset className="space-y-3">
-              <legend className="sr-only">Scoring categories</legend>
+              <legend className="sr-only">{t("Scoring categories")}</legend>
               <div className="flex items-center justify-between gap-3">
-                <p aria-hidden className="font-semibold">Scoring categories <span className="font-normal text-slate-500">(maximum score 1–5)</span></p>
-                <AddButton aria-label="Add category" onClick={() => setDraft({
+                <p aria-hidden className="font-semibold">{t("Scoring categories")} <span className="font-normal text-slate-500">{t("(maximum score 1–5)")}</span></p>
+                <AddButton aria-label={t("Add category")} onClick={() => setDraft({
                   ...draft,
                   categories: [...draft.categories, { name: "", max_score: 5 }],
                 })} />
               </div>
               {draft.categories.map((category, index) => (
                 <div key={index} className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 sm:grid-cols-[1fr_8rem_auto]">
-                  <label className="col-span-2 block sm:col-span-1">Category name
+                  <label className="col-span-2 block sm:col-span-1">{t("Category name")}
                     <input required maxLength={100} value={category.name} onChange={(event) => setDraft({
                       ...draft,
                       categories: draft.categories.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item),
                     })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
                   </label>
-                  <label className="block">Maximum score
+                  <label className="block">{t("Maximum score")}
                     <input type="number" inputMode="numeric" required min={1} max={5} value={category.max_score} onChange={(event) => setDraft({
                       ...draft,
                       categories: draft.categories.map((item, itemIndex) => itemIndex === index ? { ...item, max_score: Number(event.target.value) } : item),
@@ -348,14 +353,14 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
                   <Button type="button" variant="secondary" disabled={draft.categories.length === 1} onClick={() => setDraft({
                     ...draft,
                     categories: draft.categories.filter((_, itemIndex) => itemIndex !== index),
-                  })}>Remove</Button>
+                  })}>{t("Remove")}</Button>
                 </div>
               ))}
             </fieldset>
-            {saveError && <p role="alert">{saveError}</p>}
+            {saveError && <p role="alert">{t(saveError.message, { error: saveError.error ?? "" })}</p>}
             <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end">
-              {editing && <Button type="button" variant="secondary" disabled={saving} onClick={() => { setEditing(false); setDraft(emptyDraft()); setSaveError(""); }}>Cancel edit</Button>}
-              <Button type="submit" disabled={saving} className="sm:min-w-56 sm:text-base">{saving ? "Saving…" : editing ? "Save draft" : "Create competition"}</Button>
+              {editing && <Button type="button" variant="secondary" disabled={saving} onClick={() => { setEditing(false); setDraft(emptyDraft()); setSaveError(null); }}>{t("Cancel edit")}</Button>}
+              <Button type="submit" disabled={saving} className="sm:min-w-56 sm:text-base">{t(saving ? "Saving…" : editing ? "Save draft" : "Create competition")}</Button>
             </div>
           </form>
         </Card>
