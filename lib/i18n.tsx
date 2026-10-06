@@ -1,0 +1,325 @@
+"use client";
+
+import { createContext, useContext, useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react";
+
+export type Locale = "en" | "fi";
+
+const STORAGE_KEY = "openjury:locale";
+const localeListeners = new Set<() => void>();
+let currentLocale: Locale | null = null;
+
+function getLocaleSnapshot(): Locale {
+  if (currentLocale !== null) return currentLocale;
+  try {
+    const savedLocale = window.localStorage.getItem(STORAGE_KEY);
+    if (savedLocale === "en" || savedLocale === "fi") return savedLocale;
+  } catch {
+    return "en";
+  }
+  return "en";
+}
+
+function getServerLocaleSnapshot(): Locale {
+  return "en";
+}
+
+function subscribeToLocale(listener: () => void) {
+  localeListeners.add(listener);
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key !== STORAGE_KEY && event.key !== null) return;
+    try {
+      const savedLocale = window.localStorage.getItem(STORAGE_KEY);
+      currentLocale = savedLocale === "en" || savedLocale === "fi" ? savedLocale : "en";
+    } catch {
+      // Keep the in-memory language when browser storage is unavailable.
+    }
+    listener();
+  };
+  window.addEventListener("storage", handleStorage);
+
+  return () => {
+    localeListeners.delete(listener);
+    window.removeEventListener("storage", handleStorage);
+  };
+}
+
+function updateLocale(locale: Locale) {
+  currentLocale = locale;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, locale);
+  } catch {
+    // Language preference remains available for this session.
+  }
+  localeListeners.forEach((listener) => listener());
+}
+
+const finnish: Record<string, string> = {
+  "Account": "Tili",
+  "Signed in as": "Kirjautuneena käyttäjänä",
+  "Your groups": "Omat ryhmät",
+  "Sign out": "Kirjaudu ulos",
+  "Signing out…": "Kirjaudutaan ulos…",
+  "Language": "Kieli",
+  "English": "English",
+  "Finnish": "Suomi",
+  "Skip to content": "Siirry sisältöön",
+  "Main navigation": "Päänavigaatio",
+  "Mobile navigation": "Mobiilinavigaatio",
+  "Home": "Etusivu",
+  "Groups": "Ryhmät",
+  "Competitions": "Kilpailut",
+  "Your community. Your jury.": "Yhteisösi. Tuomaristosi.",
+  "Competitions for every community": "Kilpailuja jokaiselle yhteisölle",
+  "Host baking contests, karaoke nights, or hackathons in your own group, with customizable categories and blind voting.": "Järjestä ryhmässäsi leivonta-, karaoke- tai hackathon-kilpailuja muokattavilla kategorioilla ja sokkoäänestyksellä.",
+  "Welcome to OpenJury": "Tervetuloa OpenJuryyn",
+  "Explore your dashboard": "Siirry hallintapaneeliin",
+  "Group lobby": "Ryhmän etusivu",
+  "Competition": "Kilpailu",
+  "Competition admin": "Kilpailun hallinta",
+  "Group invite": "Ryhmän kutsu",
+  "Dashboard": "Hallintapaneeli",
+  "Draft": "Luonnos",
+  "Open for entries": "Osallistuminen avoinna",
+  "Voting": "Äänestys",
+  "In review": "Tarkistettavana",
+  "Results published": "Tulokset julkaistu",
+  "Open submissions": "Avaa osallistuminen",
+  "Open submissions? Members can then submit entries, and the draft can no longer be edited.": "Avataanko osallistuminen? Jäsenet voivat tämän jälkeen lähettää ehdotuksia, eikä luonnosta voi enää muokata.",
+  "Close submissions and start voting": "Sulje osallistuminen ja aloita äänestys",
+  "Close submissions and start voting? Entries are numbered for blind voting and can no longer be changed.": "Suljetaanko osallistuminen ja aloitetaanko äänestys? Ehdotukset numeroidaan sokkoäänestystä varten, eikä niitä voi enää muokata.",
+  "Close voting": "Sulje äänestys",
+  "Close voting? Ballots can no longer be changed, and you can review results before publishing them.": "Suljetaanko äänestys? Ääniä ei voi enää muuttaa, ja voit tarkastella tuloksia ennen niiden julkaisua.",
+  "You are a participant: you submit an entry": "Olet osallistuja: lähetät ehdotuksen",
+  "You are in the audience: you score the entries": "Olet yleisössä: arvioit ehdotuksia",
+  "Loading your session…": "Ladataan istuntoasi…",
+  "Preparing the demo database…": "Valmistellaan esittelytietokantaa…",
+  "Unable to load your session:": "Istuntoasi ei voitu ladata:",
+  "Check the public Supabase configuration.": "Tarkista Supabasen julkiset asetukset.",
+  "Session unavailable": "Istunto ei ole käytettävissä",
+  "Retry session": "Yritä ladata istunto uudelleen",
+  "Sign in to OpenJury": "Kirjaudu OpenJuryyn",
+  "Sign in with your email to view your groups. New accounts are welcome.": "Kirjaudu sähköpostiosoitteellasi nähdäksesi ryhmäsi. Uudet tilit ovat tervetulleita.",
+  "In the demo, any email signs in instantly as a new account, or pick a demo person in the toolbar below.": "Esittelyssä mikä tahansa sähköpostiosoite luo uuden tilin heti. Voit myös valita esittelykäyttäjän alla olevasta työkalupalkista.",
+  "Email address": "Sähköpostiosoite",
+  "Send sign-in link": "Lähetä kirjautumislinkki",
+  "Sending link…": "Lähetetään linkkiä…",
+  "Sending your sign-in link…": "Lähetetään kirjautumislinkkiä…",
+  "Check your email for a sign-in link. You can close this tab.": "Tarkista sähköpostistasi kirjautumislinkki. Voit sulkea tämän välilehden.",
+  "Unable to send sign-in link. Please try again.": "Kirjautumislinkin lähettäminen epäonnistui. Yritä uudelleen.",
+  "Preview environment: sign in with the seeded account instead.": "Esikatseluympäristö: kirjaudu sen sijaan valmiilla testitilillä.",
+  "Password": "Salasana",
+  "Sign in with password": "Kirjaudu salasanalla",
+  "Signing in…": "Kirjaudutaan sisään…",
+  "Unable to sign in. Please try again.": "Kirjautuminen epäonnistui. Yritä uudelleen.",
+  "Unable to complete sign out. Your local session may already be cleared.": "Uloskirjautuminen epäonnistui. Paikallinen istuntosi on ehkä jo tyhjennetty.",
+  "Unable to load groups. Please try again.": "Ryhmien lataaminen epäonnistui. Yritä uudelleen.",
+  "Loading groups…": "Ladataan ryhmiä…",
+  "New group": "Uusi ryhmä",
+  "Group name": "Ryhmän nimi",
+  "Cancel": "Peruuta",
+  "Create group": "Luo ryhmä",
+  "Creating group…": "Luodaan ryhmää…",
+  "Retry groups": "Yritä ladata ryhmät uudelleen",
+  "You do not belong to any groups yet. Open an invite link from a group admin, or create a group with +.": "Et kuulu vielä yhteenkään ryhmään. Avaa ryhmän ylläpitäjän kutsulinkki tai luo ryhmä painamalla +.",
+  "Group created.": "Ryhmä luotu.",
+  "Open group": "Avaa ryhmä",
+  "Loading group…": "Ladataan ryhmää…",
+  "Group unavailable": "Ryhmä ei ole käytettävissä",
+  "Retry group": "Yritä ladata ryhmä uudelleen",
+  "Group not found or access denied": "Ryhmää ei löytynyt tai pääsy evättiin",
+  "This group does not exist, or you are not a member.": "Ryhmää ei ole olemassa tai et ole sen jäsen.",
+  "Back to your groups": "Takaisin ryhmiin",
+  "Group settings": "Ryhmän asetukset",
+  "Saving…": "Tallennetaan…",
+  "Rename group": "Nimeä ryhmä uudelleen",
+  "Working…": "Käsitellään…",
+  "Remove group": "Poista ryhmä",
+  "Removing a group permanently deletes its competitions and other group data. Groups with disqualification audit records cannot be removed.": "Ryhmän poistaminen poistaa pysyvästi sen kilpailut ja muut tiedot. Ryhmää ei voi poistaa, jos sillä on hylkäysten tarkastuslokeja.",
+  "Group name updated.": "Ryhmän nimi päivitetty.",
+  "Unable to create group. Please try again.": "Ryhmän luominen epäonnistui. Yritä uudelleen.",
+  "Unable to load group. Please try again.": "Ryhmän lataaminen epäonnistui. Yritä uudelleen.",
+  "Unable to rename group. Please try again.": "Ryhmän uudelleennimeäminen epäonnistui. Yritä uudelleen.",
+  "Unable to remove group. Please try again.": "Ryhmän poistaminen epäonnistui. Yritä uudelleen.",
+  "Competitions unavailable": "Kilpailut eivät ole käytettävissä",
+  "Finding active competitions…": "Etsitään käynnissä olevia kilpailuja…",
+  "None of your groups has a competition open for entries or voting right now.": "Yhdessäkään ryhmässäsi ei ole tällä hetkellä kilpailua, johon voi osallistua tai jossa voi äänestää.",
+  "Unable to load your competitions. Please try again.": "Kilpailujesi lataaminen epäonnistui. Yritä uudelleen.",
+  "Retry competitions": "Yritä ladata kilpailut uudelleen",
+  "Loading competitions…": "Ladataan kilpailuja…",
+  "Competition attendees": "Kilpailun osallistujat",
+  "Admin access required": "Ylläpitäjän käyttöoikeus vaaditaan",
+  "Only group administrators can manage this competition.": "Vain ryhmän ylläpitäjät voivat hallinnoida tätä kilpailua.",
+  "Competition is unavailable.": "Kilpailu ei ole käytettävissä.",
+  "Competition not found.": "Kilpailua ei löytynyt.",
+  "Competition status": "Kilpailun tila",
+  "Status:": "Tila:",
+  "Anonymous entries": "Nimettömät ehdotukset",
+  "Category winners": "Kategorioiden voittajat",
+  "Published results": "Julkaistut tulokset",
+  "Preliminary category winners": "Alustavat kategorioiden voittajat",
+  "Preliminary rankings (admins only)": "Alustavat sijoitukset (vain ylläpitäjille)",
+  "Winner:": "Voittaja:",
+  "Not ranked": "Ei sijoitusta",
+  "Loading competition…": "Ladataan kilpailua…",
+  "Loading admin submissions…": "Ladataan ylläpidon ehdotuksia…",
+  "Unable to load competition submissions. Please try again.": "Kilpailun ehdotusten lataaminen epäonnistui. Yritä uudelleen.",
+  "Unable to load admin submissions. Please try again.": "Ylläpidon ehdotusten lataaminen epäonnistui. Yritä uudelleen.",
+  "View competition": "Näytä kilpailu",
+  "Open gallery": "Avaa kuvagalleria",
+  "Close gallery": "Sulje galleria",
+  "Previous image": "Edellinen kuva",
+  "Next image": "Seuraava kuva",
+  "Submit an entry": "Lähetä ehdotus",
+  "Edit your submission": "Muokkaa ehdotustasi",
+  "Save submission": "Tallenna ehdotus",
+  "Edit the draft from the group page. Opening submissions locks its settings.": "Muokkaa luonnosta ryhmäsivulla. Osallistumisen avaaminen lukitsee sen asetukset.",
+  "Choose JPEG, PNG, or WebP images no larger than 10 MB each.": "Valitse JPEG-, PNG- tai WebP-kuvia, joiden koko on enintään 10 Mt.",
+  "Choose a supported image type.": "Valitse tuettu kuvatiedostomuoto.",
+  "Some private media could not be loaded.": "Osaa yksityisistä mediatiedostoista ei voitu ladata.",
+  "Please try again.": "Yritä uudelleen.",
+  "Submission image": "Ehdotuksen kuva",
+  "Your submission image": "Ehdotuksesi kuva",
+  "The audience is voting on anonymous entries now. Participants do not vote.": "Yleisö äänestää nyt nimettömistä ehdotuksista. Osallistujat eivät äänestä.",
+  "Voting in progress": "Äänestys käynnissä",
+  "Voting closed": "Äänestys suljettu",
+  "Voting ended": "Äänestys päättynyt",
+  "The voting deadline has passed. Preliminary results are not available to members.": "Äänestysaika on päättynyt. Alustavat tulokset eivät ole jäsenten nähtävillä.",
+  "Voting has ended! The administrator is reviewing the results. Please wait for the results to be published.": "Äänestys on päättynyt! Ylläpitäjä tarkistaa tuloksia. Odota tulosten julkaisua.",
+  "Scores are category-normalized averages. Ties share a rank; only complete ballots count.": "Pisteet ovat kategorioittain normalisoituja keskiarvoja. Tasapisteissä sijoitus on sama; vain täydet äänestysliput lasketaan.",
+  "Publication schedule saved.": "Julkaisuaikataulu tallennettu.",
+  "Save publication schedule": "Tallenna julkaisuaikataulu",
+  "Change the time or leave it blank to cancel the schedule. You can update it any time before publication.": "Muuta ajankohtaa tai tyhjennä kenttä peruuttaaksesi ajastuksen. Voit muuttaa sitä milloin tahansa ennen julkaisua.",
+  "Scheduled publication cancelled.": "Ajastettu julkaisu peruutettu.",
+  "Publish final results": "Julkaise lopulliset tulokset",
+  "Publishing…": "Julkaistaan…",
+  "Results published. Group members can now view the final rankings and identities.": "Tulokset julkaistu. Ryhmän jäsenet voivat nyt nähdä lopulliset sijoitukset ja osallistujien nimet.",
+  "Review the preliminary rankings below, then publish the final results.": "Tarkista alustavat sijoitukset alta ja julkaise sitten lopulliset tulokset.",
+  "Exclude from results": "Sulje pois tuloksista",
+  "Show as disqualified at bottom": "Näytä hylättynä viimeisenä",
+  "Remove inappropriate content": "Poista sopimaton sisältö",
+  "Content removed": "Sisältö poistettu",
+  "Disqualifying…": "Hylätään…",
+  "Remove this entry's title and private images? The entry and moderation audit remain, but it cannot be reinstated.": "Poistetaanko tämän ehdotuksen nimi ja yksityiset kuvat? Ehdotus ja moderointiloki säilyvät, mutta sitä ei voi palauttaa.",
+  "The entry was hidden, but private image cleanup failed. Retry cleanup below.": "Ehdotus piilotettiin, mutta yksityisten kuvien poisto epäonnistui. Yritä siivousta uudelleen alta.",
+  "Some media could not be cleaned up. Please retry.": "Osaa mediatiedostoista ei voitu siivota. Yritä uudelleen.",
+  "Retry media cleanup": "Yritä mediatiedostojen siivousta uudelleen",
+  "Saved, but some removed media could not be cleaned up. Retry cleanup below.": "Tallennettiin, mutta joidenkin poistettujen mediatiedostojen siivous epäonnistui. Yritä siivousta uudelleen alta.",
+  "The server returned an invalid group ID. Refresh your groups before trying again.": "Palvelin palautti virheellisen ryhmätunnisteen. Päivitä ryhmät ennen uutta yritystä.",
+  "Demo mode": "Esittelytila",
+  "Viewing as": "Katselijana",
+  "Resetting…": "Palautetaan…",
+  "Reset": "Palauta",
+  "Your new account": "Uusi tilisi",
+  "Signed out": "Kirjautunut ulos",
+  "Delete everything you changed in the demo and start over?": "Poistetaanko kaikki esittelyssä tekemäsi muutokset ja aloitetaanko alusta?",
+  "Supabase is not configured, so OpenJury runs on fictional data saved in this browser. See deployment.md.": "Supabasea ei ole määritetty, joten OpenJury käyttää selaimeen tallennettuja kuvitteellisia tietoja. Katso deployment.md.",
+  "You are already a member of this group.": "Olet jo tämän ryhmän jäsen.",
+  "This invite link is invalid or has been revoked. Ask a group admin for a new one.": "Kutsulinkki on virheellinen tai se on peruutettu. Pyydä ryhmän ylläpitäjältä uusi linkki.",
+  "You have been invited to this group. After joining, you can take part in its competitions as a participant or as audience.": "Sinut on kutsuttu tähän ryhmään. Liittymisen jälkeen voit osallistua sen kilpailuihin osallistujana tai yleisönä.",
+  "Invite unavailable": "Kutsu ei ole käytettävissä",
+  "Opening invite…": "Avataan kutsua…",
+  "Unable to open this invite. Please try again.": "Kutsun avaaminen epäonnistui. Yritä uudelleen.",
+  "Go to your groups": "Siirry ryhmiisi",
+  "Join group": "Liity ryhmään",
+  "Joining…": "Liitytään…",
+  "You are taking part as": "Osallistut roolissa",
+  "Join as participant": "Liity osallistujana",
+  "Join as audience": "Liity yleisönä",
+  "Submit your own entry. Participants do not vote.": "Lähetä oma ehdotuksesi. Osallistujat eivät äänestä.",
+  "Vote on the entries. The audience does not submit entries.": "Äänestä ehdotuksia. Yleisö ei lähetä ehdotuksia.",
+  "This competition is no longer open to new participants or audience.": "Tähän kilpailuun ei voi enää liittyä osallistujaksi tai yleisöön.",
+  "Choose how you take part. You can change your mind until voting starts.": "Valitse osallistumistapasi. Voit muuttaa valintaasi äänestyksen alkamiseen asti.",
+  "Roles are fixed once voting starts.": "Roolit lukitaan äänestyksen alkaessa.",
+  "You have submitted an entry, so you stay a participant.": "Olet lähettänyt ehdotuksen, joten pysyt osallistujana.",
+  "Group admin": "Ryhmän ylläpitäjä",
+  "Member": "Jäsen",
+  "All groups (platform admin)": "Kaikki ryhmät (palvelun ylläpitäjä)",
+  "Take part": "Osallistu",
+  "How you take part": "Osallistumistapasi",
+  "Manage as admin": "Hallinnoi ylläpitäjänä",
+  "Former member": "Entinen jäsen",
+  "Not taking part": "Ei osallistu",
+  "Group members and anyone who has submitted or voted, with how each takes part in this competition.": "Ryhmän jäsenet sekä kaikki, jotka ovat lähettäneet ehdotuksen tai äänestäneet, ja heidän roolinsa tässä kilpailussa.",
+  "Has voted": "Äänestänyt",
+  "Has not voted": "Ei ole äänestänyt",
+  "Loading members…": "Ladataan jäseniä…",
+  "Unable to load members. Please try again.": "Jäsenten lataaminen epäonnistui. Yritä uudelleen.",
+  "Retry members": "Yritä ladata jäsenet uudelleen",
+  "Make admin": "Tee ylläpitäjäksi",
+  "Remove admin": "Poista ylläpitäjän oikeus",
+  "Remove": "Poista",
+  "A group needs at least one admin, so make someone else an admin before removing the last one.": "Ryhmällä on oltava vähintään yksi ylläpitäjä. Nimeä joku toinen ylläpitäjäksi ennen viimeisen poistamista.",
+  "Invite by email": "Kutsu sähköpostitse",
+  "No email is sent. They join when they next sign in with this address, so let them know.": "Sähköpostia ei lähetetä. Henkilö liittyy, kun hän kirjautuu seuraavan kerran tällä osoitteella, joten ilmoita hänelle kutsusta.",
+  "Inviting…": "Kutsutaan…",
+  "Invite links": "Kutsulinkit",
+  "Create invite link": "Luo kutsulinkki",
+  "Creating…": "Luodaan…",
+  "Copy link": "Kopioi linkki",
+  "Unable to copy automatically. Select the link and copy it instead.": "Automaattinen kopiointi epäonnistui. Valitse linkki ja kopioi se.",
+  "Anyone signed in who opens a link joins the group as a member. Revoke a link to stop it working.": "Kuka tahansa kirjautunut käyttäjä liittyy ryhmään jäseneksi avatessaan linkin. Peruuta linkki estääksesi sen käytön.",
+  "Revoke this invite link? People who have not joined yet can no longer use it.": "Peruutetaanko kutsulinkki? Ne, jotka eivät ole vielä liittyneet, eivät voi enää käyttää sitä.",
+  "Stop being a group admin? You will lose access to group management.": "Lopetatko ryhmän ylläpitäjänä? Menetät pääsyn ryhmän hallintaan.",
+  "You are not a member": "Et ole jäsen",
+  "Create a draft competition": "Luo kilpailuluonnos",
+  "Create competition": "Luo kilpailu",
+  "Edit draft": "Muokkaa luonnosta",
+  "Edit draft competition": "Muokkaa kilpailuluonnosta",
+  "Scoring categories": "Arvostelukategoriat",
+  "Add category": "Lisää kategoria",
+  "Cancel edit": "Peruuta muokkaus",
+  "Save draft": "Tallenna luonnos",
+  "Unable to load competitions. Please try again.": "Kilpailujen lataaminen epäonnistui. Yritä uudelleen.",
+  "Unable to load scoring categories. Please try again.": "Arvostelukategorioiden lataaminen epäonnistui. Yritä uudelleen.",
+  "Unable to save competition. Please try again.": "Kilpailun tallentaminen epäonnistui. Yritä uudelleen.",
+  "Voting deadline must be after the submission deadline.": "Äänestyksen määräajan on oltava osallistumisajan määräajan jälkeen.",
+  "Live event": "Lähitapahtuma",
+  "Remote event": "Etätapahtuma",
+  "Close": "Sulje",
+  "Show image": "Näytä kuva",
+};
+
+type TranslationValues = Record<string, string | number>;
+type LocaleContextValue = {
+  locale: Locale;
+  setLocale: (locale: Locale) => void;
+  t: (message: string, values?: TranslationValues) => string;
+  formatDateTime: (value: string | number | Date) => string;
+};
+
+const LocaleContext = createContext<LocaleContextValue | null>(null);
+
+export function LocaleProvider({ children }: { children: ReactNode }) {
+  const locale = useSyncExternalStore(subscribeToLocale, getLocaleSnapshot, getServerLocaleSnapshot);
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
+
+  const value = useMemo<LocaleContextValue>(() => ({
+    locale,
+    setLocale: updateLocale,
+    t: (message, values) => {
+      const translated = locale === "fi" ? (finnish[message] ?? message) : message;
+      return translated.replace(/\{(\w+)\}/g, (placeholder, name: string) =>
+        String(values?.[name] ?? placeholder));
+    },
+    formatDateTime: (date) => new Intl.DateTimeFormat(locale === "fi" ? "fi-FI" : "en", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(typeof date === "string" ? new Date(date) : date),
+  }), [locale]);
+
+  return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;
+}
+
+export function useLocale() {
+  const context = useContext(LocaleContext);
+  if (!context) throw new Error("LocaleProvider is required.");
+  return context;
+}
+
+export function LocalizedText({ message }: { message: string }) {
+  const { t } = useLocale();
+  return <>{t(message)}</>;
+}
