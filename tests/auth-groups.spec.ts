@@ -473,6 +473,55 @@ test("group admins create and edit draft competitions with scoring criteria", as
   });
 });
 
+test("group admins can remove competitions after confirmation", async ({ page }) => {
+  await configure(page, true);
+  const competition = {
+    id: secondId,
+    name: "Autumn bake-off",
+    event_type: "remote",
+    status: "draft",
+    submission_deadline: null,
+    voting_deadline: null,
+  };
+  let removed = false;
+  const removals: unknown[] = [];
+  let failRemoval = true;
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) =>
+    route.fulfill({ json: removed ? [] : [competition] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/delete_competition`, (route) => {
+    removals.push(route.request().postDataJSON());
+    if (failRemoval) return route.fulfill({ status: 400, json: { message: "Audit records prevent deletion" } });
+    removed = true;
+    return route.fulfill({ status: 204 });
+  });
+
+  let confirmRemoval = false;
+  const confirmations: string[] = [];
+  page.on("dialog", async (dialog) => {
+    confirmations.push(dialog.message());
+    if (confirmRemoval) await dialog.accept();
+    else await dialog.dismiss();
+  });
+  await page.goto(`/group/${groupId}`);
+  const removeButton = page.getByRole("button", { name: "Remove Autumn bake-off" });
+  await removeButton.click();
+  expect(removals).toEqual([]);
+  expect(confirmations[0]).toContain("Autumn bake-off");
+
+  confirmRemoval = true;
+  await removeButton.click();
+  await expect(page.getByText("Unable to remove competition: Audit records prevent deletion", { exact: true })).toBeVisible();
+  expect(removals).toEqual([{ p_competition_id: secondId }]);
+
+  failRemoval = false;
+  await removeButton.click();
+  await expect(page.getByText("No competitions have been created for this group yet.")).toBeVisible();
+  expect(removals).toEqual([
+    { p_competition_id: secondId },
+    { p_competition_id: secondId },
+  ]);
+});
+
 test("admins edit competition details after opening; members read plain text details @mobile", async ({ page }) => {
   await configure(page, true);
   const competitionId = "33333333-3333-4333-8333-333333333333";

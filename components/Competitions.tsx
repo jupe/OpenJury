@@ -119,7 +119,9 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<CompetitionError | null>(null);
   const [saveError, setSaveError] = useState<CompetitionError | null>(null);
+  const [deleteError, setDeleteError] = useState<CompetitionError | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
   const [editError, setEditError] = useState<CompetitionError | null>(null);
@@ -270,9 +272,38 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
     }
   }
 
+  async function deleteCompetition(competition: Competition) {
+    if (deletingId) return;
+    if (!window.confirm(t("Remove “{name}” and permanently delete its competition data? This cannot be undone.", { name: competition.name }))) return;
+
+    setDeletingId(competition.id);
+    setDeleteError(null);
+    try {
+      const { error: rpcError } = await client.rpc("delete_competition", {
+        p_competition_id: competition.id,
+      });
+      if (rpcError) {
+        setDeleteError({ message: "Unable to remove competition: {error}", error: rpcError.message });
+        return;
+      }
+      if (draft.id === competition.id) {
+        setDraft(emptyDraft());
+        setEditing(false);
+      }
+      setLoading(true);
+      setCompetitions([]);
+      setAttempt((value) => value + 1);
+    } catch {
+      setDeleteError({ message: "Unable to remove competition. Please try again." });
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
     <>
       <Card id="competitions" title={t("Competitions")} action={isAdmin && <AddButton aria-label={t("New competition")} onClick={newCompetition} />}>
+        {deleteError && <p role="alert">{t(deleteError.message, { error: t(deleteError.error ?? "") })}</p>}
         {loading ? <p role="status">{t("Loading competitions…")}</p> : error ? (
           <>
             <p role="alert">{t(error.message, { error: t(error.error ?? "") })}</p>
@@ -307,6 +338,13 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
                         icon="manage"
                         href={`/competition/${encodeURIComponent(competition.id)}/admin`}
                         aria-label={t("Manage {name}", { name: competition.name })}
+                      />
+                      <IconButton
+                        icon="remove"
+                        tone="danger"
+                        disabled={deletingId !== null || saving || loadingEdit}
+                        aria-label={t(deletingId === competition.id ? "Working…" : "Remove {name}", { name: competition.name })}
+                        onClick={() => void deleteCompetition(competition)}
                       />
                     </div>
                   )}
