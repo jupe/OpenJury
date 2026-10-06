@@ -81,13 +81,11 @@ or release promotion of the tested image.
 
 ## Image promotion and previews
 
-Main CI publishes `ghcr.io/jupe/openjury:ci-<run-id>` and signs its digest with
-GitHub build provenance after tests pass. The run tag remains usable when a
-partial CI retry reuses the successful build job. Release pulls
-that successful run's image, resolves its digest, verifies its source revision
-and attestation (this repository's CI workflow on `main`, at the tested commit,
-on a GitHub-hosted runner),
-and tags it as `ghcr.io/jupe/openjury:sha-<commit>` without rebuilding. Deployments use
+Main CI publishes `ghcr.io/jupe/openjury:ci-<run-id>` after tests pass. The run
+tag remains usable when a partial CI retry reuses the successful build job.
+Release accepts only a successful same-repository `main` push run, pulls that
+run's image, verifies its revision label, and tags its digest as
+`ghcr.io/jupe/openjury:sha-<commit>` without rebuilding. Deployments use
 the immutable `ghcr.io/jupe/openjury@sha256:...` reference recorded in the Release
 summary. Same-repository PRs may push only to the separate
 `ghcr.io/jupe/openjury-preview` package (tagged `pr-<number>-<sha>`) so dev
@@ -97,8 +95,10 @@ and their expired versions are pruned after the PR closes. Release verifies the 
 revision and skips superseded main builds; deployment checks main again after
 any approval wait. Releases are serialized across staging and production.
 A failed staging deployment **or smoke test blocks production**.
-Missing or invalid provenance also blocks promotion: a registry tag or revision
-label alone is not trusted, since PR workflows have registry write permission.
+GitHub artifact attestations are not used because they are unavailable for
+user-owned private repositories. Promotion therefore trusts the successful
+same-repository `main` CI run, its run-specific image tag, and the revision
+label; it does not independently verify cryptographic build provenance.
 CI also exercises the configured, signed-out navigation path on desktop and both
 mobile browsers using mocked public configuration, even when the test container
 otherwise runs in demo mode.
