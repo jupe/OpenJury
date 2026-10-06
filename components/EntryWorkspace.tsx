@@ -236,13 +236,24 @@ function MediaGallery({
   }, [client, keyList, visible]);
 
   useEffect(() => {
-    const urls = pendingFiles.map((file) => URL.createObjectURL(file));
-    setPendingImages(urls.map((url, fileIndex) => ({
-      key: `pending:${fileIndex}:${pendingFiles[fileIndex].name}`,
-      url,
-      fileIndex,
-    })));
-    return () => urls.forEach((url) => URL.revokeObjectURL(url));
+    let active = true;
+    const urls: string[] = [];
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      setPendingImages(pendingFiles.map((file, fileIndex) => {
+        const url = URL.createObjectURL(file);
+        urls.push(url);
+        return {
+          key: `pending:${fileIndex}:${file.name}`,
+          url,
+          fileIndex,
+        };
+      }));
+    });
+    return () => {
+      active = false;
+      urls.forEach((url) => URL.revokeObjectURL(url));
+    };
   }, [pendingFiles]);
 
   const shown: Array<{ key: string; url: string; fileIndex?: number }> = [
