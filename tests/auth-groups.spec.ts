@@ -483,7 +483,7 @@ test("group admins create and edit draft competitions with scoring criteria", as
   });
 });
 
-test("group admins can remove competitions after confirmation", async ({ page }) => {
+test("group admins can remove competitions after confirmation @mobile", async ({ page }) => {
   await configure(page, true);
   const competition = {
     id: secondId,
@@ -505,26 +505,31 @@ test("group admins can remove competitions after confirmation", async ({ page })
     return route.fulfill({ status: 204 });
   });
 
-  let confirmRemoval = false;
-  const confirmations: string[] = [];
-  page.on("dialog", async (dialog) => {
-    confirmations.push(dialog.message());
-    if (confirmRemoval) await dialog.accept();
-    else await dialog.dismiss();
-  });
+  await page.addInitScript(() => { window.confirm = () => false; });
   await page.goto(`/group/${groupId}`);
   const removeButton = page.getByRole("button", { name: "Remove Autumn bake-off" });
+  const confirmation = page.getByRole("dialog", { name: "Remove competition “Autumn bake-off”?" });
   await removeButton.click();
+  await expect(confirmation).toBeVisible();
+  await expect(confirmation).toContainText("This cannot be undone.");
+  await confirmation.getByRole("button", { name: "Cancel" }).click();
+  await expect(confirmation).toBeHidden();
   expect(removals).toEqual([]);
-  expect(confirmations[0]).toContain("Autumn bake-off");
 
-  confirmRemoval = true;
   await removeButton.click();
-  await expect(page.getByText("Unable to remove competition: Audit records prevent deletion", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(confirmation).toBeHidden();
+  expect(removals).toEqual([]);
+
+  await removeButton.click();
+  await confirmation.getByRole("button", { name: "Remove competition", exact: true }).click();
+  await expect(confirmation.getByRole("alert")).toHaveText("Unable to remove competition: Audit records prevent deletion");
+  await expect(page.getByRole("link", { name: "Autumn bake-off", exact: true })).toBeVisible();
   expect(removals).toEqual([{ p_competition_id: secondId }]);
 
   failRemoval = false;
-  await removeButton.click();
+  await confirmation.getByRole("button", { name: "Remove competition", exact: true }).click();
+  await expect(confirmation).toBeHidden();
   await expect(page.getByText("No competitions have been created for this group yet.")).toBeVisible();
   expect(removals).toEqual([
     { p_competition_id: secondId },

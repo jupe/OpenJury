@@ -139,6 +139,8 @@ const finnish: Record<string, string> = {
   "This cannot be undone.": "Tätä ei voi perua.",
   "Removing a group permanently deletes its competitions and other group data. Groups with disqualification audit records cannot be removed.": "Ryhmän poistaminen poistaa pysyvästi sen kilpailut ja muut tiedot. Ryhmää ei voi poistaa, jos sillä on hylkäysten tarkastuslokeja.",
   "Remove {name}": "Poista {name}",
+  "Remove competition": "Poista kilpailu",
+  "Remove competition “{name}”?": "Poistetaanko kilpailu ”{name}”?",
   "Remove “{name}” and permanently delete its competition data? This cannot be undone.": "Poistetaanko kilpailu ”{name}” ja kaikki sen tiedot pysyvästi? Tätä ei voi perua.",
   "Unable to remove competition: {error}": "Kilpailun poistaminen epäonnistui: {error}",
   "Unable to remove competition. Please try again.": "Kilpailun poistaminen epäonnistui. Yritä uudelleen.",
