@@ -844,13 +844,14 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
     let active = true;
     void (async () => {
       try {
-        const [submissionResult, competitionResult, attendeeResult, roleResult] = await Promise.all([
+        const [submissionResult, competitionResult, attendeeResult, roleResult, notificationResult] = await Promise.all([
           client.rpc("get_admin_submissions", { p_competition_id: competitionId }),
           client.from("competitions")
             .select("id,group_id,name,description,rules,allow_participant_voting,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
             .eq("id", competitionId).maybeSingle(),
           client.rpc("get_admin_competition_attendees", { p_competition_id: competitionId }),
           client.rpc("get_competition_participants", { p_competition_id: competitionId }),
+          client.rpc("get_my_pending_competition_start_emails", { p_competition_id: competitionId }),
         ]);
         if (!active) return;
         if (submissionResult.error?.code === "42501") {
@@ -880,6 +881,12 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
         setPublishAt(localDateTime(competitionResult.data.results_publish_at));
         setEntries((submissionResult.data || []) as AdminEntry[]);
         setCompetitionStatus(competitionResult.data.status);
+        if (!notificationResult.error) {
+          setNotificationsPending(notificationResult.data === true);
+          if (notificationResult.data === true) {
+            setNotificationMessage("Submissions are open, but some emails could not be sent. Retry notifications.");
+          }
+        }
         if (competitionResult.data.status === "review_pending") {
           const [review, categories] = await Promise.all([
             client.rpc("get_admin_review_results", { p_competition_id: competitionId }),
@@ -963,6 +970,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       await sendStartNotifications();
     } catch (failure) {
       setTransitionError(localizedFailure("Unable to send competition notifications: {error}", failure));
+      refresh();
     } finally {
       setTransitioning(false);
     }
@@ -987,6 +995,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       refresh();
     } catch (failure) {
       setTransitionError(localizedFailure(step.error, failure));
+      if (competitionStatus === "draft" && notifyMembers) refresh();
     } finally {
       setTransitioning(false);
     }

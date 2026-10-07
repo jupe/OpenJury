@@ -64,6 +64,31 @@ $$;
 revoke all on function public.start_competition(uuid, boolean) from public, anon, authenticated, service_role;
 grant execute on function public.start_competition(uuid, boolean) to authenticated;
 
+create function public.get_my_pending_competition_start_emails(p_competition_id uuid)
+returns boolean
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  actor uuid := auth.uid();
+begin
+  if actor is null or not exists (
+    select 1 from public.competitions competition
+    join public.group_members membership on membership.group_id = competition.group_id
+    where competition.id = p_competition_id
+      and membership.user_id = actor and membership.role = 'admin'
+  ) then
+    raise exception 'Competition administrator access required' using errcode = '42501';
+  end if;
+  return exists (
+    select 1 from public.competition_start_email_outbox
+    where competition_id = p_competition_id and started_by = actor and sent_at is null
+  );
+end;
+$$;
+revoke all on function public.get_my_pending_competition_start_emails(uuid)
+  from public, anon, authenticated, service_role;
+grant execute on function public.get_my_pending_competition_start_emails(uuid) to authenticated;
+
 -- Only trusted server callers can claim addresses or acknowledge delivery.
 create function public.claim_competition_start_email(
   p_competition_id uuid, p_from text, p_origin text

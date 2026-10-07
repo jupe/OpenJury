@@ -99,6 +99,10 @@ claims, or recipients remaining after the 25-second/50-email request budget yiel
 can explicitly retry this endpoint while still an admin, even after the competition
 advances. Skipped starts cannot be converted into notifications. If no members
 have email, the first response succeeds without sending; there is no outbox to retry.
+After navigation or an ambiguous lost response, the authenticated admin can query
+`get_my_pending_competition_start_emails(id)` to restore the retry control. This
+RPC reveals only a boolean for the caller's original pending queue, never addresses;
+other admins get false, and members/outsiders are denied.
 
 Service-only RPCs claim one recipient for two minutes, acknowledge only the
 matching claim token, and use a stable Resend idempotency key. Crashed requests

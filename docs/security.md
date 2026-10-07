@@ -49,7 +49,11 @@ The email outbox has RLS enabled, no client/table grants, no broadcasts, and
 unique competition/user rows. Only service-role claim/acknowledgement RPCs expose
 addresses to the trusted server. Retrying requires the same starting admin and
 an existing outbox; it never snapshots new members. The bearer-authenticated
-start endpoint validates server configuration before starting, returns no email
+`get_my_pending_competition_start_emails(id)` RPC exposes only a boolean to
+current admins, true only for the original starter's unsent rows. Members and
+outsiders are denied; other admins see false.
+The bearer-authenticated start endpoint validates server configuration before
+starting, returns no email
 addresses, and uses plain-text Resend messages linked to a configured trusted
 origin rather than request headers. Keep the service-role and provider keys
 server-only; see [delivery recovery limitations](deployment.md#optional-competition-start-emails).

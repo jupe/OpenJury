@@ -46,6 +46,7 @@ async function configure(page: Page, signedIn = false, passwordSignIn = false) {
         has_voted: false,
       }],
     });
+    if (path === "/rest/v1/rpc/get_my_pending_competition_start_emails") return route.fulfill({ json: false });
     return route.fulfill({ status: 400, json: { message: `Unexpected endpoint: ${path}` } });
   });
   if (signedIn) {
@@ -1309,6 +1310,8 @@ test("admins opt in to start emails and retry partial delivery without restartin
     transitions.push(route.request().postDataJSON());
     return route.fulfill({ json: "submission" });
   });
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_pending_competition_start_emails`, (route) =>
+    route.fulfill({ json: status === "submission" && notificationRequests === 1 }));
   await page.route(`**/api/competitions/${competitionId}/start`, (route) => {
     expect(route.request().method()).toBe("POST");
     expect(route.request().headers().authorization).toBe(["Bearer", session().access_token].join(" "));
@@ -1326,11 +1329,45 @@ test("admins opt in to start emails and retry partial delivery without restartin
   await page.getByRole("button", { name: "Open submissions" }).click();
   await expect(page.getByText("Status: Open for entries")).toBeVisible();
   await expect(page.getByRole("status")).toContainText("some emails could not be sent");
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Retry notifications" })).toBeVisible();
   await page.getByRole("button", { name: "Retry notifications" }).click();
   await expect(page.getByRole("status")).toContainText("Notification emails sent.");
   await expect(page.getByRole("button", { name: "Retry notifications" })).toHaveCount(0);
   expect(notificationRequests).toBe(2);
   expect(transitions).toEqual([]);
+});
+
+test("lost start responses restore pending notifications from the database", async ({ page }) => {
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  let status = "draft";
+  let pending = false;
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{ id: competitionId, group_id: groupId, name: "Autumn bake-off", status, submission_deadline: null, voting_deadline: null }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) =>
+    route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_pending_competition_start_emails`, (route) =>
+    route.fulfill({ json: pending }));
+  await page.route(`**/api/competitions/${competitionId}/start`, (route) => {
+    if (status === "draft") {
+      status = "submission";
+      pending = true;
+      return route.abort("failed");
+    }
+    pending = false;
+    return route.fulfill({ json: { started: true, notificationsSent: true } });
+  });
+
+  await page.goto(`/competition/${competitionId}/admin`);
+  await page.getByRole("checkbox", { name: "Email existing group members when submissions open" }).check();
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "Open submissions" }).click();
+  await expect(page.getByText("Status: Open for entries")).toBeVisible();
+  await page.getByRole("button", { name: "Retry notifications" }).click();
+  await expect(page.getByRole("status")).toContainText("Notification emails sent.");
+  await expect(page.getByRole("button", { name: "Retry notifications" })).toHaveCount(0);
 });
 
 test("email configuration errors leave the competition draft and notification choice intact", async ({ page }) => {

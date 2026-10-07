@@ -13,6 +13,7 @@ begin
     or has_function_privilege('authenticated', 'public.claim_competition_start_email(uuid,text,text)', 'EXECUTE')
     or has_function_privilege('authenticated', 'public.finish_competition_start_email(uuid,uuid,boolean)', 'EXECUTE')
     or has_function_privilege('anon', 'public.start_competition(uuid,boolean)', 'EXECUTE')
+    or has_function_privilege('anon', 'public.get_my_pending_competition_start_emails(uuid)', 'EXECUTE')
     or not has_function_privilege('service_role', 'public.claim_competition_start_email(uuid,text,text)', 'EXECUTE') then
     raise exception 'Outbox privileges must be private with service-only delivery RPCs';
   end if;
@@ -53,12 +54,36 @@ begin
     raise exception 'Member must not read email claims';
   exception when insufficient_privilege then null;
   end;
+  begin
+    perform public.get_my_pending_competition_start_emails('00000000-0000-0000-0000-000000002020');
+    raise exception 'Members must not read pending start mail status';
+  exception when insufficient_privilege then null;
+  end;
+end;
+$$;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000002004', true);
+do $$
+begin
+  begin
+    perform public.get_my_pending_competition_start_emails('00000000-0000-0000-0000-000000002020');
+    raise exception 'Outsiders must not read pending start mail status';
+  exception when insufficient_privilege then null;
+  end;
 end;
 $$;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000002001', true);
 select public.start_competition('00000000-0000-0000-0000-000000002020', true);
 select public.transition_competition('00000000-0000-0000-0000-000000002021', 'submission');
 select public.start_competition('00000000-0000-0000-0000-000000002022');
+do $$
+begin
+  if not public.get_my_pending_competition_start_emails('00000000-0000-0000-0000-000000002020')
+    or public.get_my_pending_competition_start_emails('00000000-0000-0000-0000-000000002021')
+    or public.get_my_pending_competition_start_emails('00000000-0000-0000-0000-000000002022') then
+    raise exception 'Starter must see only their pending opt-in outbox';
+  end if;
+end;
+$$;
 reset role;
 
 do $$
@@ -92,6 +117,9 @@ $$;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000002003', true);
 do $$
 begin
+  if public.get_my_pending_competition_start_emails('00000000-0000-0000-0000-000000002020') then
+    raise exception 'Other administrators must not see starter retry state';
+  end if;
   begin
     perform public.start_competition('00000000-0000-0000-0000-000000002020', true);
     raise exception 'Only the starting administrator can retry';
@@ -109,6 +137,25 @@ begin
   end if;
 end;
 $$;
+
+update public.group_members set role = 'member'
+  where group_id = '00000000-0000-0000-0000-000000002010'
+    and user_id = '00000000-0000-0000-0000-000000002001';
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000002001', true);
+do $$
+begin
+  begin
+    perform public.get_my_pending_competition_start_emails('00000000-0000-0000-0000-000000002020');
+    raise exception 'Revoked administrators must lose pending retry access';
+  exception when insufficient_privilege then null;
+  end;
+end;
+$$;
+reset role;
+update public.group_members set role = 'admin'
+  where group_id = '00000000-0000-0000-0000-000000002010'
+    and user_id = '00000000-0000-0000-0000-000000002001';
 
 set local role service_role;
 do $$
@@ -157,6 +204,26 @@ begin
     '00000000-0000-0000-0000-000000002020', 'jury@example.com', 'https://jury.example.com'))
     or public.competition_start_emails_sent('00000000-0000-0000-0000-000000002020') then
     raise exception 'Expired provider idempotency requires operator reconciliation, not resending';
+  end if;
+end;
+$$;
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000002001', true);
+do $$
+begin
+  if not public.get_my_pending_competition_start_emails('00000000-0000-0000-0000-000000002020') then
+    raise exception 'Expired delivery attempts remain pending for recovery';
+  end if;
+end;
+$$;
+reset role;
+update public.competition_start_email_outbox set sent_at = clock_timestamp() where sent_at is null;
+set local role authenticated;
+do $$
+begin
+  if public.get_my_pending_competition_start_emails('00000000-0000-0000-0000-000000002020') then
+    raise exception 'Completed outbox must not expose pending retry state';
   end if;
 end;
 $$;
