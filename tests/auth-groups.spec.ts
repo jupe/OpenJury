@@ -89,9 +89,9 @@ test("users save and clear only their own name, with live list updates @mobile",
   await page.route(`${supabaseURL}/auth/v1/user`, (route) => {
     if (route.request().method() === "PUT") {
       const body = route.request().postDataJSON();
-      updates.push(body);
+      updates.push({ data: body.data });
       expect(route.request().headers().authorization).toBe(["Bearer", session().access_token].join(" "));
-      expect(Object.keys(body)).toEqual(["data"]);
+      expect(Object.keys(body).sort()).toEqual(["code_challenge", "code_challenge_method", "data"]);
       metadata = body.data;
     }
     return route.fulfill({ json: { ...session().user, user_metadata: metadata } });
@@ -151,6 +151,32 @@ test("name settings are localized in Finnish", async ({ page }) => {
   await expect(page.getByRole("textbox", { name: "Oma nimi" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Tallenna nimi" })).toBeVisible();
   await expect(page.getByText(/Vain sinä voit muuttaa sitä/)).toBeVisible();
+});
+
+test("saving an account name preserves an unsaved submission title", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{ id: secondId, group_id: groupId, name: "Bake-off", status: "submission",
+      submission_deadline: null, competition_participants: [{ role: "participant" }] }],
+  }));
+  let submissionReads = 0;
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => {
+    submissionReads++;
+    return route.fulfill({ json: [{ id: groupId, title: "Saved title", media_keys: [] }] });
+  });
+  await page.route(`${supabaseURL}/auth/v1/user`, (route) => route.fulfill({
+    json: { ...session().user, user_metadata: route.request().method() === "PUT" ? route.request().postDataJSON().data : {} },
+  }));
+  await page.goto(`/competition/${secondId}`);
+  const title = page.getByRole("textbox", { name: "Entry title" });
+  await expect(title).toHaveValue("Saved title");
+  await title.fill("Unsaved title");
+  await page.getByRole("button", { name: "Account (member@example.com)" }).click();
+  await page.getByRole("textbox", { name: "Your name" }).fill("Alex Baker");
+  await page.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(page.getByText("Your name has been saved.")).toBeVisible();
+  await expect(title).toHaveValue("Unsaved title");
+  expect(submissionReads).toBe(1);
 });
 
 test("small phone forms, long names and landscape stay usable @mobile", async ({ page }) => {

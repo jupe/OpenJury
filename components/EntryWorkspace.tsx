@@ -423,7 +423,22 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
 
   useEffect(() => {
     void Promise.resolve().then(load);
-  }, [load, session.user.id, session.user.user_metadata.display_name]);
+  }, [load, session.user.id]);
+
+  useEffect(() => {
+    if (competition?.status !== "results_published") return;
+    let active = true;
+    void (async () => {
+      const [results, categoryResults] = await Promise.all([
+        client.rpc("get_published_competition_results", { p_competition_id: competitionId }),
+        client.rpc("get_published_competition_category_results", { p_competition_id: competitionId }),
+      ]);
+      if (!active || results.error || categoryResults.error) return;
+      setPublishedResults((results.data || []) as PublishedResult[]);
+      setPublishedCategoryResults((categoryResults.data || []) as PublishedCategoryResult[]);
+    })().catch(() => undefined);
+    return () => { active = false; };
+  }, [client, competitionId, competition?.status, session.user.user_metadata.display_name]);
 
   useEffect(() => {
     const deadline = competition?.status === "submission"
