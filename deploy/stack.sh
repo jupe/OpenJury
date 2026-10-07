@@ -115,6 +115,11 @@ if [[ -n "${SUPABASE_MIGRATIONS:-}" ]]; then
   fi
   export PLATFORM_ADMIN_EMAILS="${PLATFORM_ADMIN_EMAILS:-}"
   export JWT_SECRET POSTGRES_PASSWORD REALTIME_SECRET_KEY_BASE SUPABASE_URL SUPABASE_ANON_KEY SUPABASE_SERVICE_KEY PASSWORD_SIGN_IN
+  # Persistent environments give the app server their own service-role key for
+  # competition-start emails; disposable previews never send real email.
+  if [[ "$preview" != true ]]; then
+    export SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-$SUPABASE_SERVICE_KEY}"
+  fi
   files+=(-f compose.supabase.yml)
   if [[ "$traefik_tls" == true ]]; then
     files+=(-f compose.supabase.tls.yml)
@@ -124,6 +129,14 @@ if [[ -n "${SUPABASE_MIGRATIONS:-}" ]]; then
   docker compose "${files[@]}" run --rm migrate
 fi
 
+# App-sent email links point at the public origin; previews get no default.
+if [[ "$preview" != true ]]; then
+  export APP_URL="${APP_URL:-${APP_SCHEME:-https}://$APP_HOST}"
+fi
+# Report which app email settings reach the container, by name only.
+for name in SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS SMTP_ADMIN_EMAIL APP_URL SUPABASE_SERVICE_ROLE_KEY; do
+  if [[ -n "${!name:-}" ]]; then echo "App email setting $name: set"; else echo "App email setting $name: missing"; fi
+done
 docker compose "${files[@]}" up --detach --wait --wait-timeout 300 --remove-orphans
 if [[ -n "${SUPABASE_MIGRATIONS:-}" && "$preview" == true ]]; then
   # This default is only for disposable previews; persistent environments never seed it.

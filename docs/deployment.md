@@ -65,14 +65,25 @@ deployment with the repository's CI checks and Vercel deployment controls.
 
 ## Prepare self-hosted infrastructure
 
+### App email over SMTP
+
+The app server sends group invitations and optional competition-start notices
+over SMTP, using the same `SMTP_*` settings as Supabase Auth's sign-in links, so
+one mail account serves both. Set `SMTP_HOST`, `SMTP_PORT` (default `587`, which
+requires STARTTLS; `465` uses implicit TLS), `SMTP_USER` and `SMTP_PASS` (both or
+neither), `SMTP_ADMIN_EMAIL` (the bare sender address), and optionally
+`SMTP_SENDER_NAME` (default `OpenJury`). For Gmail, use `smtp.gmail.com`, port
+`587`, the Google account as `SMTP_USER` and sender, and an
+[app password](https://support.google.com/accounts/answer/185833) as `SMTP_PASS`.
+Gmail also limits how many messages an account may send per day. Store these only
+in trusted runtime environments, never `NEXT_PUBLIC_*`, browser config, or image
+build args, and never configure real delivery in untrusted/disposable previews.
+
 ### Group invitation emails
 
-Email invitations use the app server's existing Resend integration. Set
-`RESEND_API_KEY`, `COMPETITION_EMAIL_FROM` (a bare, verified Resend sender address,
-also used for invitations), `APP_URL` (the trusted public HTTPS origin), and the
-Supabase public URL/key. Invitations do not require a service-role key or a new
-database migration. Supabase SMTP settings only deliver authentication emails;
-they do not deliver these invitations.
+Invitations need the SMTP settings above, `APP_URL` (the trusted public HTTPS
+origin), and the Supabase public URL/key. They do not require a service-role key
+or a new database migration.
 
 `POST /api/groups/<id>/invite` verifies the session bearer token and uses the
 user-scoped `invite_group_member_by_email` RPC to enforce group-admin access before
@@ -81,21 +92,16 @@ recipient joins after signing in with the invited, confirmed email address.
 Missing email configuration fails before saving an invitation. If delivery fails
 after saving, the UI reports that failure, preserves the pending invitation, and
 offers **Resend invite**. Existing pending invitations can also be resent.
-Success means Resend accepted the email, not guaranteed inbox delivery.
+Success means the SMTP server accepted the email, not guaranteed inbox delivery.
 Demo mode continues to save fictional invitations without sending email.
-Never configure real delivery in untrusted/disposable previews.
 
 ### Optional competition-start emails
 
 Apply migration `21_competition_start_notifications.sql` and configure the trusted
-app server with `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`,
-`COMPETITION_EMAIL_FROM` (a bare, verified Resend sender address), and `APP_URL`
-(the public HTTPS origin, without a path or query; HTTP localhost is allowed for
-development). Supabase public URL/key configuration is also required. Compose
-passes these optional runtime variables; self-hosted operators can supply the
-generated `SUPABASE_SERVICE_KEY` as `SUPABASE_SERVICE_ROLE_KEY`. Never configure
-real email delivery in untrusted/disposable previews. Store secrets only in trusted
-runtime environments, never `NEXT_PUBLIC_*`, browser config, or image build args.
+app server with the SMTP settings, `SUPABASE_SERVICE_ROLE_KEY`, and `APP_URL` (the
+public HTTPS origin, without a path or query; HTTP localhost is allowed for
+development). Supabase public URL/key configuration is also required. Self-hosted
+deployments pass their generated service key automatically.
 
 The browser explicitly opts in with a bodyless
 `POST /api/competitions/<id>/start` using its session bearer token. Missing or
@@ -113,9 +119,9 @@ Addresses and delivery credentials never appear in API responses or Realtime.
 
 After a successful start the response is always HTTP 200 with
 `{started:true,notificationsSent:boolean}`. `notificationsSent` means every
-queued email was accepted by Resend, not delivered to an inbox. Failures, active
-claims, or recipients remaining after the 25-second/50-email request budget yield
-`false`; the same starting administrator
+queued email was accepted by the SMTP server, not delivered to an inbox. Failures,
+active claims, or recipients remaining after the 25-second/50-email request budget
+yield `false`; the same starting administrator
 can explicitly retry this endpoint while still an admin, even after the competition
 advances. Skipped starts cannot be converted into notifications. If no members
 have email, the first response succeeds without sending; there is no outbox to retry.
@@ -124,26 +130,38 @@ After navigation or an ambiguous lost response, the authenticated admin can quer
 RPC reveals only a boolean for the caller's original pending queue, never addresses;
 other admins get false, and members/outsiders are denied.
 
-Service-only RPCs claim one recipient for two minutes, acknowledge only the
-matching claim token, and use a stable Resend idempotency key. Crashed requests
-leave a lease that expires; retry after two minutes. Resend currently retains
-idempotency keys for **24 hours**. Automatic claims stop 23 hours after the first
-attempt to avoid duplicates after retention expires. There is no background
+Service-only RPCs claim one recipient for two minutes and acknowledge only the
+matching claim token. Crashed requests leave a lease that expires; retry after two
+minutes. Claims stop 23 hours after the first attempt. There is no background
 worker: an admin retry is required, and large groups may require several requests.
-Delivery attempts are paced 600 ms apart within a request to stay below
-Resend's default two-requests-per-second limit. The 25-second budget includes
-authentication, database calls, provider calls, and pacing, so even fast delivery
-typically processes fewer than 45 recipients, not the 50-row hard ceiling.
-Concurrent requests share the provider's account-wide quota and can still receive
-429 responses; these return partial success without discarding pending recipients.
-Wait for the account's rate-limit window to reset before an explicit retry.
-Ambiguous timeouts or acknowledgement failures require prompt retries.
-Older pending rows require trusted operator reconciliation against Resend logs;
-do not clear attempts or generate new keys blindly, as that can duplicate mail.
-Provider outages, invalid addresses, rate limits, server execution time limits,
+One SMTP connection is reused per request, and messages are paced 600 ms apart to
+stay within typical provider sending limits. The 25-second budget includes
+authentication, database calls, SMTP delivery, and pacing, so a request typically
+processes fewer than 45 recipients, not the 50-row hard ceiling. SMTP has no
+idempotency key: if the server accepted a message but the reply was lost, a retry
+of that recipient can deliver a duplicate. Do not clear attempts blindly.
+Provider outages, invalid addresses, sending limits, server execution time limits,
 and removed admin access may leave notifications pending indefinitely. Deleting
 the starting Auth user clears the retry-owner reference without blocking account
 deletion; remaining recipients cannot be retried through the admin endpoint.
+
+### Troubleshooting email delivery
+
+Each deploy prints whether every app email setting reached the container
+(`App email setting SMTP_HOST: set`), by name only. The app logs JSON lines for
+each group invitation; follow them with:
+
+```sh
+docker logs -f openjury-production-web-1 2>&1 | grep '"scope":"group-invite"'
+```
+
+Lines with the same `requestId` belong to one invitation. `not-configured` names
+missing or invalid settings; `invite-rejected` carries the database error code;
+`smtp-rejected` includes the SMTP server's reply code and message (for example
+`535` for rejected credentials, or a daily sending limit); `email-accepted`
+includes the SMTP host and message ID. Logs identify recipients by domain only and
+never contain passwords, session tokens, or full addresses. Sign-in links are sent
+by Supabase Auth instead; check `docker logs openjury-production-auth-1` for those.
 
 For Proxmox VE, use the provisioning and guest playbooks described in
 [Proxmox VM setup](proxmox.md).
@@ -246,8 +264,10 @@ The `dev` environment supplies approval, variables, and secrets as configured.
 | `staging` / `production` variable | `PLATFORM_ADMIN_EMAILS` | Self-hosted Supabase only: comma-separated emails of [platform admins](architecture.md#roles), synced on every deploy (removing one revokes it). Previews default to the seeded preview account |
 | `staging` / `production` variable | `SUPABASE_SELF_HOSTED` | `true` to run a persistent Supabase stack on the host instead ([LAN VMs](proxmox.md#quick-start-lan-staging-and-production-vms)) |
 | `staging` / `production` variable | `TLS_TERMINATION` | `upstream` when your own proxy terminates HTTPS in front of the host; defaults to `traefik` |
-| `staging` / `production` variables | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_ADMIN_EMAIL`, `SMTP_SENDER_NAME` | Self-hosted Supabase only: magic-link mail server; unset sends mail to the host's Mailpit |
-| `staging` / `production` secret | `SMTP_PASS` | Self-hosted Supabase only: SMTP password |
+| `staging` / `production` variables | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_ADMIN_EMAIL`, `SMTP_SENDER_NAME` | Mail server for app-sent email (invitations, competition-start notices) and, on self-hosted Supabase, sign-in links; unset leaves app email disabled and sends sign-in links to the host's Mailpit |
+| `staging` / `production` secret | `SMTP_PASS` | SMTP password, e.g. a Google app password |
+| `staging` / `production` variable | `APP_URL` | Optional; public HTTPS origin used in email links, defaults to `https://<APP_HOST>` |
+| `staging` / `production` secret | `SUPABASE_SERVICE_ROLE_KEY` | Hosted Supabase only, for competition-start emails; self-hosted stacks supply their own |
 
 Allow Actions to publish/read this repository's GHCR package. The workflows use
 short-lived `GITHUB_TOKEN` credentials; no PAT is required. If the package already

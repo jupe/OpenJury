@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { mailConfiguration, mailer, sendMail, type MailConfig, type MailMessage, type MailTransport } from "@/lib/mailer";
 
 export const runtime = "nodejs";
 
@@ -6,16 +7,16 @@ function json(body: object, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 }
 
-function configuration() {
+function configuration(): {
+  url: string; anonKey: string; serviceKey: string; mail: MailConfig; origin: string;
+} | null {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const resendKey = process.env.RESEND_API_KEY;
-  const from = process.env.COMPETITION_EMAIL_FROM;
   const appUrl = process.env.APP_URL;
-  if (!url || !anonKey || !serviceKey || !resendKey || !from || !appUrl) return null;
-  if ([anonKey, serviceKey, resendKey].some((key) => /\s/.test(key))) return null;
-  if (/[\r\n]/.test(from) || !/^[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+$/.test(from)) return null;
+  const mail = mailConfiguration();
+  if (!url || !anonKey || !serviceKey || !appUrl || "error" in mail) return null;
+  if ([anonKey, serviceKey].some((key) => /\s/.test(key))) return null;
   try {
     const origin = new URL(appUrl);
     if (origin.username || origin.password || origin.search || origin.hash || origin.pathname !== "/") return null;
@@ -23,7 +24,7 @@ function configuration() {
     const backend = new URL(url);
     if (!["https:", "http:"].includes(backend.protocol) || backend.username || backend.password
       || backend.search || backend.hash) return null;
-    return { url, anonKey, serviceKey, resendKey, from, origin: origin.origin };
+    return { url, anonKey, serviceKey, mail, origin: origin.origin };
   } catch {
     return null;
   }
@@ -51,6 +52,7 @@ export async function POST(
     global: { fetch: boundedFetch },
   };
   let started = false;
+  let transport: MailTransport | null = null;
   try {
     const userClient = createClient(config.url, config.anonKey, {
       ...options, global: { ...options.global, headers: { Authorization: ["Bearer", token].join(" ") } },
@@ -74,28 +76,21 @@ export async function POST(
       if (deadline - Date.now() < wait + 2_000) break;
       if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
       const claim = await service.rpc("claim_competition_start_email", {
-        p_competition_id: competitionId, p_from: config.from, p_origin: config.origin,
+        p_competition_id: competitionId, p_from: config.mail.from, p_origin: config.origin,
       });
       if (claim.error) return json({ started: true, notificationsSent: false });
-      const email = claim.data?.[0] as { id: string; claim_token: string; payload: object } | undefined;
+      const email = claim.data?.[0] as { id: string; claim_token: string; payload: MailMessage } | undefined;
       if (!email) break;
       let sent = false;
       try {
-        // Resend's default limit is two requests/second; leave a small margin.
+        // Pace messages so a large group stays within SMTP providers' sending limits.
         nextSendAt = Date.now() + 600;
-        const response = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            Authorization: ["Bearer", config.resendKey].join(" "),
-            "Content-Type": "application/json",
-            "Idempotency-Key": `competition-start-${email.id}`,
-          },
-          body: JSON.stringify(email.payload),
-          signal: timeout(),
-        });
-        sent = response.ok;
+        transport ??= mailer.createTransport(config.mail);
+        await sendMail(transport, config.mail, email.payload);
+        sent = true;
       } catch {
-        // Network timeouts can be ambiguous; retries use the same frozen payload/key.
+        // A lost reply after the server accepted the message is ambiguous; SMTP has no
+        // idempotency key, so a retry of this frozen payload may deliver it twice.
       }
       if (Date.now() >= deadline) return json({ started: true, notificationsSent: false });
       const finish = await service.rpc("finish_competition_start_email", {
@@ -109,5 +104,7 @@ export async function POST(
     return started
       ? json({ started: true, notificationsSent: false })
       : json({ error: "Unable to start competition" }, 502);
+  } finally {
+    transport?.close();
   }
 }

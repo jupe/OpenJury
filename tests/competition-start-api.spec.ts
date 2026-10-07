@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { mailer } from "../lib/mailer";
 import { POST } from "../app/api/competitions/[competitionId]/start/route";
 
 test.describe.configure({ mode: "serial" });
@@ -10,13 +11,18 @@ const env = {
   SUPABASE_URL: "https://backend.example.com",
   SUPABASE_ANON_KEY: "public-test-key",
   SUPABASE_SERVICE_ROLE_KEY: "private-test-service-key",
-  RESEND_API_KEY: "private-test-email-key",
-  COMPETITION_EMAIL_FROM: "jury@example.com",
+  SMTP_HOST: "smtp.example.com",
+  SMTP_PORT: "587",
+  SMTP_USER: "jury@example.com",
+  SMTP_PASS: "private-smtp-password",
+  SMTP_ADMIN_EMAIL: "jury@example.com",
   APP_URL: "https://jury.example.com",
 };
 let previous: Record<string, string | undefined>;
 let originalFetch: typeof fetch;
-type Call = { url: string; headers: Headers; body: Record<string, unknown>; at: number };
+let originalCreateTransport: typeof mailer.createTransport;
+let transportsClosed: number;
+type Call = { url: string; headers: Headers; body: Record<string, unknown>; at: number; config?: unknown };
 let calls: Call[];
 let authStatus: number;
 let startError: string | null;
@@ -31,7 +37,7 @@ let clockOffset: number;
 let finishAdvance: number;
 let extraRecipient: boolean;
 const payload = {
-  from: env.COMPETITION_EMAIL_FROM,
+  from: env.SMTP_ADMIN_EMAIL,
   to: ["private-member@example.com"],
   subject: "Competition started: Bake-off",
   text: `The competition "Bake-off" in "Baking club" has started.\nhttps://jury.example.com/competition/${competitionId}`,
@@ -53,6 +59,21 @@ test.beforeEach(() => {
   finishAdvance = 0;
   extraRecipient = false;
   originalNow = Date.now;
+  originalCreateTransport = mailer.createTransport;
+  transportsClosed = 0;
+  mailer.createTransport = (config) => ({
+    async sendMail(message) {
+      calls.push({ url: "smtp://send", headers: new Headers(), body: message as unknown as Record<string, unknown>, at: Date.now(), config });
+      if (providerThrows) throw Object.assign(new Error("Connection timeout"), { code: "ETIMEDOUT" });
+      if (providerStatus !== 200) {
+        throw Object.assign(new Error(`Private failure for ${message.to[0]}`), {
+          code: "EMESSAGE", responseCode: providerStatus, response: `${providerStatus} Private failure`,
+        });
+      }
+      return { messageId: "<provider-id@smtp.example.com>" };
+    },
+    close() { transportsClosed++; },
+  });
   originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = input instanceof Request ? input.url : String(input);
@@ -81,11 +102,6 @@ test.beforeEach(() => {
       claimed = true;
       return Response.json([{ id: recipientId, claim_token: claimToken, payload }]);
     }
-    if (url === "https://api.resend.com/emails") {
-      if (providerThrows) throw new TypeError("Network timeout");
-      return Response.json(providerStatus === 200 ? { id: "provider-id" } : { message: "Private failure" },
-        { status: providerStatus });
-    }
     if (path === "/rest/v1/rpc/finish_competition_start_email") {
       clockOffset += finishAdvance;
       return finishFails ? Response.json({ message: "Private finish error" }, { status: 500 })
@@ -98,6 +114,7 @@ test.beforeEach(() => {
 
 test.afterEach(() => {
   globalThis.fetch = originalFetch;
+  mailer.createTransport = originalCreateTransport;
   Date.now = originalNow;
   for (const name of Object.keys(env)) {
     if (previous[name] === undefined) delete process.env[name];
@@ -118,7 +135,7 @@ test("rejects missing sessions and malformed IDs without upstream calls", async 
 });
 
 test("configuration fails closed before starting", async () => {
-  for (const name of ["SUPABASE_SERVICE_ROLE_KEY", "RESEND_API_KEY", "COMPETITION_EMAIL_FROM", "APP_URL"]) {
+  for (const name of ["SUPABASE_SERVICE_ROLE_KEY", "SMTP_HOST", "SMTP_ADMIN_EMAIL", "APP_URL"]) {
     delete process.env[name];
     expect((await request()).status).toBe(503);
     process.env[name] = env[name as keyof typeof env];
@@ -144,7 +161,7 @@ test("verifies sessions and maps permission/state failures without delivery", as
     expect(response.status).toBe(expectedStatus);
     expect(await response.text()).not.toContain("Private");
   }
-  expect(calls.some((call) => call.url.includes("resend") || call.url.includes("claim_competition"))).toBe(false);
+  expect(calls.some((call) => call.url === "smtp://send" || call.url.includes("claim_competition"))).toBe(false);
 });
 
 test("starts as the user and privately delivers frozen plain text with service-only RPCs", async () => {
@@ -159,20 +176,20 @@ test("starts as the user and privately delivers frozen plain text with service-o
   const claim = calls.find((call) => call.url.endsWith("/claim_competition_start_email"))!;
   expect(claim.headers.get("apikey")).toBe(env.SUPABASE_SERVICE_ROLE_KEY);
   expect(claim.body).toEqual({
-    p_competition_id: competitionId, p_from: env.COMPETITION_EMAIL_FROM, p_origin: env.APP_URL,
+    p_competition_id: competitionId, p_from: env.SMTP_ADMIN_EMAIL, p_origin: env.APP_URL,
   });
-  const email = calls.find((call) => call.url === "https://api.resend.com/emails")!;
-  expect(email.body).toEqual(payload);
+  const email = calls.find((call) => call.url === "smtp://send")!;
+  expect(email.body).toEqual({ ...payload, from: { name: "OpenJury", address: env.SMTP_ADMIN_EMAIL } });
   expect(email.body).not.toHaveProperty("html");
-  expect(email.headers.get("idempotency-key")).toBe(`competition-start-${recipientId}`);
-  expect(email.headers.get("authorization")).toBe(["Bearer", env.RESEND_API_KEY].join(" "));
+  expect(email.config).toMatchObject({ host: env.SMTP_HOST, port: 587, user: env.SMTP_USER });
   expect(email.body.text).not.toContain("attacker.example");
+  expect(transportsClosed).toBe(1);
   expect(calls.find((call) => call.url.endsWith("/finish_competition_start_email"))!.body).toEqual({
     p_id: recipientId, p_claim_token: claimToken, p_sent: true,
   });
 });
 
-test("provider failures preserve successful start and retry uses the same key and payload", async () => {
+test("SMTP failures preserve successful start and retry sends the same frozen payload", async () => {
   providerStatus = 429;
   const failed = await request();
   expect(failed.status).toBe(200);
@@ -181,10 +198,9 @@ test("provider failures preserve successful start and retry uses the same key an
   providerStatus = 200;
   claimed = false;
   expect(await (await request()).json()).toEqual({ started: true, notificationsSent: true });
-  const emails = calls.filter((call) => call.url === "https://api.resend.com/emails");
+  const emails = calls.filter((call) => call.url === "smtp://send");
   expect(emails).toHaveLength(2);
   expect(emails[0].body).toEqual(emails[1].body);
-  expect(emails[0].headers.get("idempotency-key")).toBe(emails[1].headers.get("idempotency-key"));
 });
 
 test("network, claim, acknowledgement and pending leases return partial success without private details", async () => {
@@ -203,10 +219,10 @@ test("network, claim, acknowledgement and pending leases return partial success 
 test("already delivered or leased outbox never sends without a claim", async () => {
   claimed = true;
   expect(await (await request()).json()).toEqual({ started: true, notificationsSent: true });
-  expect(calls.some((call) => call.url.includes("resend"))).toBe(false);
+  expect(calls.some((call) => call.url === "smtp://send")).toBe(false);
   completed = false;
   expect(await (await request()).json()).toEqual({ started: true, notificationsSent: false });
-  expect(calls.some((call) => call.url.includes("resend"))).toBe(false);
+  expect(calls.some((call) => call.url === "smtp://send")).toBe(false);
 });
 
 test("request time budget stops claiming more recipients and preserves partial success", async () => {
@@ -218,13 +234,14 @@ test("request time budget stops claiming more recipients and preserves partial s
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ started: true, notificationsSent: false });
   expect(calls.filter((call) => call.url.endsWith("/claim_competition_start_email"))).toHaveLength(1);
-  expect(calls.filter((call) => call.url === "https://api.resend.com/emails")).toHaveLength(1);
+  expect(calls.filter((call) => call.url === "smtp://send")).toHaveLength(1);
 });
 
-test("paces multiple provider requests below Resend's default two-per-second limit", async () => {
+test("paces multiple messages and reuses one SMTP connection per request", async () => {
   extraRecipient = true;
   expect(await (await request()).json()).toEqual({ started: true, notificationsSent: true });
-  const attempts = calls.filter((call) => call.url === "https://api.resend.com/emails");
+  const attempts = calls.filter((call) => call.url === "smtp://send");
   expect(attempts).toHaveLength(2);
   expect(attempts[1].at - attempts[0].at).toBeGreaterThanOrEqual(550);
+  expect(transportsClosed).toBe(1);
 });

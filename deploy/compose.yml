@@ -19,9 +19,14 @@ services:
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
-      COMPETITION_EMAIL_FROM: ${COMPETITION_EMAIL_FROM:-}
       APP_URL: ${APP_URL:-}
+      # App-sent email shares the SMTP server Supabase Auth uses for sign-in links.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-}
+      SMTP_SENDER_NAME: ${SMTP_SENDER_NAME:-}
     networks: [proxy]
     labels:
       - traefik.enable=true
