@@ -65,6 +65,26 @@ deployment with the repository's CI checks and Vercel deployment controls.
 
 ## Prepare self-hosted infrastructure
 
+### Group invitation emails
+
+Email invitations use the app server's existing Resend integration. Set
+`RESEND_API_KEY`, `COMPETITION_EMAIL_FROM` (a bare, verified Resend sender address,
+also used for invitations), `APP_URL` (the trusted public HTTPS origin), and the
+Supabase public URL/key. Invitations do not require a service-role key or a new
+database migration. Supabase SMTP settings only deliver authentication emails;
+they do not deliver these invitations.
+
+`POST /api/groups/<id>/invite` verifies the session bearer token and uses the
+user-scoped `invite_group_member_by_email` RPC to enforce group-admin access before
+sending a private plain-text invitation. The email links to `/dashboard`; the
+recipient joins after signing in with the invited, confirmed email address.
+Missing email configuration fails before saving an invitation. If delivery fails
+after saving, the UI reports that failure, preserves the pending invitation, and
+offers **Resend invite**. Existing pending invitations can also be resent.
+Success means Resend accepted the email, not guaranteed inbox delivery.
+Demo mode continues to save fictional invitations without sending email.
+Never configure real delivery in untrusted/disposable previews.
+
 ### Optional competition-start emails
 
 Apply migration `21_competition_start_notifications.sql` and configure the trusted
