@@ -70,6 +70,32 @@ test("configured signed-out smoke navigation @mobile", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Sign in to OpenJury" })).toBeVisible();
 });
 
+test("theme preference supports white, dark, and automatic system mode", async ({ page }) => {
+  await page.goto("/");
+  const account = page.getByRole("button", { name: /^Account/ });
+  const signIn = page.getByRole("heading", { name: "Sign in to OpenJury" });
+  await account.or(signIn).first().waitFor({ timeout: 60_000 });
+  test.skip(await signIn.isVisible(), "Supabase is configured");
+
+  await account.click();
+  const theme = page.getByRole("combobox", { name: "Theme" });
+  await expect(theme.locator("option")).toHaveText(["White", "Dark", "Auto"]);
+  await theme.selectOption("dark");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(11, 17, 32)");
+
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await account.click();
+  await page.getByRole("combobox", { name: "Theme" }).selectOption("auto");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "white");
+  await page.getByRole("combobox", { name: "Theme" }).selectOption("white");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "white");
+});
+
 test("demo personas vote on fictional data saved in the browser", async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto("/dashboard");
