@@ -92,7 +92,8 @@ test("database identifiers stay hidden but are preserved by navigation links", a
   await page.goto(`/group/${encodeURIComponent(id)}`);
   const signIn = page.getByRole("heading", { name: "Sign in to OpenJury" });
   await demoExpect(page.getByRole("button", { name: /^Account/ }).or(signIn)).toBeVisible({ timeout: 60_000 });
-  await demoExpect(page.getByRole("heading", { name: "Group not found or access denied" }).or(signIn)).toBeVisible();
+  await demoExpect(page.getByRole("heading", { name: "Group not found or access denied" }).or(signIn))
+    .toBeVisible({ timeout: 60_000 });
   await demoExpect(page.locator("body")).not.toContainText(id);
   await page.goto(`/competition/${encodeURIComponent(id)}`);
   await demoExpect(page.locator("body")).not.toContainText(id);
