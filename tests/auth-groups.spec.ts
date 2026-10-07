@@ -187,6 +187,7 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   await page.setViewportSize({ width: 320, height: 568 });
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
   const saves: Array<{ p_title: string; p_media_keys: string[] }> = [];
+  const deletions: string[][] = [];
   await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
     json: [{ id: secondId, group_id: groupId, name: "Phone photos", status: "submission", submission_deadline: null, voting_deadline: null, competition_participants: [{ role: "participant" }] }],
   }));
@@ -197,7 +198,10 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   });
   await page.route(`${supabaseURL}/storage/v1/object/**`, (route) => {
     if (route.request().method() === "POST") return route.fulfill({ json: { Key: "uploaded.png" } });
-    if (route.request().method() === "DELETE") return route.fulfill({ json: [] });
+    if (route.request().method() === "DELETE") {
+      deletions.push(route.request().postDataJSON().prefixes);
+      return route.fulfill({ json: [] });
+    }
     return route.fulfill({ contentType: "image/png", body: png });
   });
   await page.goto(`/competition/${secondId}`);
@@ -233,8 +237,106 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   await page.getByRole("button", { name: "Close gallery" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("button", { name: "Remove image 1" }).click();
+  await expect(page.getByRole("status")).toContainText("Save submission to delete the removed images.");
   await page.getByRole("button", { name: "Save submission" }).click();
   await expect.poll(() => saves.at(-1)?.p_media_keys).toEqual([]);
+  await expect.poll(() => deletions).toEqual([saves[1].p_media_keys]);
+});
+
+for (const failureStage of ["initial save", "upload", "final save"] as const) {
+  test(`photo submission shows ${failureStage} errors and can retry @mobile`, async ({ page }) => {
+    await configure(page, true);
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
+    let fail = true;
+    let saveCount = 0;
+    const uploads: string[] = [];
+    const deletions: string[][] = [];
+    const message = failureStage === "upload" ? "Upload denied" : "Submissions are not open";
+    await page.route(`${supabaseURL}/rest/v1/group_members**`, (route) => route.fulfill({ json: [{ role: "member" }] }));
+    await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+      json: [{ id: secondId, group_id: groupId, name: "Photo errors", status: "submission", submission_deadline: null, voting_deadline: null, competition_participants: [{ role: "participant" }] }],
+    }));
+    await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [] }));
+    await page.route(`${supabaseURL}/rest/v1/rpc/save_submission`, (route) => {
+      saveCount++;
+      if (fail && (failureStage === "initial save" || (failureStage === "final save" && saveCount === 2))) {
+        return route.fulfill({ status: 400, json: { code: "55000", message } });
+      }
+      return route.fulfill({ json: groupId });
+    });
+    await page.route(`${supabaseURL}/storage/v1/object/**`, (route) => {
+      if (route.request().method() === "POST") {
+        if (fail && failureStage === "upload") {
+          return route.fulfill({ status: 400, json: { statusCode: "403", error: "Forbidden", message } });
+        }
+        uploads.push(new URL(route.request().url()).pathname.split("/competition-submissions/")[1]);
+        return route.fulfill({ json: { Key: "uploaded.png" } });
+      }
+      if (route.request().method() === "DELETE") {
+        deletions.push(route.request().postDataJSON().prefixes);
+        return route.fulfill({ json: [] });
+      }
+      return route.fulfill({ contentType: "image/png", body: png });
+    });
+    await page.goto(`/competition/${secondId}`);
+    await page.getByRole("textbox", { name: "Entry title" }).fill("Retry photo");
+    await page.locator('input[type="file"][multiple]').setInputFiles({ name: "photo.png", mimeType: "image/png", buffer: png });
+    await page.getByRole("button", { name: "Save submission" }).click();
+    await expect(page.getByRole("alert")).toHaveText(`Unable to save submission: ${message}`);
+    await expect(page.getByText("1 new image(s) selected.")).toBeVisible();
+    expect(deletions).toEqual(failureStage === "final save" ? [[uploads[0]]] : []);
+
+    fail = false;
+    await page.getByRole("button", { name: "Save submission" }).click();
+    await expect(page.getByRole("heading", { name: "Edit your submission" })).toBeVisible();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(page.getByText("1 new image(s) selected.")).toHaveCount(0);
+  });
+}
+
+test("existing submission images are deleted only after a successful save @mobile", async ({ page }) => {
+  await configure(page, true);
+  const key = `${secondId}/${groupId}/00000000-0000-4000-8000-000000000204.png`;
+  const existing = { id: groupId, title: "Existing photo", media_keys: [key] };
+  let fail = true;
+  const deletions: string[][] = [];
+  await page.route(`${supabaseURL}/rest/v1/group_members**`, (route) => route.fulfill({ json: [{ role: "member" }] }));
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{ id: secondId, group_id: groupId, name: "Photo removal", status: "submission", submission_deadline: null, voting_deadline: null, competition_participants: [{ role: "participant" }] }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [existing] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/save_submission`, (route) => {
+    const keys = route.request().postDataJSON().p_media_keys as string[];
+    if (fail && keys.length === 0) {
+      return route.fulfill({ status: 400, json: { message: "Unable to update media" } });
+    }
+    existing.media_keys = keys;
+    return route.fulfill({ json: groupId });
+  });
+  await page.route(`${supabaseURL}/storage/v1/object/**`, (route) => {
+    if (route.request().method() === "DELETE") {
+      deletions.push(route.request().postDataJSON().prefixes);
+      return route.fulfill({ json: [] });
+    }
+    return route.fulfill({ contentType: "image/png", body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64") });
+  });
+  await page.goto(`/competition/${secondId}`);
+  await page.getByRole("img", { name: "Your submission image 1", exact: true }).scrollIntoViewIfNeeded();
+  await page.getByRole("button", { name: "Remove image 1" }).click();
+  await expect(page.getByRole("status")).toContainText("Save submission to delete the removed images.");
+  expect(deletions).toEqual([]);
+  await page.getByRole("button", { name: "Save submission" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Unable to save submission: Unable to update media");
+  expect(existing.media_keys).toEqual([key]);
+  expect(deletions).toEqual([]);
+
+  fail = false;
+  await page.getByRole("button", { name: "Save submission" }).click();
+  await expect.poll(() => deletions).toEqual([[key]]);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Edit your submission" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "Your submission image 1", exact: true })).toHaveCount(0);
 });
 
 test("off-screen private voting media is deferred until scrolling @mobile", async ({ page }) => {

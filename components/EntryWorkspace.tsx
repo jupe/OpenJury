@@ -558,7 +558,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     } catch (saveError) {
       const pendingCleanup = await cleanup(uploaded);
       setCleanupKeys(pendingCleanup);
-      setError(localizedFailure("Unable to save submission: {error}", saveError instanceof Error ? saveError.message : t("Please try again.")));
+      setError(localizedFailure("Unable to save submission: {error}", saveError));
       if (!submission && entryId) {
         const { data } = await client.rpc("get_my_submission", { p_competition_id: competitionId });
         const own = (data || [])[0] as Submission | undefined;
@@ -711,6 +711,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
               className="hidden"
             />
             {newFiles.length > 0 && <p>{t("{count} new image(s) selected.", { count: newFiles.length })}</p>}
+            {removedKeys.length > 0 && <p role="status">{t("Save submission to delete the removed images.")}</p>}
             {error && <p role="alert"><ErrorText error={error} /></p>}
             <Button type="submit" disabled={saving}>{t(saving ? "Saving…" : "Save submission")}</Button>
           </form>
