@@ -44,6 +44,22 @@ competitions, skips rows already being processed, and is safe to call repeatedly
 The move from review to `results_published` is only available through atomic result
 publication.
 
+Migration `21_competition_start_notifications.sql` adds
+`start_competition(id, notify default false)`. Opt-in locks the draft competition,
+invokes the existing transition to submission, and atomically snapshots current
+members with verified Auth email addresses into the RLS-private
+`competition_start_email_outbox`, unique per competition/user. Default-skip still
+uses the unchanged `transition_competition(id, 'submission')` and creates no mail.
+Only the original starter, while still an admin, can retry an existing outbox;
+retries never add later members. Service-role-only claim and acknowledgement
+RPCs lease recipients and record delivery, while the authenticated start API
+returns only start/delivery status.
+`get_my_pending_competition_start_emails(id)` lets the starting admin restore
+pending retries after navigation or a lost response. It returns only a boolean,
+is false for other admins or an empty/completed queue, and denies non-admins.
+See [email configuration and bounded delivery
+recovery](deployment.md#optional-competition-start-emails).
+
 Members submit or revise complete category ballots through `save_ballot`. It
 locks the same competition row as submissions and transitions, verifies the
 member, voting phase, deadline, anonymous entry, every category, and each category
@@ -237,6 +253,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_deletion.s
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_setup.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/secure_submissions.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/transactional_lifecycle.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_start_notifications.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/admin_review_and_publication.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_attendees.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/realtime_notifications.sql
@@ -250,6 +267,12 @@ edits across every phase without changing scoring or lifecycle fields.
 The lifecycle test covers role authorization,
 legal transitions, ballot creation and revision, self-voting and membership
 denial, stable numbering, and idempotent remote deadline processing. The
+start-notification test covers opt-in recipient snapshots, both default-skip
+paths, admin-only retries and pending-status recovery, private outbox permissions, immutable payloads,
+exclusive claims, token-guarded acknowledgements, and expired provider retention.
+The mocked-upstream route tests live in `tests/competition-start-api.spec.ts` and
+use the existing Playwright runner without requiring real Supabase/Resend credentials.
+The
 review/publication test covers admin-only access, complete-ballot aggregation,
 category winners, ties, minimum votes, schedule replacement/cancellation, moderation
 outcomes and reinstatement, retained audit data, and atomic publication.

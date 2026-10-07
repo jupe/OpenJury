@@ -18,6 +18,10 @@ services:
     environment:
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      COMPETITION_EMAIL_FROM: ${COMPETITION_EMAIL_FROM:-}
+      APP_URL: ${APP_URL:-}
     networks: [proxy]
     labels:
       - traefik.enable=true

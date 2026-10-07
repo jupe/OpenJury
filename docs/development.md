@@ -94,8 +94,9 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/16_competition_deletion.sql`,
 `supabase/migrations/17_participant_voting.sql`,
 `supabase/migrations/18_heic_submission_media.sql`,
-`supabase/migrations/19_group_overview.sql`, and
-`supabase/migrations/20_member_display_names.sql`, once each, in that order.
+`supabase/migrations/19_group_overview.sql`,
+`supabase/migrations/20_member_display_names.sql`, and
+`supabase/migrations/21_competition_start_notifications.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
@@ -116,6 +117,9 @@ Migration 20 adds metadata names to the admin-only group member list.
 Signed-in users can set or clear their optional name in the account menu.
 The form updates only their own Supabase Auth `display_name` metadata; names
 also appear in existing attendee and published-result projections.
+Migration 21 adds optional competition-start emails. Notifications are skipped
+by default; trusted servers need the [email configuration](deployment.md#optional-competition-start-emails)
+before admins can opt in when opening submissions. The browser-only demo never sends emails.
 Competition setup and details support English and Finnish through `lib/i18n.tsx`.
 Choose the language from the account menu; the preference is stored in the browser.
 Translate interface labels and messages, not user-provided competition names,
