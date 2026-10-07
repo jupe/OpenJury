@@ -342,10 +342,14 @@ class DemoClient {
   readonly channels = new Set<DemoChannel>();
   private ready?: Promise<DemoDatabase>;
   private userId: string | null = null;
+  private userMetadata = new Map<string, Record<string, unknown>>();
   private listeners = new Set<AuthListener>();
 
   database() {
     this.ready ??= DemoDatabase.open().then(async (database) => {
+      const { rows } = await database.db.query<{ id: string; raw_user_meta_data: Record<string, unknown> | null }>(
+        "select id, raw_user_meta_data from auth.users");
+      for (const row of rows) this.userMetadata.set(row.id, row.raw_user_meta_data ?? {});
       await database.db.listen("demo_realtime", (payload) => this.broadcast(payload));
       // Stands in for the scheduler that publishes results at their scheduled time.
       const publishDue = () => void database.as({ id: null, email: null, role: "service_role" }, (tx) =>
@@ -391,7 +395,7 @@ class DemoClient {
         email: user.email,
         aud: "authenticated",
         app_metadata: {},
-        user_metadata: { display_name: user.name },
+        user_metadata: this.userMetadata.get(user.id) ?? {},
         created_at: new Date(0).toISOString(),
       },
     };
@@ -434,6 +438,27 @@ class DemoClient {
       return { error: null };
     },
     getSession: async () => ok({ session: this.session() }),
+    updateUser: async ({ data }: { data: { display_name: string | null } }) => {
+      const actor = this.actor();
+      if (!actor.id) return fail({ message: "Authentication is required." });
+      try {
+        const database = await this.database();
+        const { rows } = await database.db.query<{ raw_user_meta_data: Record<string, unknown> }>(
+          `update auth.users
+           set raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('display_name', $2::text)
+           where id = $1 returning raw_user_meta_data`,
+          [actor.id, data.display_name],
+        );
+        if (!rows.length) return fail({ message: "Account not found." });
+        this.userMetadata.set(actor.id, rows[0].raw_user_meta_data);
+        const session = this.session();
+        if (this.userId !== actor.id || !session) return fail({ message: "Your session has changed." });
+        for (const listener of this.listeners) listener("USER_UPDATED", session);
+        return ok({ user: session.user });
+      } catch (error) {
+        return fail(error);
+      }
+    },
     onAuthStateChange: (callback: AuthListener) => {
       this.listeners.add(callback);
       return { data: { subscription: { unsubscribe: () => { this.listeners.delete(callback); } } } };

@@ -56,6 +56,12 @@ function updateLocale(locale: Locale) {
 const finnish: Record<string, string> = {
   "Account": "Tili",
   "Signed in as": "Kirjautuneena käyttäjänä",
+  "Your name": "Oma nimi",
+  "Name / email": "Nimi / sähköposti",
+  "Optional. Shown in lists and published results. Only you can change it.": "Vapaaehtoinen. Näkyy listoissa ja julkaistuissa tuloksissa. Vain sinä voit muuttaa sitä.",
+  "Save name": "Tallenna nimi",
+  "Your name has been saved.": "Nimesi on tallennettu.",
+  "Unable to save your name: {error}": "Nimen tallentaminen epäonnistui: {error}",
   "Your groups": "Omat ryhmät",
   "Sign out": "Kirjaudu ulos",
   "Signing out…": "Kirjaudutaan ulos…",

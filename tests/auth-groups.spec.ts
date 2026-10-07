@@ -82,6 +82,103 @@ async function expectPhoneLayout(page: Page) {
   }
 }
 
+test("users save and clear only their own name, with live list updates @mobile", async ({ page }) => {
+  await configure(page, true);
+  let metadata: { display_name?: string | null } = {};
+  const updates: unknown[] = [];
+  await page.route(`${supabaseURL}/auth/v1/user`, (route) => {
+    if (route.request().method() === "PUT") {
+      const body = route.request().postDataJSON();
+      updates.push({ data: body.data });
+      expect(route.request().headers().authorization).toBe(["Bearer", session().access_token].join(" "));
+      expect(Object.keys(body).sort()).toEqual(["code_challenge", "code_challenge_method", "data"]);
+      metadata = body.data;
+    }
+    return route.fulfill({ json: { ...session().user, user_metadata: metadata } });
+  });
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_group_members`, (route) => route.fulfill({ json: [
+    { user_id: userId, email: "member@example.com", role: "admin", display_name: metadata.display_name },
+    { user_id: secondId, email: "friend@example.com", role: "member", display_name: "Friend" },
+  ] }));
+  for (const rpc of ["get_group_email_invites", "get_group_invite_links"]) {
+    await page.route(`${supabaseURL}/rest/v1/rpc/${rpc}`, (route) => route.fulfill({ json: [] }));
+  }
+  await page.goto(`/group/${groupId}`);
+  const members = page.getByRole("table").filter({ has: page.getByRole("columnheader", { name: "Name / email" }) });
+  await expect(members.getByRole("cell", { name: "Friend friend@example.com", exact: true })).toBeVisible();
+  await expect(members.getByRole("textbox")).toHaveCount(0);
+  const account = page.getByRole("button", { name: "Account (member@example.com)" });
+  await account.click();
+  const name = page.getByRole("textbox", { name: "Your name" });
+  await expect(name).toHaveValue("");
+  await expect(name).toHaveAttribute("maxlength", "100");
+  await name.fill("  Alex Baker  ");
+  await expectPhoneLayout(page);
+  await page.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Your name has been saved." })).toBeVisible();
+  await expect(members.getByRole("cell", { name: "Alex Baker (you) member@example.com", exact: true })).toBeVisible();
+  expect(updates).toEqual([{ data: { display_name: "Alex Baker" } }]);
+  await account.click();
+  await account.click();
+  await expect(name).toHaveValue("Alex Baker");
+  await name.fill("   ");
+  await page.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(members.getByText("member@example.com (you)", { exact: true })).toBeVisible();
+  await expect(members.getByRole("cell", { name: "Friend friend@example.com", exact: true })).toBeVisible();
+  expect(updates).toEqual([{ data: { display_name: "Alex Baker" } }, { data: { display_name: null } }]);
+});
+
+test("name save errors keep the input and allow retry", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/auth/v1/user`, (route) => route.request().method() === "PUT"
+    ? route.fulfill({ status: 422, json: { msg: "Name update rejected" } })
+    : route.fulfill({ json: session().user }));
+  await page.goto("/dashboard");
+  await page.getByRole("button", { name: "Account (member@example.com)" }).click();
+  await page.getByRole("textbox", { name: "Your name" }).fill("Keep this name");
+  await page.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Unable to save your name" })).toContainText("Name update rejected");
+  await expect(page.getByRole("textbox", { name: "Your name" })).toHaveValue("Keep this name");
+  await expect(page.getByRole("button", { name: "Save name", exact: true })).toBeEnabled();
+  await expect(page.getByText("Your name has been saved.")).toHaveCount(0);
+});
+
+test("name settings are localized in Finnish", async ({ page }) => {
+  await configure(page, true);
+  await page.addInitScript(() => localStorage.setItem("openjury:locale", "fi"));
+  await page.goto("/dashboard");
+  await page.getByRole("button", { name: "Tili (member@example.com)" }).click();
+  await expect(page.getByRole("textbox", { name: "Oma nimi" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Tallenna nimi" })).toBeVisible();
+  await expect(page.getByText(/Vain sinä voit muuttaa sitä/)).toBeVisible();
+});
+
+test("saving an account name preserves an unsaved submission title", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{ id: secondId, group_id: groupId, name: "Bake-off", status: "submission",
+      submission_deadline: null, competition_participants: [{ role: "participant" }] }],
+  }));
+  let submissionReads = 0;
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => {
+    submissionReads++;
+    return route.fulfill({ json: [{ id: groupId, title: "Saved title", media_keys: [] }] });
+  });
+  await page.route(`${supabaseURL}/auth/v1/user`, (route) => route.fulfill({
+    json: { ...session().user, user_metadata: route.request().method() === "PUT" ? route.request().postDataJSON().data : {} },
+  }));
+  await page.goto(`/competition/${secondId}`);
+  const title = page.getByRole("textbox", { name: "Entry title" });
+  await expect(title).toHaveValue("Saved title");
+  await title.fill("Unsaved title");
+  await page.getByRole("button", { name: "Account (member@example.com)" }).click();
+  await page.getByRole("textbox", { name: "Your name" }).fill("Alex Baker");
+  await page.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(page.getByText("Your name has been saved.")).toBeVisible();
+  await expect(title).toHaveValue("Unsaved title");
+  expect(submissionReads).toBe(1);
+});
+
 test("small phone forms, long names and landscape stay usable @mobile", async ({ page }) => {
   await configure(page, true);
   await page.route(`${supabaseURL}/rest/v1/groups**`, (route) => route.fulfill({
@@ -311,6 +408,14 @@ test("unconfigured deployments run the in-browser demo without network data", as
     await expect(page.getByRole("button", { name: "Send sign-in link" })).toHaveCount(0);
   }
   await expect(page.getByRole("link", { name: "Northside Makers" })).toBeVisible();
+  await page.getByRole("button", { name: "Account (alex@demo.openjury.app)" }).click();
+  await expect(page.getByRole("textbox", { name: "Your name" })).toHaveValue("Alex Rivera");
+  await page.getByRole("textbox", { name: "Your name" }).fill("Demo Alex");
+  await page.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(page.getByText("Your name has been saved.")).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Account (alex@demo.openjury.app)" }).click();
+  await expect(page.getByRole("textbox", { name: "Your name" })).toHaveValue("Demo Alex");
   expect(apiRequests).toEqual([]);
 });
 
