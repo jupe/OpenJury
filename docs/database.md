@@ -44,7 +44,7 @@ competitions, skips rows already being processed, and is safe to call repeatedly
 The move from review to `results_published` is only available through atomic result
 publication.
 
-Migration `20_competition_start_notifications.sql` adds
+Migration `21_competition_start_notifications.sql` adds
 `start_competition(id, notify default false)`. Opt-in locks the draft competition,
 invokes the existing transition to submission, and atomically snapshots current
 members with verified Auth email addresses into the RLS-private
@@ -115,6 +115,10 @@ one transaction. Only then can group members read final results, which include
 entry titles, internal creator IDs, and `creator_name` labels. Names use the first
 nonblank trimmed metadata `display_name`, `full_name`, or `name`, falling back to
 `Participant`; this member-facing projection never falls back to an email or UUID.
+Users set or clear their own `display_name` through the account menu and
+Supabase Auth's `updateUser` API. Migration `20_member_display_names.sql` adds
+the same metadata-name priority to the admin-only `get_group_members` list,
+which retains email for administration and as a fallback when no name is given.
 Preliminary rankings and disqualification audit
 data remain admin-only; direct access to result and audit tables is revoked.
 Disqualification audit rows prevent deletion of the associated entries.

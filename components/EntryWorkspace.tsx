@@ -462,6 +462,21 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   }, [load, session.user.id]);
 
   useEffect(() => {
+    if (competition?.status !== "results_published") return;
+    let active = true;
+    void (async () => {
+      const [results, categoryResults] = await Promise.all([
+        client.rpc("get_published_competition_results", { p_competition_id: competitionId }),
+        client.rpc("get_published_competition_category_results", { p_competition_id: competitionId }),
+      ]);
+      if (!active || results.error || categoryResults.error) return;
+      setPublishedResults((results.data || []) as PublishedResult[]);
+      setPublishedCategoryResults((categoryResults.data || []) as PublishedCategoryResult[]);
+    })().catch(() => undefined);
+    return () => { active = false; };
+  }, [client, competitionId, competition?.status, session.user.user_metadata.display_name]);
+
+  useEffect(() => {
     const deadline = competition?.status === "submission"
       ? competition.submission_deadline
       : competition?.status === "voting" ? competition.voting_deadline : null;
@@ -946,7 +961,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       }
     })();
     return () => { active = false; };
-  }, [client, competitionId, attempt]);
+  }, [client, competitionId, attempt, session.user.user_metadata.display_name]);
 
   useRealtimeUpdates(client, session.user.id, groupId, refresh);
 

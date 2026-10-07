@@ -67,7 +67,7 @@ deployment with the repository's CI checks and Vercel deployment controls.
 
 ### Optional competition-start emails
 
-Apply migration `20_competition_start_notifications.sql` and configure the trusted
+Apply migration `21_competition_start_notifications.sql` and configure the trusted
 app server with `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`,
 `COMPETITION_EMAIL_FROM` (a bare, verified Resend sender address), and `APP_URL`
 (the public HTTPS origin, without a path or query; HTTP localhost is allowed for

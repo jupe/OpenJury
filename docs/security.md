@@ -40,7 +40,7 @@ update their own existing vote. Remote deadlines are processed by a
 security-definer function executable by `service_role` only; invoke it from a
 trusted scheduled process. Its status checks and row locks make repeated or
 concurrent processing safe.
-Migration `20_competition_start_notifications.sql` adds opt-in
+Migration `21_competition_start_notifications.sql` adds opt-in
 `start_competition(id, notify default false)` without changing the existing
 two-argument transition RPC. It checks current admin membership and locks the
 competition before atomically opening submissions and snapshotting recipients
@@ -71,6 +71,12 @@ Migration `19_group_overview.sql` adds a security-definer `get_my_groups()`
 projection limited to the caller's memberships. It returns counts and the
 caller's own role only; member identities remain admin-only through
 `get_group_members`.
+Migration `20_member_display_names.sql` adds metadata names to that same
+admin-only projection without granting any account writes. The account-menu
+form uses Supabase Auth's authenticated `updateUser` API, which updates only
+the token owner's metadata, never another member's account. Group admins
+cannot define names for others through OpenJury. Names are untrusted display
+text, never authorization data; they do not appear in blind-voting projections.
 Migration `07_admin_review_and_publication.sql` makes preliminary results and
 disqualification available only to group admins during review. The disqualification
 RPC records a reason/admin/timestamp event and does not delete the entry or its
