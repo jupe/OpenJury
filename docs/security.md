@@ -43,7 +43,8 @@ concurrent processing safe.
 Migration `20_competition_start_notifications.sql` adds opt-in
 `start_competition(id, notify default false)` without changing the existing
 two-argument transition RPC. It checks current admin membership and locks the
-competition before atomically opening submissions and snapshotting recipients.
+competition before atomically opening submissions and snapshotting recipients
+whose Auth email is verified.
 The email outbox has RLS enabled, no client/table grants, no broadcasts, and
 unique competition/user rows. Only service-role claim/acknowledgement RPCs expose
 addresses to the trusted server. Retrying requires the same starting admin and

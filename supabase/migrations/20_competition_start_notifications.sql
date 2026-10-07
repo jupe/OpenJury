@@ -4,7 +4,7 @@ create table public.competition_start_email_outbox (
   id uuid primary key default gen_random_uuid(),
   competition_id uuid not null references public.competitions(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
-  started_by uuid not null references auth.users(id),
+  started_by uuid references auth.users(id) on delete set null,
   email text not null,
   competition_name text not null,
   group_name text not null,
@@ -55,7 +55,8 @@ begin
     join auth.users account on account.id = membership.user_id
     join public.groups community on community.id = membership.group_id
     where membership.group_id = target.group_id
-      and account.email is not null and btrim(account.email) <> '';
+      and account.email is not null and btrim(account.email) <> ''
+      and account.email_confirmed_at is not null;
   end if;
   return 'submission';
 end;

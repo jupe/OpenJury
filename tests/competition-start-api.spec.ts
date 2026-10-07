@@ -16,7 +16,7 @@ const env = {
 };
 let previous: Record<string, string | undefined>;
 let originalFetch: typeof fetch;
-type Call = { url: string; headers: Headers; body: Record<string, unknown> };
+type Call = { url: string; headers: Headers; body: Record<string, unknown>; at: number };
 let calls: Call[];
 let authStatus: number;
 let startError: string | null;
@@ -26,6 +26,10 @@ let finishFails: boolean;
 let claimFails: boolean;
 let completed: boolean;
 let claimed: boolean;
+let originalNow: typeof Date.now;
+let clockOffset: number;
+let finishAdvance: number;
+let extraRecipient: boolean;
 const payload = {
   from: env.COMPETITION_EMAIL_FROM,
   to: ["private-member@example.com"],
@@ -45,10 +49,14 @@ test.beforeEach(() => {
   claimFails = false;
   completed = true;
   claimed = false;
+  clockOffset = 0;
+  finishAdvance = 0;
+  extraRecipient = false;
+  originalNow = Date.now;
   originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = input instanceof Request ? input.url : String(input);
-    const call = { url, headers: new Headers(init?.headers), body: JSON.parse(String(init?.body || "{}")) };
+    const call = { url, headers: new Headers(init?.headers), body: JSON.parse(String(init?.body || "{}")), at: Date.now() };
     calls.push(call);
     const path = new URL(url).pathname;
     if (path === "/auth/v1/user") {
@@ -63,6 +71,13 @@ test.beforeEach(() => {
     if (path === "/rest/v1/rpc/claim_competition_start_email") {
       if (claimFails) return Response.json({ message: "Private claim error" }, { status: 500 });
       if (claimed) return Response.json([]);
+      if (extraRecipient) {
+        extraRecipient = false;
+        return Response.json([{
+          id: "44444444-4444-4444-8444-444444444444",
+          claim_token: claimToken, payload: { ...payload, to: ["second-private-member@example.com"] },
+        }]);
+      }
       claimed = true;
       return Response.json([{ id: recipientId, claim_token: claimToken, payload }]);
     }
@@ -72,6 +87,7 @@ test.beforeEach(() => {
         { status: providerStatus });
     }
     if (path === "/rest/v1/rpc/finish_competition_start_email") {
+      clockOffset += finishAdvance;
       return finishFails ? Response.json({ message: "Private finish error" }, { status: 500 })
         : new Response(null, { status: 204 });
     }
@@ -82,6 +98,7 @@ test.beforeEach(() => {
 
 test.afterEach(() => {
   globalThis.fetch = originalFetch;
+  Date.now = originalNow;
   for (const name of Object.keys(env)) {
     if (previous[name] === undefined) delete process.env[name];
     else process.env[name] = previous[name];
@@ -190,4 +207,24 @@ test("already delivered or leased outbox never sends without a claim", async () 
   completed = false;
   expect(await (await request()).json()).toEqual({ started: true, notificationsSent: false });
   expect(calls.some((call) => call.url.includes("resend"))).toBe(false);
+});
+
+test("request time budget stops claiming more recipients and preserves partial success", async () => {
+  const now = originalNow();
+  Date.now = () => now + clockOffset;
+  finishAdvance = 23_001;
+  completed = false;
+  const response = await request();
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ started: true, notificationsSent: false });
+  expect(calls.filter((call) => call.url.endsWith("/claim_competition_start_email"))).toHaveLength(1);
+  expect(calls.filter((call) => call.url === "https://api.resend.com/emails")).toHaveLength(1);
+});
+
+test("paces multiple provider requests below Resend's default two-per-second limit", async () => {
+  extraRecipient = true;
+  expect(await (await request()).json()).toEqual({ started: true, notificationsSent: true });
+  const attempts = calls.filter((call) => call.url === "https://api.resend.com/emails");
+  expect(attempts).toHaveLength(2);
+  expect(attempts[1].at - attempts[0].at).toBeGreaterThanOrEqual(550);
 });

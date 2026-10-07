@@ -19,19 +19,21 @@ begin
 end;
 $$;
 
-insert into auth.users (id, email) values
-  ('00000000-0000-0000-0000-000000002001', 'starter@example.com'),
-  ('00000000-0000-0000-0000-000000002002', 'member@example.com'),
-  ('00000000-0000-0000-0000-000000002003', 'other-admin@example.com'),
-  ('00000000-0000-0000-0000-000000002004', 'later@example.com'),
-  ('00000000-0000-0000-0000-000000002005', null);
+insert into auth.users (id, email, email_confirmed_at) values
+  ('00000000-0000-0000-0000-000000002001', 'starter@example.com', now()),
+  ('00000000-0000-0000-0000-000000002002', 'member@example.com', now()),
+  ('00000000-0000-0000-0000-000000002003', 'other-admin@example.com', now()),
+  ('00000000-0000-0000-0000-000000002004', 'later@example.com', now()),
+  ('00000000-0000-0000-0000-000000002005', null, null),
+  ('00000000-0000-0000-0000-000000002006', 'unverified@example.com', null);
 insert into public.groups (id, name, created_by) values
   ('00000000-0000-0000-0000-000000002010', 'Email tenant', '00000000-0000-0000-0000-000000002001');
 insert into public.group_members (group_id, user_id, role) values
   ('00000000-0000-0000-0000-000000002010', '00000000-0000-0000-0000-000000002001', 'admin'),
   ('00000000-0000-0000-0000-000000002010', '00000000-0000-0000-0000-000000002002', 'member'),
   ('00000000-0000-0000-0000-000000002010', '00000000-0000-0000-0000-000000002003', 'admin'),
-  ('00000000-0000-0000-0000-000000002010', '00000000-0000-0000-0000-000000002005', 'member');
+  ('00000000-0000-0000-0000-000000002010', '00000000-0000-0000-0000-000000002005', 'member'),
+  ('00000000-0000-0000-0000-000000002010', '00000000-0000-0000-0000-000000002006', 'member');
 insert into public.competitions (id, group_id, name, event_type) values
   ('00000000-0000-0000-0000-000000002020', '00000000-0000-0000-0000-000000002010', E'Bake-off\n<script>', 'live'),
   ('00000000-0000-0000-0000-000000002021', '00000000-0000-0000-0000-000000002010', 'Legacy skip', 'live'),
@@ -62,7 +64,7 @@ reset role;
 do $$
 begin
   if (select count(*) from public.competition_start_email_outbox) <> 3 then
-    raise exception 'Only opt-in must snapshot all members with email, including admins';
+    raise exception 'Only opt-in must snapshot verified addresses, including admins';
   end if;
   if exists (select 1 from public.competitions where id in (
     '00000000-0000-0000-0000-000000002020', '00000000-0000-0000-0000-000000002021',
@@ -159,4 +161,16 @@ begin
 end;
 $$;
 reset role;
+-- An Auth account can be deleted without foreign-key failures in other recipients.
+update public.groups set created_by = '00000000-0000-0000-0000-000000002003'
+  where id = '00000000-0000-0000-0000-000000002010';
+delete from auth.users where id = '00000000-0000-0000-0000-000000002001';
+do $$
+begin
+  if exists (select 1 from public.competition_start_email_outbox where started_by is not null)
+    or (select count(*) from public.competition_start_email_outbox) <> 2 then
+    raise exception 'Deleting the starter must preserve other recipients and clear retry ownership';
+  end if;
+end;
+$$;
 rollback;

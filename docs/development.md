@@ -93,8 +93,9 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/15_competition_details.sql`,
 `supabase/migrations/16_competition_deletion.sql`,
 `supabase/migrations/17_participant_voting.sql`,
-`supabase/migrations/18_heic_submission_media.sql`, and
-`supabase/migrations/19_group_overview.sql`, once each, in that order.
+`supabase/migrations/18_heic_submission_media.sql`,
+`supabase/migrations/19_group_overview.sql`, and
+`supabase/migrations/20_competition_start_notifications.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
@@ -111,6 +112,9 @@ while a competition is a draft. Participants still cannot vote on their own entr
 Migration 18 adds HEIC/HEIF support for private submission media.
 Migration 19 adds a read-only group overview RPC with member and competition counts.
 Without it, groups still list but show no counts.
+Migration 20 adds optional competition-start emails. Notifications are skipped
+by default; trusted servers need the [email configuration](deployment.md#optional-competition-start-emails)
+before admins can opt in when opening submissions. The browser-only demo never sends emails.
 Competition setup and details support English and Finnish through `lib/i18n.tsx`.
 Choose the language from the account menu; the preference is stored in the browser.
 Translate interface labels and messages, not user-provided competition names,

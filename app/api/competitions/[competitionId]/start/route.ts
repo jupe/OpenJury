@@ -33,6 +33,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ competitionId: string }> },
 ) {
+  const deadline = Date.now() + 25_000;
   const authorization = (request.headers.get("authorization") || "").split(/\s+/);
   const token = authorization.length === 2 && authorization[0].toLowerCase() === "bearer"
     ? authorization[1] : null;
@@ -43,11 +44,16 @@ export async function POST(
   }
   const config = configuration();
   if (!config) return json({ error: "Competition email notifications are not configured" }, 503);
-  const options = { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } };
+  const timeout = () => AbortSignal.timeout(Math.max(1, Math.min(10_000, deadline - Date.now())));
+  const boundedFetch: typeof fetch = (input, init) => fetch(input, { ...init, signal: timeout() });
+  const options = {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    global: { fetch: boundedFetch },
+  };
   let started = false;
   try {
     const userClient = createClient(config.url, config.anonKey, {
-      ...options, global: { headers: { Authorization: ["Bearer", token].join(" ") } },
+      ...options, global: { ...options.global, headers: { Authorization: ["Bearer", token].join(" ") } },
     });
     const service = createClient(config.url, config.serviceKey, options);
     const { data: user, error: authError } = await userClient.auth.getUser(token);
@@ -61,8 +67,12 @@ export async function POST(
         : status === 409 ? "Competition cannot be started or retried" : "Unable to start competition" }, status);
     }
     started = true;
-    // Bound each request; subsequent explicit retries drain the original snapshot.
+    let nextSendAt = 0;
+    // Bound time and count; subsequent explicit retries drain the original snapshot.
     for (let count = 0; count < 50; count++) {
+      const wait = Math.max(0, nextSendAt - Date.now());
+      if (deadline - Date.now() < wait + 2_000) break;
+      if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
       const claim = await service.rpc("claim_competition_start_email", {
         p_competition_id: competitionId, p_from: config.from, p_origin: config.origin,
       });
@@ -71,6 +81,8 @@ export async function POST(
       if (!email) break;
       let sent = false;
       try {
+        // Resend's default limit is two requests/second; leave a small margin.
+        nextSendAt = Date.now() + 600;
         const response = await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: {
@@ -79,12 +91,13 @@ export async function POST(
             "Idempotency-Key": `competition-start-${email.id}`,
           },
           body: JSON.stringify(email.payload),
-          signal: AbortSignal.timeout(10_000),
+          signal: timeout(),
         });
         sent = response.ok;
       } catch {
         // Network timeouts can be ambiguous; retries use the same frozen payload/key.
       }
+      if (Date.now() >= deadline) return json({ started: true, notificationsSent: false });
       const finish = await service.rpc("finish_competition_start_email", {
         p_id: email.id, p_claim_token: email.claim_token, p_sent: sent,
       });

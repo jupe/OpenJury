@@ -85,7 +85,8 @@ Default-skip continues to call `transition_competition(id, 'submission')` direct
 and needs no email configuration. `start_competition(id)` also defaults to no email.
 
 Opt-in atomically starts the competition and privately snapshots each existing
-member with a nonempty Auth email (including admins). Later members are never
+member with a nonempty, verified Auth email (`email_confirmed_at` is set,
+including admins). Unverified addresses are excluded. Later members are never
 added by retries. Names and addresses are snapshotted; the first claim freezes
 the sender, subject, plain-text body, and trusted `/competition/<id>` link.
 Addresses and delivery credentials never appear in API responses or Realtime.
@@ -93,7 +94,8 @@ Addresses and delivery credentials never appear in API responses or Realtime.
 After a successful start the response is always HTTP 200 with
 `{started:true,notificationsSent:boolean}`. `notificationsSent` means every
 queued email was accepted by Resend, not delivered to an inbox. Failures, active
-claims, or more than 50 recipients yield `false`; the same starting administrator
+claims, or recipients remaining after the 25-second/50-email request budget yield
+`false`; the same starting administrator
 can explicitly retry this endpoint while still an admin, even after the competition
 advances. Skipped starts cannot be converted into notifications. If no members
 have email, the first response succeeds without sending; there is no outbox to retry.
@@ -104,11 +106,20 @@ leave a lease that expires; retry after two minutes. Resend currently retains
 idempotency keys for **24 hours**. Automatic claims stop 23 hours after the first
 attempt to avoid duplicates after retention expires. There is no background
 worker: an admin retry is required, and large groups may require several requests.
+Delivery attempts are paced 600 ms apart within a request to stay below
+Resend's default two-requests-per-second limit. The 25-second budget includes
+authentication, database calls, provider calls, and pacing, so even fast delivery
+typically processes fewer than 45 recipients, not the 50-row hard ceiling.
+Concurrent requests share the provider's account-wide quota and can still receive
+429 responses; these return partial success without discarding pending recipients.
+Wait for the account's rate-limit window to reset before an explicit retry.
 Ambiguous timeouts or acknowledgement failures require prompt retries.
 Older pending rows require trusted operator reconciliation against Resend logs;
 do not clear attempts or generate new keys blindly, as that can duplicate mail.
 Provider outages, invalid addresses, rate limits, server execution time limits,
-and removed admin access may leave notifications pending indefinitely.
+and removed admin access may leave notifications pending indefinitely. Deleting
+the starting Auth user clears the retry-owner reference without blocking account
+deletion; remaining recipients cannot be retried through the admin endpoint.
 
 For Proxmox VE, use the provisioning and guest playbooks described in
 [Proxmox VM setup](proxmox.md).
