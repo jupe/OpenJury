@@ -319,7 +319,13 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   await expect(page.getByText("1 new image(s) selected.")).toBeVisible();
   await expect(page.getByRole("img", { name: "Your submission image 1", exact: true })).toBeVisible();
   await expectPhoneLayout(page);
-  await page.getByRole("button", { name: "Save submission" }).click();
+  const saveSubmission = page.getByRole("button", { name: "Save submission" });
+  await expect(saveSubmission).toHaveAttribute("title", "Save submission");
+  await expect(saveSubmission).toHaveText("");
+  await expect(saveSubmission.locator("svg")).toHaveAttribute("aria-hidden", "true");
+  await expect(saveSubmission).toHaveCSS("width", "48px");
+  await saveSubmission.focus();
+  await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Edit your submission" })).toBeVisible();
   expect(saves[1].p_title).toBe("My phone photo");
   expect(saves[1].p_media_keys).toHaveLength(1);
@@ -803,7 +809,17 @@ test("admins edit competition details after opening; members read plain text det
     return route.fulfill({ json: null });
   });
   await page.goto(`/competition/${competitionId}/admin`);
-  await page.getByRole("button", { name: "Edit competition details" }).click();
+  const editDetails = page.getByRole("button", { name: "Edit competition details" });
+  await expect(editDetails).toHaveAttribute("title", "Edit competition details");
+  await expect(editDetails).toHaveText("");
+  await editDetails.focus();
+  await page.keyboard.press("Enter");
+  for (const name of ["Save details", "Cancel edit"]) {
+    const control = page.getByRole("button", { name, exact: true });
+    await expect(control).toHaveAttribute("title", name);
+    await expect(control).toHaveText("");
+    await expect(control).toHaveCSS("width", "48px");
+  }
   await expect(page.getByLabel("Competition name")).toHaveValue("Autumn bake-off");
   await expect(page.getByLabel("Description (optional)")).toHaveValue("Original description");
   await expect(page.getByLabel("Rules (optional)")).toHaveValue("");
@@ -901,6 +917,8 @@ test("competition details follow the selected language without translating user 
   await expect(page.getByLabel("Kilpailun nimi")).toHaveValue("Winter bake-off");
   await expect(page.getByLabel("Kuvaus (valinnainen)")).toHaveValue("Description");
   await expect(page.getByLabel("Säännöt (valinnainen)")).toHaveValue("Rules");
+  await expect(page.getByRole("button", { name: "Tallenna tiedot", exact: true })).toHaveAttribute("title", "Tallenna tiedot");
+  await expect(page.getByRole("button", { name: "Tallenna tiedot", exact: true })).toHaveText("");
   await page.getByRole("button", { name: "Tallenna tiedot", exact: true }).click();
   await expect(page.getByRole("main").getByRole("alert")).toContainText("Kilpailun tietojen tallentaminen epäonnistui: backend detail");
   failSave = false;
@@ -1308,6 +1326,12 @@ test("admins disqualify and publish while group members see only final identitie
 
   await page.goto(`/competition/${competitionId}/admin`);
   await expect(page.getByRole("heading", { name: "Preliminary rankings (admins only)" })).toBeVisible();
+  for (const name of ["Save publication schedule", "Disqualify", "Publish final results"]) {
+    const control = page.getByRole("button", { name, exact: true });
+    await expect(control).toHaveAttribute("title", name);
+    await expect(control).toHaveText("");
+    await expect(control.locator("svg")).toHaveAttribute("aria-hidden", "true");
+  }
   await expectPhoneLayout(page);
   await page.getByLabel("Disqualification reason").fill("Rule violation");
   await page.getByRole("button", { name: "Disqualify" }).click();
@@ -1358,6 +1382,8 @@ test("competition admins see all attendees, including non-submitters and former 
   await page.goto(`/competition/${secondId}/admin`);
   await expect(page.getByRole("heading", { name: "Community bake-off" })).toBeVisible();
   const roster = page.getByRole("heading", { name: "Competition attendees" }).locator("..");
+  await expect(roster.locator("dt")).toHaveText(["Attendees", "Submitted", "Has voted"]);
+  await expect(roster.locator("dd")).toHaveText(["4", "2", "1"]);
   await expect(roster.getByRole("listitem")).toHaveCount(4);
   await expect(roster.getByRole("listitem").filter({ hasText: "Voter only" })).toContainText("Member · Audience · No submission · Has voted");
   await expect(roster.getByRole("listitem").filter({ hasText: "Not started" })).toContainText("Member · Not taking part · No submission · Has not voted");
