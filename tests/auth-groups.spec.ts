@@ -1725,6 +1725,11 @@ test("group admins manage members, email invites, and invite links", async ({ pa
   const otherId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   let links: Array<Record<string, unknown>> = [];
   await configure(page, true);
+  await page.route(`**/api/groups/${groupId}/invite`, (route) => {
+    expect(route.request().headers().authorization).toBe(["Bearer", session().access_token].join(" "));
+    calls.push({ name: "send_invitation", body: route.request().postDataJSON() });
+    return route.fulfill({ json: { invited: true, emailSent: true } });
+  });
   await page.route(`${supabaseURL}/rest/v1/rpc/**`, (route) => {
     const name = new URL(route.request().url()).pathname.split("/").at(-1)!;
     const body = (route.request().postDataJSON() || {}) as Record<string, unknown>;
@@ -1756,15 +1761,47 @@ test("group admins manage members, email invites, and invite links", async ({ pa
   await page.getByRole("textbox", { name: "Email address" }).fill("new@example.com");
   await page.getByRole("button", { name: "Invite", exact: true }).click();
   await expect.poll(() => calls.at(-1)).toEqual({
-    name: "invite_group_member_by_email", body: { p_group_id: groupId, p_email: "new@example.com" },
+    name: "send_invitation", body: { email: "new@example.com" },
   });
+  await expect(page.getByRole("textbox", { name: "Email address" })).toHaveValue("");
   await expect(page.getByText("pending@example.com · waiting to sign in")).toBeVisible();
+  await page.getByRole("button", { name: "Resend invite to pending@example.com" }).click();
+  await expect.poll(() => calls.at(-1)).toEqual({
+    name: "send_invitation", body: { email: "pending@example.com" },
+  });
 
   await page.getByRole("button", { name: "Create invite link" }).click();
   await expect(page.getByRole("textbox", { name: "Invite link" })).toHaveValue(new RegExp(`/invite/${"a".repeat(64)}$`));
   await page.getByText("Show QR code", { exact: true }).click();
   await expect(page.getByRole("img", { name: "QR code for invite link" })).toBeVisible();
   await expectPhoneLayout(page);
+});
+
+test("email delivery errors stay visible and preserve the address for retry", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_group_members`, (route) => route.fulfill({
+    json: [{ user_id: userId, email: "member@example.com", role: "admin" }],
+  }));
+  for (const rpc of ["get_group_email_invites", "get_group_invite_links"]) {
+    await page.route(`${supabaseURL}/rest/v1/rpc/${rpc}`, (route) => route.fulfill({ json: [] }));
+  }
+  let fails = true;
+  await page.route(`**/api/groups/${groupId}/invite`, (route) => route.fulfill({
+    status: fails ? 502 : 200,
+    json: fails ? { invited: true, error: "Invitation saved, but email delivery failed. Please retry." }
+      : { invited: true, emailSent: true },
+  }));
+  await page.goto(`/group/${groupId}`);
+  await page.getByText("Invite people").click();
+  const address = page.getByRole("textbox", { name: "Email address" });
+  await address.fill("retry@example.com");
+  await page.getByRole("button", { name: "Invite", exact: true }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("Invitation saved, but email delivery failed. Please retry.");
+  await expect(address).toHaveValue("retry@example.com");
+  fails = false;
+  await page.getByRole("button", { name: "Invite", exact: true }).click();
+  await expect(address).toHaveValue("");
+  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
 });
 
 for (const locale of ["en", "fi"] as const) {

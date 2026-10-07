@@ -178,20 +178,39 @@ export function GroupMembers({ groupId }: { groupId: string }) {
       const { error: rpcError } = await run();
       if (rpcError) throw rpcError;
       refresh();
+      return true;
     } catch (failure) {
       setActionError(t("Unable to {action}: {error}", { action: t(label), error: t(failureMessage(failure)) }));
     } finally {
       setWorking("");
     }
+    return false;
+  }
+
+  async function sendInvitation(address: string) {
+    if (session.access_token.startsWith("demo-")) {
+      return client.rpc("invite_group_member_by_email", { p_group_id: groupId, p_email: address });
+    }
+    const { data, error: sessionError } = await client.auth.getSession();
+    if (sessionError || !data.session) return { error: new Error(t("Authentication required")) };
+    const response = await fetch(`/api/groups/${encodeURIComponent(groupId)}/invite`, {
+      method: "POST",
+      headers: {
+        Authorization: ["Bearer", data.session.access_token].join(" "),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email: address }),
+    });
+    const result = await response.json();
+    if (result.invited) refresh();
+    return { error: response.ok ? null : new Error(t(result.error || "Unable to invite member")) };
   }
 
   async function invite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const address = email.trim();
     if (!address) return;
-    await act("invite", "invite member", () =>
-      client.rpc("invite_group_member_by_email", { p_group_id: groupId, p_email: address }));
-    setEmail("");
+    if (await act("invite", "invite member", () => sendInvitation(address))) setEmail("");
   }
 
   async function copy(link: InviteLink) {
@@ -269,6 +288,7 @@ export function GroupMembers({ groupId }: { groupId: string }) {
               <td className="break-all py-1 pr-2 text-slate-500">{pending.email} · {t("waiting to sign in")}</td>
               <td className="py-1">
                 <div className="flex justify-end">
+                  {!session.access_token.startsWith("demo-") && <IconButton icon="retry" disabled={!!working} aria-label={t("Resend invite to {email}", { email: pending.email })} onClick={() => void act(pending.email, "invite member", () => sendInvitation(pending.email))} />}
                   <IconButton icon="cancel" tone="danger" disabled={!!working} aria-label={t("Cancel invite for {email}", { email: pending.email })} onClick={() => void act(pending.email, "cancel invite", () =>
                     client.rpc("revoke_group_email_invite", { p_group_id: groupId, p_email: pending.email }))} />
                 </div>
@@ -291,7 +311,9 @@ export function GroupMembers({ groupId }: { groupId: string }) {
               <input type="email" required maxLength={320} aria-label={t("Email address")} aria-describedby="invite-email-hint" placeholder={t("Invite by email")} value={email} onChange={(event) => setEmail(event.target.value)} className="block min-h-12 min-w-0 flex-1 rounded border border-slate-300 p-2" />
               <IconButton type="submit" icon="invite" tone="primary" disabled={!!working || !email.trim()} aria-label={t(working === "invite" ? "Inviting…" : "Invite")} />
             </div>
-            <p id="invite-email-hint" className="mt-1 text-xs text-slate-500">{t("No email is sent. They join when they next sign in with this address.")}</p>
+            <p id="invite-email-hint" className="mt-1 text-xs text-slate-500">{t(session.access_token.startsWith("demo-")
+              ? "No email is sent. They join when they next sign in with this address."
+              : "An invitation email is sent. They join when they sign in with this address.")}</p>
           </form>
 
           <div className="space-y-2 border-t border-slate-100 pt-4">
