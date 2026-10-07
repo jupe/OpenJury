@@ -233,6 +233,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_deletion.s
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_setup.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/secure_submissions.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/transactional_lifecycle.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_start_notifications.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/admin_review_and_publication.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_attendees.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/realtime_notifications.sql
@@ -246,6 +247,12 @@ edits across every phase without changing scoring or lifecycle fields.
 The lifecycle test covers role authorization,
 legal transitions, ballot creation and revision, self-voting and membership
 denial, stable numbering, and idempotent remote deadline processing. The
+start-notification test covers opt-in recipient snapshots, both default-skip
+paths, admin-only retries, private outbox permissions, immutable payloads,
+exclusive claims, token-guarded acknowledgements, and expired provider retention.
+The mocked-upstream route tests live in `tests/competition-start-api.spec.ts` and
+use the existing Playwright runner without requiring real Supabase/Resend credentials.
+The
 review/publication test covers admin-only access, complete-ballot aggregation,
 category winners, ties, minimum votes, schedule replacement/cancellation, moderation
 outcomes and reinstatement, retained audit data, and atomic publication.

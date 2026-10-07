@@ -40,6 +40,18 @@ update their own existing vote. Remote deadlines are processed by a
 security-definer function executable by `service_role` only; invoke it from a
 trusted scheduled process. Its status checks and row locks make repeated or
 concurrent processing safe.
+Migration `20_competition_start_notifications.sql` adds opt-in
+`start_competition(id, notify default false)` without changing the existing
+two-argument transition RPC. It checks current admin membership and locks the
+competition before atomically opening submissions and snapshotting recipients.
+The email outbox has RLS enabled, no client/table grants, no broadcasts, and
+unique competition/user rows. Only service-role claim/acknowledgement RPCs expose
+addresses to the trusted server. Retrying requires the same starting admin and
+an existing outbox; it never snapshots new members. The bearer-authenticated
+start endpoint validates server configuration before starting, returns no email
+addresses, and uses plain-text Resend messages linked to a configured trusted
+origin rather than request headers. Keep the service-role and provider keys
+server-only; see [delivery recovery limitations](deployment.md#optional-competition-start-emails).
 Migration `06_secure_ballots.sql` exposes complete category ballots only through
 a row-locked RPC and an own-ballot-only projection. PostgreSQL rejects self-votes,
 checks every category and score, excludes each voter's own entry from the blind

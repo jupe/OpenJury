@@ -822,6 +822,9 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [transitioning, setTransitioning] = useState(false);
   const [transitionError, setTransitionError] = useState<LocalizedError | null>(null);
+  const [notifyMembers, setNotifyMembers] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState("");
+  const [notificationsPending, setNotificationsPending] = useState(false);
   const [detailsDraft, setDetailsDraft] = useState<{ name: string; description: string; rules: string } | null>(null);
   const [savingDetails, setSavingDetails] = useState(false);
   const [detailsError, setDetailsError] = useState<LocalizedError | null>(null);
@@ -933,17 +936,54 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
     setReviewCategories((categories.data || []) as AdminCategoryResult[]);
   }
 
+  async function sendStartNotifications() {
+    const { data, error: sessionError } = await client.auth.getSession();
+    if (sessionError) throw sessionError;
+    if (!data.session) throw new Error("Authentication required");
+    const response = await fetch(`/api/competitions/${encodeURIComponent(competitionId)}/start`, {
+      method: "POST",
+      headers: { Authorization: ["Bearer", data.session.access_token].join(" ") },
+    });
+    const result = await response.json();
+    if (!response.ok || result.started !== true) {
+      throw new Error(result.error || "Unable to open submissions. Please try again.");
+    }
+    const pending = result.notificationsSent !== true;
+    setNotificationsPending(pending);
+    setNotificationMessage(pending
+      ? "Submissions are open, but some emails could not be sent. Retry notifications."
+      : "Submissions are open. Notification emails sent.");
+  }
+
+  async function retryStartNotifications() {
+    if (transitioning) return;
+    setTransitioning(true);
+    setTransitionError(null);
+    try {
+      await sendStartNotifications();
+    } catch (failure) {
+      setTransitionError(localizedFailure("Unable to send competition notifications: {error}", failure));
+    } finally {
+      setTransitioning(false);
+    }
+  }
+
   async function advance() {
     const step = nextTransition[competitionStatus];
     if (!step || transitioning || !window.confirm(t(step.confirm))) return;
     setTransitioning(true);
     setTransitionError(null);
     try {
-      const { error: transitionFailure } = await client.rpc("transition_competition", {
-        p_competition_id: competitionId,
-        p_target_status: step.target,
-      });
-      if (transitionFailure) throw transitionFailure;
+      if (competitionStatus === "draft" && notifyMembers) {
+        await sendStartNotifications();
+      } else {
+        const { error: transitionFailure } = await client.rpc("transition_competition", {
+          p_competition_id: competitionId,
+          p_target_status: step.target,
+        });
+        if (transitionFailure) throw transitionFailure;
+      }
+      setNotifyMembers(false);
       refresh();
     } catch (failure) {
       setTransitionError(localizedFailure(step.error, failure));
@@ -1108,6 +1148,31 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
           </>
         )}
         {transitionError && <p role="alert"><ErrorText error={transitionError} /></p>}
+        {competitionStatus === "draft" && (
+          <>
+            <label className="my-3 flex min-h-11 items-center gap-3">
+              <input
+                type="checkbox"
+                checked={notifyMembers}
+                disabled={transitioning || session.access_token.startsWith("demo-")}
+                onChange={(event) => setNotifyMembers(event.target.checked)}
+                className="h-11 w-11 shrink-0 accent-indigo-600"
+              />
+              {t("Email existing group members when submissions open")}
+            </label>
+            <p className="mb-3 text-sm text-slate-600">
+              {t(session.access_token.startsWith("demo-")
+                ? "Email notifications are unavailable in the demo."
+                : "Optional. No notification emails are sent by default.")}
+            </p>
+          </>
+        )}
+        {notificationMessage && <p role="status">{t(notificationMessage)}</p>}
+        {notificationsPending && (
+          <Button disabled={transitioning} onClick={() => void retryStartNotifications()}>
+            {t(transitioning ? "Updating…" : "Retry notifications")}
+          </Button>
+        )}
         {step && (
           <Button disabled={transitioning} onClick={() => void advance()}>
             {t(transitioning ? "Updating…" : step.action)}

@@ -16,7 +16,7 @@ The image runs as non-root and includes `/api/health`. `.env` files and build
 credentials are excluded from the Docker context. Configure **runtime**
 `SUPABASE_URL` and `SUPABASE_ANON_KEY` when starting a persistent deployment.
 Only these public client values are served by `/runtime-config.js`, with caching
-disabled. Never supply a service-role key. This allows staging and production
+disabled. Never expose a service-role key in public configuration. This allows staging and production
 to use different Supabase projects without rebuilding the image. The original
 `NEXT_PUBLIC_*` variables remain available for local development.
 
@@ -52,7 +52,7 @@ project's toolchain.
 
 Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` for each trusted Vercel environment.
 These are public client values delivered through the uncached
-`/runtime-config.js` endpoint; never set a service-role key. Apply both database
+`/runtime-config.js` endpoint; keep any optional service-role key server-only. Apply database
 migrations separately and configure Supabase Auth Site URL and exact
 `https://<host>/dashboard` redirect allowlist entries for each trusted domain.
 See [local development](development.md#2-configure-supabase).
@@ -64,6 +64,51 @@ not inherit Docker's tested-image promotion guarantee; protect production
 deployment with the repository's CI checks and Vercel deployment controls.
 
 ## Prepare self-hosted infrastructure
+
+### Optional competition-start emails
+
+Apply migration `20_competition_start_notifications.sql` and configure the trusted
+app server with `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`,
+`COMPETITION_EMAIL_FROM` (a bare, verified Resend sender address), and `APP_URL`
+(the public HTTPS origin, without a path or query; HTTP localhost is allowed for
+development). Supabase public URL/key configuration is also required. Compose
+passes these optional runtime variables; self-hosted operators can supply the
+generated `SUPABASE_SERVICE_KEY` as `SUPABASE_SERVICE_ROLE_KEY`. Never configure
+real email delivery in untrusted/disposable previews. Store secrets only in trusted
+runtime environments, never `NEXT_PUBLIC_*`, browser config, or image build args.
+
+The browser explicitly opts in with a bodyless
+`POST /api/competitions/<id>/start` using its session bearer token. Missing or
+invalid configuration fails before the transition. Auth is verified with the
+public Supabase client; the user-scoped RPC enforces group-admin access.
+Default-skip continues to call `transition_competition(id, 'submission')` directly
+and needs no email configuration. `start_competition(id)` also defaults to no email.
+
+Opt-in atomically starts the competition and privately snapshots each existing
+member with a nonempty Auth email (including admins). Later members are never
+added by retries. Names and addresses are snapshotted; the first claim freezes
+the sender, subject, plain-text body, and trusted `/competition/<id>` link.
+Addresses and delivery credentials never appear in API responses or Realtime.
+
+After a successful start the response is always HTTP 200 with
+`{started:true,notificationsSent:boolean}`. `notificationsSent` means every
+queued email was accepted by Resend, not delivered to an inbox. Failures, active
+claims, or more than 50 recipients yield `false`; the same starting administrator
+can explicitly retry this endpoint while still an admin, even after the competition
+advances. Skipped starts cannot be converted into notifications. If no members
+have email, the first response succeeds without sending; there is no outbox to retry.
+
+Service-only RPCs claim one recipient for two minutes, acknowledge only the
+matching claim token, and use a stable Resend idempotency key. Crashed requests
+leave a lease that expires; retry after two minutes. Resend currently retains
+idempotency keys for **24 hours**. Automatic claims stop 23 hours after the first
+attempt to avoid duplicates after retention expires. There is no background
+worker: an admin retry is required, and large groups may require several requests.
+Ambiguous timeouts or acknowledgement failures require prompt retries.
+Older pending rows require trusted operator reconciliation against Resend logs;
+do not clear attempts or generate new keys blindly, as that can duplicate mail.
+Provider outages, invalid addresses, rate limits, server execution time limits,
+and removed admin access may leave notifications pending indefinitely.
 
 For Proxmox VE, use the provisioning and guest playbooks described in
 [Proxmox VM setup](proxmox.md).
