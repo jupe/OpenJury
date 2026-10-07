@@ -56,6 +56,8 @@ function updateLocale(locale: Locale) {
 const finnish: Record<string, string> = {
   "Account": "Tili",
   "Signed in as": "Kirjautuneena käyttäjänä",
+  "Profile": "Profiili",
+  "Account details": "Tilin tiedot",
   "Your name": "Oma nimi",
   "Name / email": "Nimi / sähköposti",
   "Optional. Shown in lists and published results. Only you can change it.": "Vapaaehtoinen. Näkyy listoissa ja julkaistuissa tuloksissa. Vain sinä voit muuttaa sitä.",

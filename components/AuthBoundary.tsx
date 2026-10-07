@@ -190,7 +190,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
       {session && client ? (
         <>
           {accountSlot && createPortal(
-            <AccountMenu key={session.user.id} client={client}
+            <AccountMenu key={session.user.id}
               displayName={typeof session.user.user_metadata.display_name === "string" ? session.user.user_metadata.display_name.trim() : ""}
               email={session.user.email || session.user.id} signingOut={signingOut} onSignOut={signOut} />,
             accountSlot,
