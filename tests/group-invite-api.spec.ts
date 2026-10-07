@@ -145,3 +145,51 @@ test("provider and network failures report pending state and allow explicit rese
   groupFails = false;
   expect(await (await request()).json()).toEqual({ invited: true, emailSent: true });
 });
+
+test("logs one diagnostic line per outcome without secrets, tokens, or full addresses", async () => {
+  const lines: string[] = [];
+  const { info, error } = console;
+  console.info = (line: string) => lines.push(line);
+  console.error = (line: string) => lines.push(line);
+  const events = () => lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+  try {
+    delete process.env.RESEND_API_KEY;
+    delete process.env.APP_URL;
+    await request();
+    expect(events().at(-1)).toMatchObject({
+      scope: "group-invite", event: "not-configured", groupId, recipientDomain: "example.com",
+      reason: "missing RESEND_API_KEY, APP_URL",
+    });
+    Object.assign(process.env, env);
+
+    rpcError = "42501";
+    await request();
+    expect(events().at(-1)).toMatchObject({ event: "invite-rejected", code: "42501" });
+    rpcError = null;
+
+    providerStatus = 403;
+    await request();
+    expect(events().slice(-2)).toMatchObject([
+      { event: "invite-saved" },
+      { event: "resend-rejected", status: 403, body: expect.stringContaining("Private provider detail") },
+    ]);
+    providerStatus = 200;
+
+    providerThrows = true;
+    await request();
+    expect(events().at(-1)).toMatchObject({ event: "unexpected-error", invited: true, error: expect.stringContaining("Private timeout detail") });
+    providerThrows = false;
+
+    await request();
+    expect(events().at(-1)).toMatchObject({ event: "email-accepted", resendId: "provider-id" });
+    const requestIds = new Set(events().map((event) => event.requestId));
+    expect(requestIds.size).toBe(5);
+  } finally {
+    console.info = info;
+    console.error = error;
+  }
+  const output = lines.join("\n");
+  for (const secret of [env.RESEND_API_KEY, env.SUPABASE_ANON_KEY, "test-session-token", "new@example.com"]) {
+    expect(output).not.toContain(secret);
+  }
+});

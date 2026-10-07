@@ -145,6 +145,24 @@ and removed admin access may leave notifications pending indefinitely. Deleting
 the starting Auth user clears the retry-owner reference without blocking account
 deletion; remaining recipients cannot be retried through the admin endpoint.
 
+### Troubleshooting email delivery
+
+Sign-in links come from Supabase Auth over SMTP; invitations and competition-start
+notices come from the app over Resend. Each deploy prints whether every app email
+setting reached the container (`App email setting RESEND_API_KEY: set`), by name
+only. The app logs JSON lines for each group invitation; follow them with:
+
+```sh
+docker logs -f openjury-production-web-1 2>&1 | grep '"scope":"group-invite"'
+```
+
+Lines with the same `requestId` belong to one invitation. `not-configured` names
+missing or invalid settings; `invite-rejected` carries the database error code;
+`resend-rejected` includes Resend's HTTP status and error message (for example an
+unverified sender domain or a rate limit); `email-accepted` includes the Resend
+message ID to look up in the Resend dashboard. Logs identify recipients by domain
+only and never contain keys, session tokens, or full addresses.
+
 For Proxmox VE, use the provisioning and guest playbooks described in
 [Proxmox VM setup](proxmox.md).
 
@@ -248,6 +266,10 @@ The `dev` environment supplies approval, variables, and secrets as configured.
 | `staging` / `production` variable | `TLS_TERMINATION` | `upstream` when your own proxy terminates HTTPS in front of the host; defaults to `traefik` |
 | `staging` / `production` variables | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_ADMIN_EMAIL`, `SMTP_SENDER_NAME` | Self-hosted Supabase only: magic-link mail server; unset sends mail to the host's Mailpit |
 | `staging` / `production` secret | `SMTP_PASS` | Self-hosted Supabase only: SMTP password |
+| `staging` / `production` secret | `RESEND_API_KEY` | App-sent email (group invitations, competition-start notices) |
+| `staging` / `production` variable | `COMPETITION_EMAIL_FROM` | Bare sender address verified in Resend, e.g. `jury@example.com` |
+| `staging` / `production` variable | `APP_URL` | Optional; public HTTPS origin used in email links, defaults to `https://<APP_HOST>` |
+| `staging` / `production` secret | `SUPABASE_SERVICE_ROLE_KEY` | Hosted Supabase only, for competition-start emails; self-hosted stacks supply their own |
 
 Allow Actions to publish/read this repository's GHCR package. The workflows use
 short-lived `GITHUB_TOKEN` credentials; no PAT is required. If the package already
