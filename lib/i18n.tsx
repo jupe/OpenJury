@@ -420,6 +420,7 @@ const finnish: Record<string, string> = {
   "An entry may contain up to {count} images.": "Ehdotuksessa voi olla enintään {count} kuvaa.",
   "Unable to save submission.": "Ehdotuksen tallentaminen epäonnistui.",
   "Remove image {number}": "Poista kuva {number}",
+  "Save submission to delete the removed images.": "Tallenna ehdotus poistaaksesi poistetut kuvat.",
   "{count} new image(s) selected.": "Valittu {count} uutta kuvaa.",
   "Vote recorded · Entry {number}": "Ääni tallennettu · ehdotus {number}",
   "Couldn't save your vote for Entry {number}. Move a slider to try again.": "Äänesi ehdotukselle {number} ei tallentunut. Yritä uudelleen siirtämällä liukusäädintä.",

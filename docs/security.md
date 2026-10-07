@@ -131,11 +131,20 @@ object to its entry owner and competition phase. The UI downloads protected
 objects through the authenticated Storage client into temporary in-memory Blob
 URLs; it does not create public or signed media URLs. Removed media and failed
 uploads are deleted through Storage, and failed cleanup can be retried.
+Migration `22_submission_upload_preflight.sql` authorizes upload preflight by
+entry ownership, competition phase/deadline, random filename, and upload quota,
+without requiring completed object metadata. Storage's bucket limits still
+enforce file size and MIME types; `save_submission` still validates the actual
+stored size, MIME/extension match, and ownership before attaching any media.
+Participants can remove already-submitted images while submissions are open:
+remove the image and save the submission to persist the removal and delete the
+unreferenced Storage object. Referenced images cannot be deleted directly.
 
 Run `supabase/tests/group_access.sql`,
 `supabase/tests/group_management.sql`,
 `supabase/tests/competition_setup.sql`,
 `supabase/tests/secure_submissions.sql`,
+`supabase/tests/submission_upload_preflight.sql`,
 `supabase/tests/transactional_lifecycle.sql`,
 `supabase/tests/admin_review_and_publication.sql`,
 `supabase/tests/competition_attendees.sql`,
