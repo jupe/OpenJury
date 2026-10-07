@@ -282,14 +282,14 @@ for (const failureStage of ["initial save", "upload", "final save"] as const) {
     await page.getByRole("textbox", { name: "Entry title" }).fill("Retry photo");
     await page.locator('input[type="file"][multiple]').setInputFiles({ name: "photo.png", mimeType: "image/png", buffer: png });
     await page.getByRole("button", { name: "Save submission" }).click();
-    await expect(page.getByRole("alert")).toHaveText(`Unable to save submission: ${message}`);
+    await expect(page.getByRole("main").getByRole("alert")).toHaveText(`Unable to save submission: ${message}`);
     await expect(page.getByText("1 new image(s) selected.")).toBeVisible();
     expect(deletions).toEqual(failureStage === "final save" ? [[uploads[0]]] : []);
 
     fail = false;
     await page.getByRole("button", { name: "Save submission" }).click();
     await expect(page.getByRole("heading", { name: "Edit your submission" })).toBeVisible();
-    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
     await expect(page.getByText("1 new image(s) selected.")).toHaveCount(0);
   });
 }
@@ -326,14 +326,14 @@ test("existing submission images are deleted only after a successful save @mobil
   await expect(page.getByRole("status")).toContainText("Save submission to delete the removed images.");
   expect(deletions).toEqual([]);
   await page.getByRole("button", { name: "Save submission" }).click();
-  await expect(page.getByRole("alert")).toHaveText("Unable to save submission: Unable to update media");
+  await expect(page.getByRole("main").getByRole("alert")).toHaveText("Unable to save submission: Unable to update media");
   expect(existing.media_keys).toEqual([key]);
   expect(deletions).toEqual([]);
 
   fail = false;
   await page.getByRole("button", { name: "Save submission" }).click();
   await expect.poll(() => deletions).toEqual([[key]]);
-  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole("heading", { name: "Edit your submission" })).toBeVisible();
   await expect(page.getByRole("img", { name: "Your submission image 1", exact: true })).toHaveCount(0);
