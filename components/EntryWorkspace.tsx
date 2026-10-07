@@ -423,7 +423,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
 
   useEffect(() => {
     void Promise.resolve().then(load);
-  }, [load, session.user.id]);
+  }, [load, session.user.id, session.user.user_metadata.display_name]);
 
   useEffect(() => {
     const deadline = competition?.status === "submission"
@@ -895,7 +895,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       }
     })();
     return () => { active = false; };
-  }, [client, competitionId, attempt]);
+  }, [client, competitionId, attempt, session.user.user_metadata.display_name]);
 
   useRealtimeUpdates(client, session.user.id, groupId, refresh);
 
