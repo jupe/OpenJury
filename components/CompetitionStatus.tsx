@@ -15,7 +15,7 @@ const styles: Record<string, string> = {
   submission: "bg-emerald-100 text-emerald-800",
   voting: "bg-indigo-100 text-indigo-800",
   review_pending: "bg-amber-100 text-amber-800",
-  results_published: "bg-sky-100 text-sky-800",
+  results_published: "bg-golden text-charcoal",
 };
 
 export function statusLabel(status: string) {

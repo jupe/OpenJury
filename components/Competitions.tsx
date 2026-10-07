@@ -32,7 +32,7 @@ type Competition = {
 const roleBadges: Record<CompetitionRoleName, { tip: string; className: string; icon: string }> = {
   participant: {
     tip: "You are a participant: you submit an entry",
-    className: "border-violet-200 bg-violet-50 text-violet-700",
+    className: "border-indigo-200 bg-indigo-50 text-indigo-700",
     icon: "M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4ZM13.5 6.5l4 4",
   },
   audience: {

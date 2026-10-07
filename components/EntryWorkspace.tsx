@@ -777,7 +777,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                               step={1}
                               value={score}
                               onChange={(event) => changeScore(entry.entry_number, category.id, event.target.value)}
-                              className="h-11 w-full cursor-pointer accent-indigo-600"
+                              className="h-11 w-full cursor-pointer accent-golden"
                             />
                             <span aria-hidden className="w-12 text-right font-semibold tabular-nums">{score}/{category.max_score}</span>
                           </div>
@@ -810,7 +810,10 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           {publishedResults.length ? (
             <ol className="space-y-3">
               {publishedResults.map((result) => (
-                <li key={`${result.rank}:${result.creator_id}`} className="space-y-2 rounded border border-slate-200 p-3">
+                <li key={`${result.rank}:${result.creator_id}`} className={`space-y-2 rounded-xl border border-slate-200 p-4 ${result.rank === 1 && !result.is_disqualified ? "winner-result" : ""}`}>
+                  {result.rank === 1 && !result.is_disqualified && (
+                    <span className="winner-badge"><Icon name="trophy" className="size-4" />{t("Winner:")}</span>
+                  )}
                   <h2 className="font-semibold">{t("Rank {rank}: {title}", { rank: result.rank, title: result.title })}</h2>
                   <p>{t("Submitted by {name}", { name: result.creator_name || t("Participant") })}</p>
                   {result.media_keys && result.media_keys.length > 0 && (
@@ -834,7 +837,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                   <h3 className="font-semibold">{categoryName}</h3>
                   <ol className="list-inside list-decimal">
                     {publishedCategoryResults.filter((result) => result.category_id === categoryId).map((result, index) => (
-                      <li key={`${categoryId}:${index}`}>
+                      <li key={`${categoryId}:${index}`} className={result.rank === 1 ? "font-semibold text-amber-800" : ""}>
                         {result.rank === 1 ? `${t("Winner:")} ` : ""}{result.title} ({result.creator_name})
                         {" — "}{formatPercent(result.score)}
                       </li>

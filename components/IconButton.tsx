@@ -50,7 +50,7 @@ const baseClass = "icon-button inline-flex size-12 shrink-0 cursor-pointer items
 const tones = {
   neutral: "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
   danger: "text-red-700 hover:bg-red-50",
-  primary: "bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800",
+  primary: "bg-coral text-charcoal hover:bg-coral-hover active:bg-coral-active",
 };
 
 /** A compact square button showing only an icon. Requires an aria-label, also shown as a tooltip unless a title is given. */

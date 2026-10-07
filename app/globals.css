@@ -1,5 +1,33 @@
 @import "tailwindcss";
 
+@theme {
+  --color-coral: #ff6b5b;
+  --color-coral-hover: #ff8274;
+  --color-coral-active: #f75d4c;
+  --color-golden: #ffc107;
+  --color-cream: #fff8f0;
+  --color-charcoal: #2d3142;
+
+  /* Existing accent utilities share the brand palette across every workspace. */
+  --color-indigo-50: #fff1ed;
+  --color-indigo-100: #ffe2da;
+  --color-indigo-200: #ffc7bb;
+  --color-indigo-400: #de5142;
+  --color-indigo-600: #bc3b2e;
+  --color-indigo-700: #a52f24;
+  --color-indigo-800: #87291f;
+  --color-slate-50: #fffbf6;
+  --color-slate-100: #f6eee5;
+  --color-slate-200: #e8dbcf;
+  --color-slate-300: #cbbbad;
+  --color-slate-400: #8e827b;
+  --color-slate-500: #716660;
+  --color-slate-600: #625a57;
+  --color-slate-700: #494651;
+  --color-slate-800: #393b4b;
+  --color-slate-900: #2d3142;
+}
+
 @layer base {
   html {
     color-scheme: light;
@@ -7,15 +35,15 @@
   }
 
   body {
-    background: #f5f6fa;
-    color: #182238;
+    background: var(--color-cream);
+    color: var(--color-charcoal);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     line-height: 1.5;
     -webkit-text-size-adjust: 100%;
   }
 
   h1, h2, h3 {
-    color: #0f172a;
+    color: var(--color-charcoal);
     line-height: 1.2;
     text-wrap: balance;
   }
@@ -28,21 +56,21 @@
     overflow-wrap: anywhere;
   }
 
-  input, select, textarea {
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), select, textarea {
     min-width: 0;
     max-width: 100%;
     min-height: 48px;
     font-size: 16px;
     background-color: #fff;
-    color: #182238;
-    border: 1px solid #dce1eb;
+    color: var(--color-charcoal);
+    border: 1px solid var(--color-slate-300);
     border-radius: 0.875rem;
     padding: 0.65rem 0.8rem;
   }
 
   input[type="file"] {
     padding: 0.5rem;
-    border: 1px solid #cbd5e1;
+    border: 1px solid var(--color-slate-300);
   }
 
   input::file-selector-button {
@@ -50,9 +78,36 @@
     padding: 0.5rem 0.75rem;
     border: 0;
     border-radius: 0.5rem;
-    background: #eef2ff;
-    color: #3730a3;
+    background: var(--color-indigo-50);
+    color: var(--color-indigo-700);
     font: inherit;
+    cursor: pointer;
+  }
+
+  input::placeholder, textarea::placeholder {
+    color: var(--color-slate-500);
+    opacity: 1;
+  }
+
+  input[type="checkbox"], input[type="radio"] {
+    accent-color: var(--color-indigo-600);
+  }
+
+  input[type="range"] {
+    accent-color: var(--color-golden);
+  }
+
+  button, a, input, select, textarea, summary {
+    transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+  }
+
+  button:not(:disabled), summary {
+    cursor: pointer;
+  }
+
+  ::selection {
+    background: var(--color-indigo-100);
+    color: var(--color-charcoal);
   }
 
   a, button, summary {
@@ -64,12 +119,12 @@
     align-items: center;
     min-height: 44px;
     max-width: 100%;
-    color: #4338ca;
+    color: var(--color-indigo-700);
     text-underline-offset: 4px;
   }
 
   :focus-visible {
-    outline: 3px solid #4f46e5;
+    outline: 3px solid var(--color-indigo-600);
     outline-offset: 3px;
   }
 }
@@ -90,14 +145,16 @@
   position: sticky;
   top: 0;
   z-index: 20;
-  background: rgb(255 255 255 / 92%);
+  border-color: var(--color-slate-200);
+  background: rgb(255 248 240 / 94%);
   backdrop-filter: blur(16px);
+  box-shadow: 0 2px 16px rgb(45 49 66 / 4%);
 }
 
 .app-card {
-  border-color: #e5e8f0;
+  border-color: var(--color-slate-200);
   border-radius: 1.25rem;
-  box-shadow: 0 2px 10px rgb(24 34 56 / 4%);
+  box-shadow: 0 4px 24px rgb(45 49 66 / 5%);
 }
 
 .app-card > h2,
@@ -108,7 +165,45 @@
 
 .app-button {
   border-radius: 0.875rem;
-  box-shadow: none;
+  gap: 0.5rem;
+}
+
+.brand-mark {
+  background: var(--color-coral);
+  color: var(--color-charcoal);
+  box-shadow: 3px 3px 0 var(--color-golden);
+}
+
+.landing-hero {
+  padding: clamp(1.5rem, 5vw, 3rem);
+  border: 1px solid var(--color-slate-200);
+  border-radius: 1.5rem;
+  background:
+    radial-gradient(ellipse at top right, rgb(255 193 7 / 18%), transparent 55%),
+    radial-gradient(ellipse at bottom left, rgb(255 107 91 / 12%), transparent 65%),
+    #fff;
+}
+
+.winner-result {
+  border-color: var(--color-golden);
+  background: #fffbeb;
+}
+
+.winner-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: 999px;
+  padding: 0.25rem 0.625rem;
+  background: var(--color-golden);
+  color: var(--color-charcoal);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.app-dialog {
+  border-color: var(--color-slate-200);
+  box-shadow: 0 24px 80px rgb(45 49 66 / 20%);
 }
 
 .mobile-tabbar {
@@ -169,9 +264,10 @@
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     padding: 0.5rem max(1.5rem, env(safe-area-inset-right)) calc(0.5rem + env(safe-area-inset-bottom)) max(1.5rem, env(safe-area-inset-left));
-    border-top: 1px solid #e5e8f0;
-    background: rgb(255 255 255 / 94%);
+    border-top: 1px solid var(--color-slate-200);
+    background: rgb(255 248 240 / 96%);
     backdrop-filter: blur(18px);
+    box-shadow: 0 -4px 20px rgb(45 49 66 / 5%);
   }
 
   .mobile-tab {
@@ -182,7 +278,7 @@
     justify-content: center;
     gap: 0.2rem;
     border-radius: 0.9rem;
-    color: #69758b;
+    color: var(--color-slate-500);
     font-size: 0.7rem;
     font-weight: 600;
     text-decoration: none;
@@ -194,7 +290,8 @@
   }
 
   .mobile-tab-active {
-    color: #4338ca;
+    background: var(--color-indigo-100);
+    color: var(--color-indigo-700);
   }
 }
 
@@ -217,8 +314,8 @@
   gap: 0.5rem;
   overflow-x: auto;
   padding: 0.375rem max(1rem, env(safe-area-inset-right)) calc(0.375rem + env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
-  background: rgb(15 23 42 / 96%);
-  box-shadow: 0 -2px 12px rgb(15 23 42 / 20%);
+  background: rgb(45 49 66 / 96%);
+  box-shadow: 0 -2px 12px rgb(45 49 66 / 20%);
 }
 
 .demo-mode .site-main {
@@ -238,7 +335,7 @@
 }
 
 .app-dialog::backdrop {
-  background: rgb(15 23 42 / 45%);
+  background: rgb(45 49 66 / 45%);
 }
 
 .toast-region {

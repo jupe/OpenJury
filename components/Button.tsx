@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ButtonHTMLAttributes, ComponentProps } from "react";
 
 const baseClass = "app-button inline-flex min-h-12 max-w-full cursor-pointer items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-50";
-const buttonClass = `${baseClass} bg-indigo-600 text-white shadow-sm hover:bg-indigo-700 active:bg-indigo-800`;
+const buttonClass = `${baseClass} bg-coral text-charcoal shadow-sm hover:bg-coral-hover active:bg-coral-active`;
 const secondaryClass = `${baseClass} border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 active:bg-slate-100`;
 
 export default function Button({

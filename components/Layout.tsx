@@ -15,7 +15,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       <header className="site-header border-b border-slate-200 bg-white">
         <nav aria-label={t("Main navigation")} className="site-nav mx-auto flex max-w-5xl items-center justify-between gap-3">
           <Link href="/" className="flex min-h-12 items-center gap-2 text-xl font-bold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-4">
-            <span aria-hidden="true" className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-sm text-white">OJ</span>
+            <span aria-hidden="true" className="brand-mark flex h-9 w-9 items-center justify-center rounded-xl text-sm">OJ</span>
             <span>OpenJury</span>
           </Link>
           {/* Filled with the account menu by AuthBoundary once signed in. */}
