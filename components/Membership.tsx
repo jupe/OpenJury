@@ -121,7 +121,7 @@ export function InviteAcceptance({ token }: { token: string }) {
   );
 }
 
-type Member = { user_id: string; email: string; role: "admin" | "member" };
+type Member = { user_id: string; email: string; display_name?: string; role: "admin" | "member" };
 type EmailInvite = { email: string; created_at: string };
 type InviteLink = { id: string; token: string; created_at: string };
 
@@ -168,7 +168,7 @@ export function GroupMembers({ groupId }: { groupId: string }) {
       }
     })();
     return () => { active = false; };
-  }, [client, groupId, attempt, t]);
+  }, [client, groupId, attempt, t, session.user.user_metadata.display_name]);
 
   async function act(key: string, label: string, run: () => PromiseLike<{ error: unknown }>) {
     if (working) return;
@@ -215,7 +215,7 @@ export function GroupMembers({ groupId }: { groupId: string }) {
         <thead className="text-sm text-slate-500">
           <tr className="border-b border-slate-200">
             <th scope="col" className="w-12 pb-2 font-medium"><span className="sr-only">{t("Role")}</span></th>
-            <th scope="col" className="pb-2 font-medium">{t("Email")}</th>
+            <th scope="col" className="pb-2 font-medium">{t("Name / email")}</th>
             <th scope="col" className="w-24 pb-2 text-right font-medium"><span className="sr-only">{t("Actions")}</span></th>
           </tr>
         </thead>
@@ -231,7 +231,10 @@ export function GroupMembers({ groupId }: { groupId: string }) {
                     <Icon name={member.role} />
                   </span>
                 </td>
-                <td className="break-all py-1 pr-2 text-slate-900">{member.email}{self && ` (${t("you")})`}</td>
+                <td className="break-words py-1 pr-2 text-slate-900">
+                  {member.display_name?.trim() || member.email}{self && ` (${t("you")})`}
+                  {member.display_name?.trim() && <span className="block text-sm break-all text-slate-500">{member.email}</span>}
+                </td>
                 <td className="py-1">
                   <div className="flex justify-end">
                     {member.role === "member" ? (

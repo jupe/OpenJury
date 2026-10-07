@@ -3,7 +3,7 @@ begin;
 -- Storage checks INSERT permission before uploading, when metadata.size is
 -- unavailable. Authorize the destination here; the bucket enforces upload
 -- size/type limits and save_submission validates the completed object's metadata.
-create function public.can_upload_submission_media(p_name text)
+create or replace function public.can_upload_submission_media(p_name text)
 returns boolean
 language sql
 set search_path = ''

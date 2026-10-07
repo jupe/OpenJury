@@ -94,8 +94,10 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/16_competition_deletion.sql`,
 `supabase/migrations/17_participant_voting.sql`,
 `supabase/migrations/18_heic_submission_media.sql`,
-`supabase/migrations/19_group_overview.sql`, and
-`supabase/migrations/20_submission_upload_preflight.sql`, once each, in that order.
+`supabase/migrations/19_group_overview.sql`,
+`supabase/migrations/20_member_display_names.sql`,
+`supabase/migrations/21_competition_start_notifications.sql`, and
+`supabase/migrations/22_submission_upload_preflight.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
@@ -112,7 +114,14 @@ while a competition is a draft. Participants still cannot vote on their own entr
 Migration 18 adds HEIC/HEIF support for private submission media.
 Migration 19 adds a read-only group overview RPC with member and competition counts.
 Without it, groups still list but show no counts.
-Migration 20 fixes photo upload authorization during Storage's preflight check,
+Migration 20 adds metadata names to the admin-only group member list.
+Signed-in users can set or clear their optional name in the account menu.
+The form updates only their own Supabase Auth `display_name` metadata; names
+also appear in existing attendee and published-result projections.
+Migration 21 adds optional competition-start emails. Notifications are skipped
+by default; trusted servers need the [email configuration](deployment.md#optional-competition-start-emails)
+before admins can opt in when opening submissions. The browser-only demo never sends emails.
+Migration 22 fixes photo upload authorization during Storage's preflight check,
 before completed file-size metadata is available. Existing deployments must
 apply it to resolve upload policy failures.
 Competition setup and details support English and Finnish through `lib/i18n.tsx`.

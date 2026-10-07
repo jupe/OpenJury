@@ -46,6 +46,7 @@ async function configure(page: Page, signedIn = false, passwordSignIn = false) {
         has_voted: false,
       }],
     });
+    if (path === "/rest/v1/rpc/get_my_pending_competition_start_emails") return route.fulfill({ json: false });
     return route.fulfill({ status: 400, json: { message: `Unexpected endpoint: ${path}` } });
   });
   if (signedIn) {
@@ -81,6 +82,103 @@ async function expectPhoneLayout(page: Page) {
     if (control.input) expect(control.fontSize).toBeGreaterThanOrEqual(16);
   }
 }
+
+test("users save and clear only their own name, with live list updates @mobile", async ({ page }) => {
+  await configure(page, true);
+  let metadata: { display_name?: string | null } = {};
+  const updates: unknown[] = [];
+  await page.route(`${supabaseURL}/auth/v1/user`, (route) => {
+    if (route.request().method() === "PUT") {
+      const body = route.request().postDataJSON();
+      updates.push({ data: body.data });
+      expect(route.request().headers().authorization).toBe(["Bearer", session().access_token].join(" "));
+      expect(Object.keys(body).sort()).toEqual(["code_challenge", "code_challenge_method", "data"]);
+      metadata = body.data;
+    }
+    return route.fulfill({ json: { ...session().user, user_metadata: metadata } });
+  });
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_group_members`, (route) => route.fulfill({ json: [
+    { user_id: userId, email: "member@example.com", role: "admin", display_name: metadata.display_name },
+    { user_id: secondId, email: "friend@example.com", role: "member", display_name: "Friend" },
+  ] }));
+  for (const rpc of ["get_group_email_invites", "get_group_invite_links"]) {
+    await page.route(`${supabaseURL}/rest/v1/rpc/${rpc}`, (route) => route.fulfill({ json: [] }));
+  }
+  await page.goto(`/group/${groupId}`);
+  const members = page.getByRole("table").filter({ has: page.getByRole("columnheader", { name: "Name / email" }) });
+  await expect(members.getByRole("cell", { name: "Friend friend@example.com", exact: true })).toBeVisible();
+  await expect(members.getByRole("textbox")).toHaveCount(0);
+  const account = page.getByRole("button", { name: "Account (member@example.com)" });
+  await account.click();
+  const name = page.getByRole("textbox", { name: "Your name" });
+  await expect(name).toHaveValue("");
+  await expect(name).toHaveAttribute("maxlength", "100");
+  await name.fill("  Alex Baker  ");
+  await expectPhoneLayout(page);
+  await page.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Your name has been saved." })).toBeVisible();
+  await expect(members.getByRole("cell", { name: "Alex Baker (you) member@example.com", exact: true })).toBeVisible();
+  expect(updates).toEqual([{ data: { display_name: "Alex Baker" } }]);
+  await account.click();
+  await account.click();
+  await expect(name).toHaveValue("Alex Baker");
+  await name.fill("   ");
+  await page.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(members.getByText("member@example.com (you)", { exact: true })).toBeVisible();
+  await expect(members.getByRole("cell", { name: "Friend friend@example.com", exact: true })).toBeVisible();
+  expect(updates).toEqual([{ data: { display_name: "Alex Baker" } }, { data: { display_name: null } }]);
+});
+
+test("name save errors keep the input and allow retry", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/auth/v1/user`, (route) => route.request().method() === "PUT"
+    ? route.fulfill({ status: 422, json: { msg: "Name update rejected" } })
+    : route.fulfill({ json: session().user }));
+  await page.goto("/dashboard");
+  await page.getByRole("button", { name: "Account (member@example.com)" }).click();
+  await page.getByRole("textbox", { name: "Your name" }).fill("Keep this name");
+  await page.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Unable to save your name" })).toContainText("Name update rejected");
+  await expect(page.getByRole("textbox", { name: "Your name" })).toHaveValue("Keep this name");
+  await expect(page.getByRole("button", { name: "Save name", exact: true })).toBeEnabled();
+  await expect(page.getByText("Your name has been saved.")).toHaveCount(0);
+});
+
+test("name settings are localized in Finnish", async ({ page }) => {
+  await configure(page, true);
+  await page.addInitScript(() => localStorage.setItem("openjury:locale", "fi"));
+  await page.goto("/dashboard");
+  await page.getByRole("button", { name: "Tili (member@example.com)" }).click();
+  await expect(page.getByRole("textbox", { name: "Oma nimi" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Tallenna nimi" })).toBeVisible();
+  await expect(page.getByText(/Vain sinä voit muuttaa sitä/)).toBeVisible();
+});
+
+test("saving an account name preserves an unsaved submission title", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{ id: secondId, group_id: groupId, name: "Bake-off", status: "submission",
+      submission_deadline: null, competition_participants: [{ role: "participant" }] }],
+  }));
+  let submissionReads = 0;
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => {
+    submissionReads++;
+    return route.fulfill({ json: [{ id: groupId, title: "Saved title", media_keys: [] }] });
+  });
+  await page.route(`${supabaseURL}/auth/v1/user`, (route) => route.fulfill({
+    json: { ...session().user, user_metadata: route.request().method() === "PUT" ? route.request().postDataJSON().data : {} },
+  }));
+  await page.goto(`/competition/${secondId}`);
+  const title = page.getByRole("textbox", { name: "Entry title" });
+  await expect(title).toHaveValue("Saved title");
+  await title.fill("Unsaved title");
+  await page.getByRole("button", { name: "Account (member@example.com)" }).click();
+  await page.getByRole("textbox", { name: "Your name" }).fill("Alex Baker");
+  await page.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(page.getByText("Your name has been saved.")).toBeVisible();
+  await expect(title).toHaveValue("Unsaved title");
+  expect(submissionReads).toBe(1);
+});
 
 test("small phone forms, long names and landscape stay usable @mobile", async ({ page }) => {
   await configure(page, true);
@@ -413,6 +511,14 @@ test("unconfigured deployments run the in-browser demo without network data", as
     await expect(page.getByRole("button", { name: "Send sign-in link" })).toHaveCount(0);
   }
   await expect(page.getByRole("link", { name: "Northside Makers" })).toBeVisible();
+  await page.getByRole("button", { name: "Account (alex@demo.openjury.app)" }).click();
+  await expect(page.getByRole("textbox", { name: "Your name" })).toHaveValue("Alex Rivera");
+  await page.getByRole("textbox", { name: "Your name" }).fill("Demo Alex");
+  await page.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(page.getByText("Your name has been saved.")).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Account (alex@demo.openjury.app)" }).click();
+  await expect(page.getByRole("textbox", { name: "Your name" })).toHaveValue("Demo Alex");
   expect(apiRequests).toEqual([]);
 });
 
@@ -1350,7 +1456,12 @@ test("admins move a competition through its lifecycle after confirming", async (
   const competitionId = "33333333-3333-4333-8333-333333333333";
   let status = "draft";
   const transitions: Array<Record<string, unknown>> = [];
+  const notificationRequests: string[] = [];
   await configure(page, true);
+  await page.route(`**/api/competitions/${competitionId}/start`, (route) => {
+    notificationRequests.push(route.request().url());
+    return route.fulfill({ json: { started: true, notificationsSent: true } });
+  });
   await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
     json: [{
       id: competitionId,
@@ -1373,6 +1484,7 @@ test("admins move a competition through its lifecycle after confirming", async (
 
   await page.goto(`/competition/${competitionId}/admin`);
   await expect(page.getByText("Status: Draft")).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Email existing group members when submissions open" })).not.toBeChecked();
   await expectPhoneLayout(page);
 
   page.once("dialog", (dialog) => void dialog.dismiss());
@@ -1382,6 +1494,8 @@ test("admins move a competition through its lifecycle after confirming", async (
   page.once("dialog", (dialog) => void dialog.accept());
   await page.getByRole("button", { name: "Open submissions" }).click();
   await expect(page.getByText("Status: Open for entries")).toBeVisible();
+  expect(notificationRequests).toEqual([]);
+  await expect(page.getByRole("checkbox", { name: "Email existing group members when submissions open" })).toHaveCount(0);
 
   page.once("dialog", (dialog) => void dialog.accept());
   await page.getByRole("button", { name: "Close submissions and start voting" }).click();
@@ -1395,6 +1509,102 @@ test("admins move a competition through its lifecycle after confirming", async (
     { p_competition_id: competitionId, p_target_status: "voting" },
     { p_competition_id: competitionId, p_target_status: "review_pending" },
   ]);
+});
+
+test("admins opt in to start emails and retry partial delivery without restarting", async ({ page }) => {
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  let status = "draft";
+  let notificationRequests = 0;
+  const transitions: unknown[] = [];
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{ id: competitionId, group_id: groupId, name: "Autumn bake-off", status, submission_deadline: null, voting_deadline: null }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) =>
+    route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/transition_competition`, (route) => {
+    transitions.push(route.request().postDataJSON());
+    return route.fulfill({ json: "submission" });
+  });
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_pending_competition_start_emails`, (route) =>
+    route.fulfill({ json: status === "submission" && notificationRequests === 1 }));
+  await page.route(`**/api/competitions/${competitionId}/start`, (route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().headers().authorization).toBe(["Bearer", session().access_token].join(" "));
+    notificationRequests++;
+    status = "submission";
+    return route.fulfill({ json: { started: true, notificationsSent: notificationRequests > 1 } });
+  });
+
+  await page.goto(`/competition/${competitionId}/admin`);
+  await page.getByRole("checkbox", { name: "Email existing group members when submissions open" }).check();
+  page.once("dialog", (dialog) => void dialog.dismiss());
+  await page.getByRole("button", { name: "Open submissions" }).click();
+  expect(notificationRequests).toBe(0);
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "Open submissions" }).click();
+  await expect(page.getByText("Status: Open for entries")).toBeVisible();
+  await expect(page.getByRole("status")).toContainText("some emails could not be sent");
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Retry notifications" })).toBeVisible();
+  await page.getByRole("button", { name: "Retry notifications" }).click();
+  await expect(page.getByRole("status")).toContainText("Notification emails sent.");
+  await expect(page.getByRole("button", { name: "Retry notifications" })).toHaveCount(0);
+  expect(notificationRequests).toBe(2);
+  expect(transitions).toEqual([]);
+});
+
+test("lost start responses restore pending notifications from the database", async ({ page }) => {
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  let status = "draft";
+  let pending = false;
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{ id: competitionId, group_id: groupId, name: "Autumn bake-off", status, submission_deadline: null, voting_deadline: null }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) =>
+    route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_pending_competition_start_emails`, (route) =>
+    route.fulfill({ json: pending }));
+  await page.route(`**/api/competitions/${competitionId}/start`, (route) => {
+    if (status === "draft") {
+      status = "submission";
+      pending = true;
+      return route.abort("failed");
+    }
+    pending = false;
+    return route.fulfill({ json: { started: true, notificationsSent: true } });
+  });
+
+  await page.goto(`/competition/${competitionId}/admin`);
+  await page.getByRole("checkbox", { name: "Email existing group members when submissions open" }).check();
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "Open submissions" }).click();
+  await expect(page.getByText("Status: Open for entries")).toBeVisible();
+  await page.getByRole("button", { name: "Retry notifications" }).click();
+  await expect(page.getByRole("status")).toContainText("Notification emails sent.");
+  await expect(page.getByRole("button", { name: "Retry notifications" })).toHaveCount(0);
+});
+
+test("email configuration errors leave the competition draft and notification choice intact", async ({ page }) => {
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{ id: competitionId, group_id: groupId, name: "Autumn bake-off", status: "draft", submission_deadline: null, voting_deadline: null }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) =>
+    route.fulfill({ json: [] }));
+  await page.route(`**/api/competitions/${competitionId}/start`, (route) =>
+    route.fulfill({ status: 503, json: { error: "Competition email is not configured." } }));
+
+  await page.goto(`/competition/${competitionId}/admin`);
+  const notify = page.getByRole("checkbox", { name: "Email existing group members when submissions open" });
+  await notify.check();
+  page.once("dialog", (dialog) => void dialog.accept());
+  await page.getByRole("button", { name: "Open submissions" }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("Competition email is not configured.");
+  await expect(page.getByText("Status: Draft")).toBeVisible();
+  await expect(notify).toBeChecked();
 });
 
 test("rejected lifecycle changes are reported and keep the current status", async ({ page }) => {
