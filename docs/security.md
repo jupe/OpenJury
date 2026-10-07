@@ -71,6 +71,11 @@ Migration `19_group_overview.sql` adds a security-definer `get_my_groups()`
 projection limited to the caller's memberships. It returns counts and the
 caller's own role only; member identities remain admin-only through
 `get_group_members`.
+Migration `23_my_overview.sql` adds a security-definer `get_my_overview()` that
+returns aggregate counts about the caller's own groups, entries, ballots, and
+published placements only; it reveals no other user's results, ballots, or identity.
+`get_my_competition_actions()` returns only competition IDs and the caller's own
+next step; it never exposes entries, scores, or other members.
 Migration `20_member_display_names.sql` adds metadata names to that same
 admin-only projection without granting any account writes. The account-menu
 form uses Supabase Auth's authenticated `updateUser` API, which updates only

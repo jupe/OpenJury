@@ -85,6 +85,16 @@ competitions in total and currently open for entries or voting. It exposes only
 aggregate counts, never other members' identities, so members can see how big
 their group is while direct membership reads stay limited to their own row.
 
+Migration `23_my_overview.sql` adds `get_my_overview()` for the signed-in home
+page. It returns only the caller's own totals: groups, competitions open for
+entries or voting in those groups, entries submitted, distinct entries voted on,
+and published wins (rank 1) and podium finishes (rank 3 or better), excluding
+disqualified entries. Published results and ballots stay unreadable directly.
+`get_my_competition_actions()` lists the caller's open competitions that need
+them: `join` without a role, `submit` as a participant without an entry before
+the deadline, and `vote` while eligible under the blind-voting rules with another
+eligible entry still unscored by the caller.
+
 ## Admin review and publication
 
 After voting closes, group admins can access preliminary rankings and
@@ -249,6 +259,7 @@ On a disposable Supabase database with all migrations applied, run:
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_access.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_management.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_overview.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/my_overview.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_deletion.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_setup.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/secure_submissions.sql
