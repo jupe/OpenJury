@@ -9,17 +9,63 @@ import { CompetitionManager } from "@/components/Competitions";
 import { GroupMembers } from "@/components/Membership";
 import AddButton from "@/components/AddButton";
 import Button from "@/components/Button";
-import IconButton from "@/components/IconButton";
+import IconButton, { Icon } from "@/components/IconButton";
 import Card from "@/components/Card";
 import { useLocale } from "@/lib/i18n";
 
 type Group = { id: string; name: string };
+type GroupOverview = {
+  id: string;
+  my_role: "admin" | "member";
+  member_count: number;
+  admin_count: number;
+  competition_count: number;
+  active_competition_count: number;
+};
+
+/** Counts for the caller's groups; optional, so an older database without the RPC still lists groups. */
+async function loadOverviews(client: ReturnType<typeof useAuth>["client"], signal: AbortSignal) {
+  try {
+    const { data, error } = await client.rpc("get_my_groups").abortSignal(signal);
+    if (error || !Array.isArray(data)) return new Map<string, GroupOverview>();
+    return new Map((data as GroupOverview[]).map((overview) => [overview.id, overview]));
+  } catch {
+    return new Map<string, GroupOverview>();
+  }
+}
+
+/** Member and competition counts for one group, on a single muted line. */
+function GroupStats({ overview }: { overview: GroupOverview }) {
+  const { t } = useLocale();
+  const members = overview.member_count;
+  const competitions = overview.competition_count;
+  const active = overview.active_competition_count;
+  return (
+    <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500">
+      <span className="inline-flex items-center gap-1.5">
+        <Icon name="member" className="size-4" />
+        {t(members === 1 ? "{count} member" : "{count} members", { count: members })}
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <Icon name="trophy" className="size-4" />
+        {t(competitions === 1 ? "{count} competition" : "{count} competitions", { count: competitions })}
+      </span>
+      {active > 0 && (
+        <span className="inline-flex items-center gap-1.5 font-medium text-emerald-700">
+          <span aria-hidden className="size-2 rounded-full bg-emerald-500" />
+          {t("{count} active", { count: active })}
+        </span>
+      )}
+    </p>
+  );
+}
 
 export function GroupList() {
   const { client, session } = useAuth();
   const { t } = useLocale();
   const router = useRouter();
   const [groups, setGroups] = useState<Group[]>([]);
+  const [overviews, setOverviews] = useState<Map<string, GroupOverview>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [name, setName] = useState("");
@@ -53,8 +99,13 @@ export function GroupList() {
         if (!active) return;
         const { data, error } = await client.from("groups").select("id,name").order("name").abortSignal(controller.signal);
         if (!active) return;
-        if (error) setError(t("Unable to load groups: {error}", { error: t(error.message) }));
-        else setGroups(data || []);
+        if (error) {
+          setError(t("Unable to load groups: {error}", { error: t(error.message) }));
+          return;
+        }
+        setGroups(data || []);
+        const loaded = await loadOverviews(client, controller.signal);
+        if (active) setOverviews(loaded);
       } catch {
         if (active) setError(t("Unable to load groups. Please try again."));
       } finally {
@@ -107,13 +158,26 @@ export function GroupList() {
             </tr>
           </thead>
           <tbody>
-            {groups.map((group) => (
-              <tr key={group.id} className="border-b border-slate-100 last:border-0">
-                <td className="break-words py-1 text-slate-900">
-                  <Link className="inline-flex min-h-12 max-w-full items-center underline" href={`/group/${group.id}`}>{group.name}</Link>
-                </td>
-              </tr>
-            ))}
+            {groups.map((group) => {
+              const overview = overviews.get(group.id);
+              return (
+                <tr key={group.id} className="border-b border-slate-100 last:border-0">
+                  <td className="break-words py-1 text-slate-900">
+                    <div className="flex items-center gap-3">
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        <Link className="inline-flex min-h-12 max-w-full items-center underline" href={`/group/${group.id}`}>{group.name}</Link>
+                        {overview && <GroupStats overview={overview} />}
+                      </div>
+                      {overview?.my_role === "admin" && (
+                        <span role="img" aria-label={t("You are an admin")} title={t("You are an admin")} className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-700">
+                          <Icon name="admin" />
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       ) : <p>{t("You do not belong to any groups yet. Open an invite link from a group admin, or create a group with +.")}</p>}
@@ -140,6 +204,7 @@ export function GroupDetails({ id }: { id: string }) {
   const { t } = useLocale();
   const router = useRouter();
   const [group, setGroup] = useState<Group | null>(null);
+  const [overview, setOverview] = useState<GroupOverview | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -167,15 +232,17 @@ export function GroupDetails({ id }: { id: string }) {
     void (async () => {
       try {
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return;
-        const [groupResult, membershipResult] = await Promise.all([
+        const [groupResult, membershipResult, overviews] = await Promise.all([
           client.from("groups").select("id,name").eq("id", id).abortSignal(controller.signal).maybeSingle(),
           client.from("group_members").select("role").eq("group_id", id).eq("user_id", session.user.id).abortSignal(controller.signal).maybeSingle(),
+          loadOverviews(client, controller.signal),
         ]);
         if (!active) return;
         if (groupResult.error) setError(t("Unable to load group: {error}", { error: t(groupResult.error.message) }));
         else if (membershipResult.error) setError(t("Unable to check group access: {error}", { error: t(membershipResult.error.message) }));
         else {
           setGroup(groupResult.data);
+          setOverview(overviews.get(id) ?? null);
           setName(groupResult.data?.name ?? "");
           setIsAdmin(membershipResult.data?.role === "admin");
         }
@@ -252,6 +319,7 @@ export function GroupDetails({ id }: { id: string }) {
   if (!group) return <Card title={t("Group not found or access denied")}><p>{t("This group does not exist, or you are not a member.")}</p><Link href="/dashboard" className="underline">{t("Back to your groups")}</Link></Card>;
   return (
     <>
+      {overview && <GroupStats overview={overview} />}
       {isAdmin && (
         <>
           <Card title={t("Group settings")}>

@@ -411,6 +411,27 @@ test("signed-in dashboard lists RLS groups and creates a group via RPC", async (
   await expect(page.getByRole("button", { name: "New competition" })).toBeVisible();
 });
 
+test("dashboard and group lobby show member and competition counts @mobile", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_groups`, (route) => route.fulfill({ json: [{
+    id: groupId, name: "Baking club", my_role: "admin",
+    member_count: 1, admin_count: 1, competition_count: 3, active_competition_count: 2,
+  }] }));
+
+  await page.goto("/dashboard");
+  const group = page.getByRole("table", { name: "Groups", exact: true }).getByRole("row").filter({ hasText: "Baking club" });
+  await expect(group.getByRole("link", { name: "Baking club" })).toBeVisible();
+  await expect(group.getByText("1 member", { exact: true })).toBeVisible();
+  await expect(group.getByText("3 competitions", { exact: true })).toBeVisible();
+  await expect(group.getByText("2 active", { exact: true })).toBeVisible();
+  await expect(group.getByRole("img", { name: "You are an admin" })).toBeVisible();
+
+  await page.goto(`/group/${groupId}`);
+  await expect(page.getByText("3 competitions", { exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Group lobby" })).toHaveCount(0);
+});
+
 test("group admins create and edit draft competitions with scoring criteria", async ({ page }) => {
   await configure(page, true);
   const competitionId = "33333333-3333-4333-8333-333333333333";
@@ -1531,6 +1552,10 @@ test("group tables fit narrow screens with long names @mobile", async ({ page })
   await page.route(`${supabaseURL}/rest/v1/groups**`, (route) => route.fulfill({
     json: [{ id: groupId, name }],
   }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_groups`, (route) => route.fulfill({ json: [{
+    id: groupId, name, my_role: "admin",
+    member_count: 3, admin_count: 1, competition_count: 4, active_competition_count: 2,
+  }] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/is_platform_admin`, (route) => route.fulfill({ json: true }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_platform_groups`, (route) => route.fulfill({ json: [
     { id: groupId, name, member_count: 3, admin_count: 1, my_role: "admin" },
@@ -1540,6 +1565,7 @@ test("group tables fit narrow screens with long names @mobile", async ({ page })
     await page.setViewportSize(viewport);
     await page.goto("/dashboard");
     await expect(page.getByRole("table")).toHaveCount(2);
+    await expect(page.getByRole("table", { name: "Groups", exact: true }).getByText("4 competitions", { exact: true })).toBeVisible();
     await expectPhoneLayout(page);
   }
 });
