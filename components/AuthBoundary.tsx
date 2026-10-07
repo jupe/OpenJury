@@ -18,7 +18,11 @@ export function useAuth() {
   return auth;
 }
 
-export default function AuthBoundary({ children }: { children: ReactNode }) {
+export default function AuthBoundary({ children, signedOut }: {
+  children: ReactNode;
+  /** Shown above the sign-in form only, e.g. a landing introduction. */
+  signedOut?: ReactNode;
+}) {
   const { t } = useLocale();
   const [client, setClient] = useState<SupabaseClient>();
   const [session, setSession] = useState<Session | null>(null);
@@ -202,6 +206,8 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
           )}
         </>
       ) : (
+        <>
+        {signedOut}
         <Card title={t("Sign in to OpenJury")}>
           <p>{t("Sign in with your email to view your groups. New accounts are welcome.")}</p>
           {demo && <p>{t("In the demo, any email signs in instantly as a new account, or pick a demo person in the toolbar below.")}</p>}
@@ -225,6 +231,7 @@ export default function AuthBoundary({ children }: { children: ReactNode }) {
             </form>
           )}
         </Card>
+        </>
       )}
     </>
   );

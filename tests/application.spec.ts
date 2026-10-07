@@ -18,8 +18,10 @@ async function checkLandingNavigation(page: Page) {
   });
   await page.goto("/");
   await demoExpect(page).toHaveTitle("OpenJury");
+  // Signed-out visitors see the introduction; the demo signs in and shows the overview.
+  // The demo's heading waits for its in-browser database, as other demo checks do.
   await demoExpect(page.getByRole("heading", { level: 1 })).toHaveText(
-    "Competitions for every community",
+    /^(Competitions for every community|Welcome back.*)$/, { timeout: 60_000 },
   );
   const signIn = page.getByRole("heading", { name: "Sign in to OpenJury" });
   // Without Supabase configuration the app runs on an in-browser demo database.

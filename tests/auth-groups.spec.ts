@@ -528,6 +528,68 @@ test("configured signed-out routes prompt login without group queries", async ({
   expect(groupRequests).toEqual([]);
 });
 
+test("home shows one introduction when signed out and a personal overview when signed in", async ({ page }) => {
+  await configure(page);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Competitions for every community");
+  await expect(page.getByRole("heading", { name: "Sign in to OpenJury" })).toBeVisible();
+  await expect(page.getByText("Your community. Your jury.")).toHaveCount(0);
+});
+
+test("signed-in home shows totals and puts competitions needing action first", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_competition_actions`, (route) => route.fulfill({
+    json: [{ competition_id: secondId, action: "vote" }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_overview`, (route) => route.fulfill({ json: [{
+    group_count: 2, active_competition_count: 3, entry_count: 5, voted_entry_count: 1, win_count: 2, podium_count: 4,
+  }] }));
+  let competitionQuery = "";
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => {
+    competitionQuery = decodeURIComponent(route.request().url());
+    return route.fulfill({ json: [
+      { id: secondId, name: "Later vote", status: "voting", submission_deadline: null, voting_deadline: "2026-12-01T12:00:00Z",
+        groups: { name: "Baking club" }, competition_participants: [{ role: "audience" }] },
+      { id: groupId, name: "Sooner entries", status: "submission", submission_deadline: "2026-11-01T12:00:00Z", voting_deadline: null,
+        groups: { name: "Choir" }, competition_participants: [] },
+    ] });
+  });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Welcome back");
+  const activity = page.getByRole("region", { name: "Your activity" });
+  await expect(activity).toContainText("Active competitions3");
+  await expect(activity).toContainText("Wins2");
+  await expect(activity).toContainText("4 podium finishes");
+  await expect(activity).toContainText("Voted on 1 entry");
+  expect(competitionQuery).toContain("status=in.(submission,voting)");
+  const items = page.getByRole("listitem");
+  await expect(items.nth(0)).toContainText("Later vote");
+  await expect(items.nth(0)).toContainText("Audience");
+  await expect(items.nth(0).getByRole("link", { name: "Vote now: Later vote" })).toHaveAttribute("href", `/competition/${secondId}`);
+  await expect(items.nth(1)).toContainText("Sooner entries");
+  await expect(items.nth(1).getByRole("link", { name: /^(Vote now|Submit your entry|Choose your role)/ })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Sooner entries" })).toHaveAttribute("href", `/competition/${groupId}`);
+  await expectPhoneLayout(page);
+});
+
+test("signed-in home hides the wins tile until there is a placement", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_overview`, (route) => route.fulfill({ json: [{
+    group_count: 1, active_competition_count: 0, entry_count: 0, voted_entry_count: 0, win_count: 0, podium_count: 0,
+  }] }));
+  await page.goto("/");
+  const activity = page.getByRole("region", { name: "Your activity" });
+  await expect(activity).toContainText("Groups1");
+  await expect(activity).not.toContainText("Wins");
+});
+
+test("signed-in home still lists open competitions without the overview RPC", async ({ page }) => {
+  await configure(page, true);
+  await page.goto("/");
+  await expect(page.getByText("No competitions are open right now.")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Your activity" })).toHaveCount(0);
+});
+
 test("magic link permits signup and redirects to dashboard with accessible status", async ({ page }) => {
   await configure(page);
   await page.goto("/");

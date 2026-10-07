@@ -96,8 +96,9 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/18_heic_submission_media.sql`,
 `supabase/migrations/19_group_overview.sql`,
 `supabase/migrations/20_member_display_names.sql`,
-`supabase/migrations/21_competition_start_notifications.sql`, and
-`supabase/migrations/22_submission_upload_preflight.sql`, once each, in that order.
+`supabase/migrations/21_competition_start_notifications.sql`,
+`supabase/migrations/22_submission_upload_preflight.sql`, and
+`supabase/migrations/23_my_overview.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
@@ -124,6 +125,8 @@ before admins can opt in when opening submissions. The browser-only demo never s
 Migration 22 fixes photo upload authorization during Storage's preflight check,
 before completed file-size metadata is available. Existing deployments must
 apply it to resolve upload policy failures.
+Migration 23 adds the home page's personal totals and per-competition next steps.
+Without it, the home page still lists open competitions without totals or highlights.
 Competition setup and details support English and Finnish through `lib/i18n.tsx`.
 Choose the language from the account menu; the preference is stored in the browser.
 Translate interface labels and messages, not user-provided competition names,
