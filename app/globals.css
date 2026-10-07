@@ -89,6 +89,10 @@ html[data-theme="dark"] h3 {
   color: #f8fafc;
 }
 
+html[data-theme="dark"] main a {
+  color: #a5b4fc;
+}
+
 html[data-theme="dark"] :where(.bg-white) {
   background-color: #111827;
 }
