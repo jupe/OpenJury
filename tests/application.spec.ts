@@ -36,7 +36,9 @@ async function checkLandingNavigation(page: Page) {
     return;
   }
   await page.getByRole("button", { name: /^Account/ }).click({ timeout: 60_000 });
-  await page.getByRole("link", { name: "Your groups" }).click();
+  await page.getByRole("link", { name: "Profile" }).click();
+  await demoExpect(page).toHaveURL(/\/profile$/);
+  await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Dashboard" }).click();
   await demoExpect(page).toHaveURL(/\/dashboard$/);
   await demoExpect(page.getByRole("heading", { level: 1 })).toHaveText("Your groups");
   await page.getByRole("link", { name: "Northside Makers", exact: true }).click();
