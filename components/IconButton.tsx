@@ -25,6 +25,10 @@ const paths = {
   camera: "M4 8h3l2-3h6l2 3h3v11H4ZM12 16.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z",
   addImage: "M20 13v6H4V5h9M4 16l4.5-4.5 4 4 2-2L20 19M17 3v6m-3-3h6",
   addLink: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-.8.8M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l.8-.8",
+  advance: "M4 12h16m-6-6 6 6-6 6",
+  retry: "M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1",
+  disqualify: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM6 6l12 12",
+  reinstate: "M9 4 4 9l5 5M4 9h10a6 6 0 0 1 0 12",
 };
 
 export type IconName = keyof typeof paths;

@@ -82,6 +82,8 @@ const finnish: Record<string, string> = {
   "Group lobby": "Ryhmän etusivu",
   "Competition": "Kilpailu",
   "Competition admin": "Kilpailun hallinta",
+  "Attendees": "Osallistujat",
+  "Description and rules have not been added yet.": "Kuvausta ja sääntöjä ei ole vielä lisätty.",
   "Group invite": "Ryhmän kutsu",
   "Dashboard": "Hallintapaneeli",
   "Draft": "Luonnos",

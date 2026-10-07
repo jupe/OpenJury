@@ -728,7 +728,9 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
             {newFiles.length > 0 && <p>{t("{count} new image(s) selected.", { count: newFiles.length })}</p>}
             {removedKeys.length > 0 && <p role="status">{t("Save submission to delete the removed images.")}</p>}
             {error && <p role="alert"><ErrorText error={error} /></p>}
-            <Button type="submit" disabled={saving}>{t(saving ? "Saving…" : "Save submission")}</Button>
+            <div className="flex justify-end">
+              <IconButton type="submit" icon={saving ? "pending" : "save"} tone="primary" disabled={saving} aria-label={t(saving ? "Saving…" : "Save submission")} />
+            </div>
           </form>
         </Card>
       )}
@@ -1192,97 +1194,119 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       {competition && (
         <Breadcrumbs items={[...competitionCrumbs(competitionId, competition, groupId, t), { label: t("Manage") }]} />
       )}
-      <Card title={competition?.name || t("Competition status")}>
-        <p className="flex flex-wrap items-center gap-2">{t("Status:")} <StatusBadge status={competitionStatus} /></p>
-        {competition && <Deadlines competition={competition} />}
-        {competitionStatus === "draft" && (
-          <p>{t("Edit scoring categories, event type, and deadlines from the group page before opening submissions. Competition details remain editable.")}</p>
-        )}
-        {competitionStatus === "review_pending" && (
-          <>
-            <p>{t("Review the preliminary rankings below, then publish the final results.")}</p>
-            <label className="mt-3 block max-w-sm">{t("Schedule results publication")}
-              <input
-                type="datetime-local"
-                value={publishAt}
-                onChange={(event) => setPublishAt(event.target.value)}
-                className="mt-1 block w-full rounded border border-slate-300 p-2"
-              />
-            </label>
-            <p className="text-sm text-slate-600">{t("Change the time or leave it blank to cancel the schedule. You can update it any time before publication.")}</p>
-            <Button onClick={() => void saveSchedule()}>{t("Save publication schedule")}</Button>
-          </>
-        )}
-        {transitionError && <p role="alert"><ErrorText error={transitionError} /></p>}
-        {competitionStatus === "draft" && (
-          <>
-            <label className="my-3 flex min-h-11 items-center gap-3">
-              <input
-                type="checkbox"
-                checked={notifyMembers}
-                disabled={transitioning || session.access_token.startsWith("demo-")}
-                onChange={(event) => setNotifyMembers(event.target.checked)}
-                className="h-11 w-11 shrink-0 accent-indigo-600"
-              />
-              {t("Email existing group members when submissions open")}
-            </label>
-            <p className="mb-3 text-sm text-slate-600">
-              {t(session.access_token.startsWith("demo-")
-                ? "Email notifications are unavailable in the demo."
-                : "Optional. No notification emails are sent by default.")}
-            </p>
-          </>
-        )}
-        {notificationMessage && <p role="status">{t(notificationMessage)}</p>}
-        {notificationsPending && (
-          <Button disabled={transitioning} onClick={() => void retryStartNotifications()}>
-            {t(transitioning ? "Updating…" : "Retry notifications")}
-          </Button>
-        )}
-        {step && (
-          <Button disabled={transitioning} onClick={() => void advance()}>
-            {t(transitioning ? "Updating…" : step.action)}
-          </Button>
-        )}
-      </Card>
-      {competition && (
-        <Card title={t("Competition details")}>
-          {detailsDraft ? (
-            <form onSubmit={saveDetails} className="space-y-4" aria-busy={savingDetails}>
-              <fieldset disabled={savingDetails} className="space-y-4">
-                <label className="block">{t("Competition name")}
-                  <input required maxLength={100} value={detailsDraft.name} onChange={(event) => setDetailsDraft({ ...detailsDraft, name: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
-                </label>
-                <label className="block">{t("Description (optional)")}
-                  <textarea maxLength={10000} rows={3} value={detailsDraft.description} onChange={(event) => setDetailsDraft({ ...detailsDraft, description: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
-                </label>
-                <label className="block">{t("Rules (optional)")}
-                  <textarea maxLength={10000} rows={4} value={detailsDraft.rules} onChange={(event) => setDetailsDraft({ ...detailsDraft, rules: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
-                </label>
-                <div className="flex flex-wrap gap-3">
-                  <Button type="submit">{t(savingDetails ? "Saving…" : "Save details")}</Button>
-                  <Button type="button" variant="secondary" onClick={() => { setDetailsDraft(null); setDetailsError(null); }}>{t("Cancel edit")}</Button>
-                </div>
-              </fieldset>
-              {detailsError && <p role="alert"><ErrorText error={detailsError} /></p>}
-            </form>
-          ) : (
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <Card title={competition?.name || t("Competition status")}>
+          <p className="flex flex-wrap items-center gap-2">{t("Status:")} <StatusBadge status={competitionStatus} /></p>
+          {competition && <Deadlines competition={competition} />}
+          {competitionStatus === "draft" && (
+            <p>{t("Edit scoring categories, event type, and deadlines from the group page before opening submissions. Competition details remain editable.")}</p>
+          )}
+          {competitionStatus === "review_pending" && (
             <>
-              <CompetitionDetails competition={competition} />
-              <Button onClick={() => {
+              <p>{t("Review the preliminary rankings below, then publish the final results.")}</p>
+              <div className="flex items-end gap-2">
+                <label className="min-w-0 flex-1">{t("Schedule results publication")}
+                  <input
+                    type="datetime-local"
+                    value={publishAt}
+                    onChange={(event) => setPublishAt(event.target.value)}
+                    className="mt-1 block w-full rounded border border-slate-300 p-2"
+                  />
+                </label>
+                <IconButton icon="save" tone="primary" aria-label={t("Save publication schedule")} onClick={() => void saveSchedule()} />
+              </div>
+              <p className="text-sm text-slate-600">{t("Change the time or leave it blank to cancel the schedule. You can update it any time before publication.")}</p>
+            </>
+          )}
+          {transitionError && <p role="alert"><ErrorText error={transitionError} /></p>}
+          {competitionStatus === "draft" && (
+            <>
+              <label className="my-3 flex min-h-11 items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={notifyMembers}
+                  disabled={transitioning || session.access_token.startsWith("demo-")}
+                  onChange={(event) => setNotifyMembers(event.target.checked)}
+                  className="h-11 w-11 shrink-0 accent-indigo-600"
+                />
+                {t("Email existing group members when submissions open")}
+              </label>
+              <p className="mb-3 text-sm text-slate-600">
+                {t(session.access_token.startsWith("demo-")
+                  ? "Email notifications are unavailable in the demo."
+                  : "Optional. No notification emails are sent by default.")}
+              </p>
+            </>
+          )}
+          {notificationMessage && <p role="status">{t(notificationMessage)}</p>}
+          {notificationsPending && (
+            <IconButton icon={transitioning ? "pending" : "retry"} aria-label={t(transitioning ? "Updating…" : "Retry notifications")} disabled={transitioning} onClick={() => void retryStartNotifications()} />
+          )}
+          {step && (
+            <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
+              <p className="text-sm font-medium">{t(step.action)}</p>
+              <IconButton icon={transitioning ? "pending" : "advance"} tone="primary" aria-label={t(transitioning ? "Updating…" : step.action)} disabled={transitioning} onClick={() => void advance()} />
+            </div>
+          )}
+        </Card>
+        {competition && (
+          <Card
+            title={t("Competition details")}
+            action={!detailsDraft && (
+              <IconButton icon="edit" aria-label={t("Edit competition details")} onClick={() => {
                 setDetailsDraft({ name: competition.name, description: competition.description ?? "", rules: competition.rules ?? "" });
                 setDetailsError(null);
                 setDetailsMessage("");
-              }}>{t("Edit competition details")}</Button>
-            </>
-          )}
-          {detailsMessage && <p role="status">{t(detailsMessage)}</p>}
-        </Card>
-      )}
+              }} />
+            )}
+          >
+            {detailsDraft ? (
+              <form onSubmit={saveDetails} className="space-y-4" aria-busy={savingDetails}>
+                <fieldset disabled={savingDetails} className="space-y-4">
+                  <label className="block">{t("Competition name")}
+                    <input required maxLength={100} value={detailsDraft.name} onChange={(event) => setDetailsDraft({ ...detailsDraft, name: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+                  </label>
+                  <label className="block">{t("Description (optional)")}
+                    <textarea maxLength={10000} rows={3} value={detailsDraft.description} onChange={(event) => setDetailsDraft({ ...detailsDraft, description: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+                  </label>
+                  <label className="block">{t("Rules (optional)")}
+                    <textarea maxLength={10000} rows={4} value={detailsDraft.rules} onChange={(event) => setDetailsDraft({ ...detailsDraft, rules: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+                  </label>
+                  <div className="flex justify-end gap-2">
+                    <IconButton icon="cancel" aria-label={t("Cancel edit")} onClick={() => { setDetailsDraft(null); setDetailsError(null); }} />
+                    <IconButton type="submit" icon={savingDetails ? "pending" : "save"} tone="primary" aria-label={t(savingDetails ? "Saving…" : "Save details")} />
+                  </div>
+                </fieldset>
+                {detailsError && <p role="alert"><ErrorText error={detailsError} /></p>}
+              </form>
+            ) : (
+              <>
+                <CompetitionDetails competition={competition} />
+                {!competition.description && !competition.rules && (
+                  <p className="text-sm">{t("Description and rules have not been added yet.")}</p>
+                )}
+              </>
+            )}
+            {detailsMessage && <p role="status">{t(detailsMessage)}</p>}
+          </Card>
+        )}
+      </div>
       <Card title={t("Competition attendees")}>
-      <p>{t("Group members and anyone who has submitted or voted, with how each takes part in this competition.")}</p>
+        <dl className="grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-3">
+          {[
+            { label: "Attendees", count: attendees.length },
+            { label: "Submitted", count: attendees.filter((attendee) => attendee.has_submission).length },
+            { label: "Has voted", count: attendees.filter((attendee) => attendee.has_voted).length },
+          ].map(({ label, count }) => (
+            <div key={label} className="min-w-0">
+              <dt className="text-xs font-medium">{t(label)}</dt>
+              <dd className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">{count}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="text-sm">{t("Group members and anyone who has submitted or voted, with how each takes part in this competition.")}</p>
         {attendees.length ? (
-          <ul className="space-y-3">
+          <ul className="grid gap-3 sm:grid-cols-2">
             {attendees.map((attendee) => (
               <li key={attendee.user_id} className="rounded border border-slate-200 p-3">
                 <p className="break-words font-semibold">{attendee.display_name || t("Participant")}</p>
@@ -1300,10 +1324,10 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       </Card>
       <Card title={t("Private submission review")}>
         {entries.length ? (
-          <ul className="space-y-6">
+          <ul className="grid gap-4 md:grid-cols-2">
             {entries.map((entry) => (
-              <li key={entry.id} className="space-y-2">
-                <h2 className="font-semibold">{entry.title}</h2>
+              <li key={entry.id} className="min-w-0 space-y-3 rounded-xl border border-slate-200 p-4">
+                <h3 className="break-words font-semibold">{entry.title}</h3>
                 <p className="break-words text-sm text-slate-600">{t("Submitted by {name}", { name: attendeeName(entry.creator_id) })}</p>
                 <MediaGallery client={client} mediaKeys={entry.media_keys} label={t("Submission image")} />
               </li>
@@ -1317,9 +1341,9 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
           <ul className="space-y-4">
             {reviewResults.map((entry) => (
               <li key={entry.entry_id} className="rounded border border-slate-200 p-4">
-                <h2 className="font-semibold">
+                <h3 className="break-words font-semibold">
                   {entry.rank === null ? t("Not ranked") : t("Rank {rank}", { rank: entry.rank })}: {entry.title}
-                </h2>
+                </h3>
                 <p className="break-words text-sm text-slate-600">{t("Submitted by {name}", { name: attendeeName(entry.creator_id) })}</p>
                 {!entry.is_disqualified && (
                   <p>{entry.score === null ? t("No complete ballots") : formatPercent(entry.score)}
@@ -1344,18 +1368,16 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
                         className="mt-1 block w-full rounded border border-slate-300 p-2"
                       />
                     </label>
-                    <Button
+                    <IconButton
+                      icon="reinstate"
+                      aria-label={t("Reinstate entry")}
                       disabled={!reasons[entry.entry_id]?.trim() || workingEntry !== ""}
                       onClick={() => void reinstate(entry)}
-                    >
-                      {t("Reinstate entry")}
-                    </Button>
+                    />
                   </div>
                 )}
                 {pendingMediaCleanup[entry.entry_id]?.length > 0 && (
-                  <Button onClick={() => void retryMediaCleanup(entry.entry_id)}>
-                    {t("Retry private image cleanup")}
-                  </Button>
+                  <IconButton icon="retry" aria-label={t("Retry private image cleanup")} onClick={() => void retryMediaCleanup(entry.entry_id)} />
                 )}
                 {!entry.is_disqualified && (
                   <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,14rem)_auto]">
@@ -1383,12 +1405,13 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
                         <option value="remove_content">{t("Remove inappropriate content")}</option>
                       </select>
                     </label>
-                    <Button
+                    <IconButton
+                      icon={workingEntry === entry.entry_id ? "pending" : "disqualify"}
+                      tone="danger"
+                      aria-label={t(workingEntry === entry.entry_id ? "Disqualifying…" : "Disqualify")}
                       disabled={!reasons[entry.entry_id]?.trim() || workingEntry !== ""}
                       onClick={() => void disqualify(entry)}
-                    >
-                      {t(workingEntry === entry.entry_id ? "Disqualifying…" : "Disqualify")}
-                    </Button>
+                    />
                   </div>
                 )}
               </li>
@@ -1396,7 +1419,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
           </ul>
           {reviewCategories.filter((category) => category.rank === 1).length > 0 && (
             <section className="mt-6 space-y-2">
-              <h2 className="text-lg font-semibold">{t("Preliminary category winners")}</h2>
+              <h3 className="text-lg font-semibold">{t("Preliminary category winners")}</h3>
               {reviewCategories.filter((category) => category.rank === 1).map((winner) => (
                 <p key={`${winner.category_id}:${winner.entry_id}`}>
                   {winner.category_name}: {winner.title} ({attendeeName(winner.creator_id)}) — {formatPercent(winner.score)}
@@ -1405,9 +1428,10 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
             </section>
           )}
           {actionMessage && <p role="status">{t(actionMessage)}</p>}
-          <Button disabled={publishing || workingEntry !== ""} onClick={() => void publishResults()}>
-            {t(publishing ? "Publishing…" : "Publish final results")}
-          </Button>
+          <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
+            <p className="text-sm font-medium">{t("Publish final results")}</p>
+            <IconButton icon={publishing ? "pending" : "trophy"} tone="primary" aria-label={t(publishing ? "Publishing…" : "Publish final results")} disabled={publishing || workingEntry !== ""} onClick={() => void publishResults()} />
+          </div>
         </Card>
       )}
       {competitionStatus === "results_published" && actionMessage && <p role="status">{t(actionMessage)}</p>}
