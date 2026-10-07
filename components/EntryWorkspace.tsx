@@ -35,6 +35,7 @@ const formatPercent = (score: number) => `${Math.round(score)}%`;
 
 const MAX_MEDIA_FILES = 5;
 const MAX_MEDIA_SIZE = 10 * 1024 * 1024;
+const NO_PENDING_FILES: File[] = [];
 const MEDIA_TYPES = new Map([
   ["image/jpeg", "jpg"],
   ["image/png", "png"],
@@ -167,7 +168,7 @@ function MediaGallery({
   label,
   removeLabel,
   onRemove,
-  pendingFiles = [],
+  pendingFiles = NO_PENDING_FILES,
   onRemovePending,
 }: {
   client: ReturnType<typeof useAuth>["client"];
