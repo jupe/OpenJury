@@ -134,7 +134,7 @@ if [[ "$preview" != true ]]; then
   export APP_URL="${APP_URL:-${APP_SCHEME:-https}://$APP_HOST}"
 fi
 # Report which app email settings reach the container, by name only.
-for name in RESEND_API_KEY COMPETITION_EMAIL_FROM APP_URL SUPABASE_SERVICE_ROLE_KEY; do
+for name in SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS SMTP_ADMIN_EMAIL APP_URL SUPABASE_SERVICE_ROLE_KEY; do
   if [[ -n "${!name:-}" ]]; then echo "App email setting $name: set"; else echo "App email setting $name: missing"; fi
 done
 docker compose "${files[@]}" up --detach --wait --wait-timeout 300 --remove-orphans

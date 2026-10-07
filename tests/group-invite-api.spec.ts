@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { mailer } from "../lib/mailer";
 import { POST } from "../app/api/groups/[groupId]/invite/route";
 
 test.describe.configure({ mode: "serial" });
@@ -7,13 +8,18 @@ const groupId = "11111111-1111-4111-8111-111111111111";
 const env = {
   SUPABASE_URL: "https://backend.example.com",
   SUPABASE_ANON_KEY: "public-test-key",
-  RESEND_API_KEY: "private-test-email-key",
-  COMPETITION_EMAIL_FROM: "jury@example.com",
+  SMTP_HOST: "smtp.example.com",
+  SMTP_PORT: "587",
+  SMTP_USER: "jury@example.com",
+  SMTP_PASS: "private-smtp-password",
+  SMTP_ADMIN_EMAIL: "jury@example.com",
   APP_URL: "https://jury.example.com",
 };
 let previous: Record<string, string | undefined>;
 let originalFetch: typeof fetch;
-let calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }>;
+let originalCreateTransport: typeof mailer.createTransport;
+let transportsClosed: number;
+let calls: Array<{ url: string; headers: Headers; body: Record<string, unknown>; at?: number; config?: unknown }>;
 let authStatus: number;
 let rpcError: string | null;
 let providerStatus: number;
@@ -29,6 +35,21 @@ test.beforeEach(() => {
   providerStatus = 200;
   providerThrows = false;
   groupFails = false;
+  originalCreateTransport = mailer.createTransport;
+  transportsClosed = 0;
+  mailer.createTransport = (config) => ({
+    async sendMail(message) {
+      calls.push({ url: "smtp://send", headers: new Headers(), body: message as unknown as Record<string, unknown>, at: Date.now(), config });
+      if (providerThrows) throw Object.assign(new Error("Connection timeout"), { code: "ETIMEDOUT" });
+      if (providerStatus !== 200) {
+        throw Object.assign(new Error(`Private failure for ${message.to[0]}`), {
+          code: "EMESSAGE", responseCode: providerStatus, response: `${providerStatus} Private failure`,
+        });
+      }
+      return { messageId: "<provider-id@smtp.example.com>" };
+    },
+    close() { transportsClosed++; },
+  });
   originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = input instanceof Request ? input.url : String(input);
@@ -46,16 +67,13 @@ test.beforeEach(() => {
       return groupFails ? Response.json({ message: "Private group failure" }, { status: 500 })
         : Response.json({ name: "Baking club" });
     }
-    if (url === "https://api.resend.com/emails") {
-      if (providerThrows) throw new TypeError("Private timeout detail");
-      return Response.json({ id: "provider-id", message: "Private provider detail" }, { status: providerStatus });
-    }
     throw new Error(`Unexpected upstream: ${url}`);
   };
 });
 
 test.afterEach(() => {
   globalThis.fetch = originalFetch;
+  mailer.createTransport = originalCreateTransport;
   for (const name of Object.keys(env)) {
     if (previous[name] === undefined) delete process.env[name];
     else process.env[name] = previous[name];
@@ -81,7 +99,7 @@ test("rejects missing sessions and invalid IDs or addresses before upstream call
 });
 
 test("missing or unsafe configuration fails before saving a pending invite", async () => {
-  for (const name of ["RESEND_API_KEY", "COMPETITION_EMAIL_FROM", "APP_URL"]) {
+  for (const name of ["SMTP_HOST", "SMTP_ADMIN_EMAIL", "APP_URL"]) {
     delete process.env[name];
     expect((await request()).status).toBe(503);
     process.env[name] = env[name as keyof typeof env];
@@ -91,7 +109,10 @@ test("missing or unsafe configuration fails before saving a pending invite", asy
     expect((await request()).status).toBe(503);
   }
   process.env.APP_URL = env.APP_URL;
-  process.env.COMPETITION_EMAIL_FROM = "sender@example.com\r\nBcc: other@example.com";
+  process.env.SMTP_ADMIN_EMAIL = "sender@example.com\r\nBcc: other@example.com";
+  expect((await request()).status).toBe(503);
+  process.env.SMTP_ADMIN_EMAIL = env.SMTP_ADMIN_EMAIL;
+  delete process.env.SMTP_PASS;
   expect((await request()).status).toBe(503);
   expect(calls).toEqual([]);
 });
@@ -106,7 +127,7 @@ test("authentication and RPC permissions gate email delivery without leaking err
     expect(response.status).toBe(status);
     expect(await response.text()).not.toContain("Private");
   }
-  expect(calls.some((call) => call.url.includes("resend"))).toBe(false);
+  expect(calls.some((call) => call.url === "smtp://send")).toBe(false);
 });
 
 test("saves under the user's permissions and sends a private invitation to the trusted dashboard URL", async () => {
@@ -118,10 +139,11 @@ test("saves under the user's permissions and sends a private invitation to the t
   expect(rpc.body).toEqual({ p_group_id: groupId, p_email: "new@example.com" });
   expect(rpc.headers.get("apikey")).toBe(env.SUPABASE_ANON_KEY);
   expect(rpc.headers.get("authorization")).toBe(["Bearer", "test-session-token"].join(" "));
-  const email = calls.find((call) => call.url === "https://api.resend.com/emails")!;
-  expect(email.headers.get("authorization")).toBe(["Bearer", env.RESEND_API_KEY].join(" "));
+  const email = calls.find((call) => call.url === "smtp://send")!;
+  expect(email.config).toMatchObject({ host: env.SMTP_HOST, port: 587, user: env.SMTP_USER, pass: env.SMTP_PASS });
+  expect(transportsClosed).toBe(1);
   expect(email.body).toEqual({
-    from: env.COMPETITION_EMAIL_FROM,
+    from: { name: "OpenJury", address: env.SMTP_ADMIN_EMAIL },
     to: ["new@example.com"],
     subject: "You have been invited to an OpenJury group",
     text: 'You have been invited to "Baking club" on OpenJury.\nSign in with new@example.com to join the group:\nhttps://jury.example.com/dashboard',
@@ -153,12 +175,12 @@ test("logs one diagnostic line per outcome without secrets, tokens, or full addr
   console.error = (line: string) => lines.push(line);
   const events = () => lines.map((line) => JSON.parse(line) as Record<string, unknown>);
   try {
-    delete process.env.RESEND_API_KEY;
+    delete process.env.SMTP_HOST;
     delete process.env.APP_URL;
     await request();
     expect(events().at(-1)).toMatchObject({
       scope: "group-invite", event: "not-configured", groupId, recipientDomain: "example.com",
-      reason: "missing RESEND_API_KEY, APP_URL",
+      reason: "missing APP_URL; missing SMTP_HOST",
     });
     Object.assign(process.env, env);
 
@@ -167,21 +189,22 @@ test("logs one diagnostic line per outcome without secrets, tokens, or full addr
     expect(events().at(-1)).toMatchObject({ event: "invite-rejected", code: "42501" });
     rpcError = null;
 
-    providerStatus = 403;
+    providerStatus = 535;
     await request();
     expect(events().slice(-2)).toMatchObject([
       { event: "invite-saved" },
-      { event: "resend-rejected", status: 403, body: expect.stringContaining("Private provider detail") },
+      { event: "smtp-rejected", smtpHost: env.SMTP_HOST, responseCode: 535, response: "535 Private failure",
+        error: "Private failure for <recipient>" },
     ]);
     providerStatus = 200;
 
-    providerThrows = true;
+    groupFails = true;
     await request();
-    expect(events().at(-1)).toMatchObject({ event: "unexpected-error", invited: true, error: expect.stringContaining("Private timeout detail") });
-    providerThrows = false;
+    expect(events().at(-1)).toMatchObject({ event: "unexpected-error", invited: true, error: expect.stringContaining("Group unavailable") });
+    groupFails = false;
 
     await request();
-    expect(events().at(-1)).toMatchObject({ event: "email-accepted", resendId: "provider-id" });
+    expect(events().at(-1)).toMatchObject({ event: "email-accepted", messageId: "<provider-id@smtp.example.com>" });
     const requestIds = new Set(events().map((event) => event.requestId));
     expect(requestIds.size).toBe(5);
   } finally {
@@ -189,7 +212,7 @@ test("logs one diagnostic line per outcome without secrets, tokens, or full addr
     console.error = error;
   }
   const output = lines.join("\n");
-  for (const secret of [env.RESEND_API_KEY, env.SUPABASE_ANON_KEY, "test-session-token", "new@example.com"]) {
+  for (const secret of [env.SMTP_PASS, env.SUPABASE_ANON_KEY, "test-session-token", "new@example.com"]) {
     expect(output).not.toContain(secret);
   }
 });

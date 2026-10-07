@@ -71,11 +71,9 @@ jobs:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           SMTP_ADMIN_EMAIL: ${{ vars.SMTP_ADMIN_EMAIL }}
           SMTP_SENDER_NAME: ${{ vars.SMTP_SENDER_NAME }}
-          # App-sent email (group invitations, competition-start notices) via Resend.
-          # APP_URL defaults to https://APP_HOST; self-hosted Supabase supplies its
-          # own service-role key, so SUPABASE_SERVICE_ROLE_KEY is for hosted Supabase.
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          COMPETITION_EMAIL_FROM: ${{ vars.COMPETITION_EMAIL_FROM }}
+          # App-sent email (group invitations, competition-start notices) also uses
+          # the SMTP_* settings above. APP_URL defaults to https://APP_HOST; self-hosted
+          # Supabase supplies its own service-role key, so this one is for hosted Supabase.
           APP_URL: ${{ vars.APP_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GH_TOKEN: ${{ github.token }}

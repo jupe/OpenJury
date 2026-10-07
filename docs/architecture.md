@@ -57,7 +57,7 @@ groups, submissions, or votes are queried or saved.
 Members choose participant or audience on the competition page and can switch
 until voting starts, except that submitting an entry makes the choice final.
 Newcomers may still join the audience during voting. Email invitations send a
-notification through the app server's configured Resend integration, then wait
+notification through the app server's configured SMTP server, then wait
 until someone signs in with that confirmed address. Failed delivery is reported
 and pending invitations can be resent. Demo invitations send no email. The
 database enforces every rule; the UI only hides what a role cannot use.

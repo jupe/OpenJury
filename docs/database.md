@@ -271,7 +271,7 @@ start-notification test covers opt-in recipient snapshots, both default-skip
 paths, admin-only retries and pending-status recovery, private outbox permissions, immutable payloads,
 exclusive claims, token-guarded acknowledgements, and expired provider retention.
 The mocked-upstream route tests live in `tests/competition-start-api.spec.ts` and
-use the existing Playwright runner without requiring real Supabase/Resend credentials.
+use the existing Playwright runner without requiring real Supabase/SMTP credentials.
 The
 review/publication test covers admin-only access, complete-ballot aggregation,
 category winners, ties, minimum votes, schedule replacement/cancellation, moderation

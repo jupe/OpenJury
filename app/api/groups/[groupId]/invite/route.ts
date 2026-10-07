@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { describeMailError, mailConfiguration, mailer, sendMail, type MailConfig } from "@/lib/mailer";
 
 export const runtime = "nodejs";
 
@@ -13,24 +14,19 @@ function log(event: string, details: Record<string, unknown> = {}, level: "info"
 }
 
 function configuration(): { error: string } | {
-  url: string; anonKey: string; resendKey: string; from: string; origin: string;
+  url: string; anonKey: string; mail: MailConfig; origin: string;
 } {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const resendKey = process.env.RESEND_API_KEY;
-  const from = process.env.COMPETITION_EMAIL_FROM;
   const appUrl = process.env.APP_URL;
-  const missing = Object.entries({
-    SUPABASE_URL: url, SUPABASE_ANON_KEY: anonKey, RESEND_API_KEY: resendKey,
-    COMPETITION_EMAIL_FROM: from, APP_URL: appUrl,
-  }).filter(([, value]) => !value).map(([name]) => name);
-  if (missing.length || !url || !anonKey || !resendKey || !from || !appUrl) {
-    return { error: `missing ${missing.join(", ")}` };
+  const missing = Object.entries({ SUPABASE_URL: url, SUPABASE_ANON_KEY: anonKey, APP_URL: appUrl })
+    .filter(([, value]) => !value).map(([name]) => name);
+  const mail = mailConfiguration();
+  if (missing.length || !url || !anonKey || !appUrl) {
+    return { error: [`missing ${missing.join(", ")}`, "error" in mail ? mail.error : ""].filter(Boolean).join("; ") };
   }
-  if ([anonKey, resendKey].some((key) => /\s/.test(key))) return { error: "key contains whitespace" };
-  if (!/^[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+$/.test(from)) {
-    return { error: "COMPETITION_EMAIL_FROM is not a bare address" };
-  }
+  if ("error" in mail) return mail;
+  if (/\s/.test(anonKey)) return { error: "SUPABASE_ANON_KEY contains whitespace" };
   try {
     const origin = new URL(appUrl);
     const backend = new URL(url);
@@ -42,7 +38,7 @@ function configuration(): { error: string } | {
     }
     if (!["https:", "http:"].includes(backend.protocol) || backend.username || backend.password
       || backend.search || backend.hash) return { error: "SUPABASE_URL is invalid" };
-    return { url, anonKey, resendKey, from, origin: origin.origin };
+    return { url, anonKey, mail, origin: origin.origin };
   } catch {
     return { error: "APP_URL or SUPABASE_URL is not a URL" };
   }
@@ -104,32 +100,30 @@ export async function POST(request: Request, { params }: { params: Promise<{ gro
     const { data: group, error: groupError } = await client.from("groups").select("name").eq("id", groupId).single();
     if (groupError || !group) throw new Error(`Group unavailable: ${groupError?.message ?? "not found"}`);
     const sendStarted = Date.now();
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: ["Bearer", config.resendKey].join(" "),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: config.from,
+    const transport = mailer.createTransport(config.mail);
+    try {
+      const result = await sendMail(transport, config.mail, {
+        from: config.mail.from,
         to: [email],
         subject: "You have been invited to an OpenJury group",
         text: `You have been invited to "${group.name}" on OpenJury.\nSign in with ${email} to join the group:\n${config.origin}/dashboard`,
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    // Resend's body names the problem (unverified domain, bad key, rate limit) or the message ID.
-    const body = (await response.text().catch(() => "")).replaceAll(email, "<recipient>").slice(0, 500);
-    if (!response.ok) {
-      log("resend-rejected", { ...context, status: response.status, body, sendMs: Date.now() - sendStarted }, "error");
+      });
+      log("email-accepted", {
+        ...context, smtpHost: config.mail.host, messageId: result.messageId,
+        sendMs: Date.now() - sendStarted, totalMs: Date.now() - started,
+      });
+    } catch (error) {
+      // The SMTP reply names the problem, e.g. rejected credentials or a sending limit.
+      log("smtp-rejected", {
+        ...context, smtpHost: config.mail.host, ...describeMailError(error, email), sendMs: Date.now() - sendStarted,
+      }, "error");
       return json({ invited, error: "Invitation saved, but email delivery failed. Please retry." }, 502);
+    } finally {
+      transport.close();
     }
-    let resendId: unknown;
-    try { resendId = JSON.parse(body).id; } catch { resendId = undefined; }
-    log("email-accepted", { ...context, resendId, sendMs: Date.now() - sendStarted, totalMs: Date.now() - started });
     return json({ invited: true, emailSent: true });
   } catch (error) {
-    // Timeouts and network failures reaching Supabase or Resend land here.
+    // Timeouts and network failures reaching Supabase land here.
     log("unexpected-error", { ...context, invited, error: String(error), totalMs: Date.now() - started }, "error");
     return json({ invited, error: invited
       ? "Invitation saved, but email delivery failed. Please retry."
