@@ -113,12 +113,24 @@ test("users save and clear only their own name from the profile page @mobile", a
   await page.getByRole("link", { name: "Profile" }).click();
   await expect(page).toHaveURL(/\/profile$/);
   const name = page.getByRole("textbox", { name: "Your name" });
+  await expect(name).toHaveCount(0);
+  await expect(page.getByText("—", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Only you can change it/)).toBeVisible();
+  await page.getByRole("button", { name: "Edit name" }).click();
   await expect(name).toHaveValue("");
   await expect(name).toHaveAttribute("maxlength", "100");
+  await name.fill("Discard this name");
+  await page.getByRole("button", { name: "Cancel edit" }).click();
+  await expect(name).toHaveCount(0);
+  await expect(page.getByText("—", { exact: true })).toBeVisible();
+  expect(updates).toEqual([]);
+  await page.getByRole("button", { name: "Edit name" }).click();
   await name.fill("  Alex Baker  ");
   await expectPhoneLayout(page);
   await page.getByRole("button", { name: "Save name", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "Your name has been saved." })).toBeVisible();
+  await expect(name).toHaveCount(0);
+  await expect(page.getByText("Alex Baker", { exact: true })).toBeVisible();
   expect(updates).toEqual([{ data: { display_name: "Alex Baker" } }]);
   // Navigate in-app: a full reload would restore the test's original session.
   const openGroup = async () => {
@@ -132,6 +144,14 @@ test("users save and clear only their own name from the profile page @mobile", a
   await openGroup();
   await expect(members.getByRole("cell", { name: "Alex Baker (you) member@example.com", exact: true })).toBeVisible();
   await openProfile();
+  await page.getByRole("button", { name: "Edit name" }).click();
+  await expect(name).toHaveValue("Alex Baker");
+  await name.fill("Discard this update");
+  await page.getByRole("button", { name: "Cancel edit" }).click();
+  await expect(name).toHaveCount(0);
+  await expect(page.getByText("Alex Baker", { exact: true })).toBeVisible();
+  expect(updates).toEqual([{ data: { display_name: "Alex Baker" } }]);
+  await page.getByRole("button", { name: "Edit name" }).click();
   await expect(name).toHaveValue("Alex Baker");
   await name.fill("   ");
   await page.getByRole("button", { name: "Save name", exact: true }).click();
@@ -148,6 +168,7 @@ test("name save errors keep the input and allow retry", async ({ page }) => {
     ? route.fulfill({ status: 422, json: { msg: "Name update rejected" } })
     : route.fulfill({ json: session().user }));
   await page.goto("/profile");
+  await page.getByRole("button", { name: "Edit name" }).click();
   await page.getByRole("textbox", { name: "Your name" }).fill("Keep this name");
   await page.getByRole("button", { name: "Save name", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Unable to save your name" })).toContainText("Name update rejected");
@@ -163,8 +184,11 @@ test("name settings are localized in Finnish", async ({ page }) => {
   await page.getByRole("button", { name: "Tili (member@example.com)" }).click();
   await page.getByRole("link", { name: "Profiili" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Profiili");
+  await expect(page.getByRole("button", { name: "Muokkaa nimeä" })).toBeVisible();
+  await page.getByRole("button", { name: "Muokkaa nimeä" }).click();
   await expect(page.getByRole("textbox", { name: "Oma nimi" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Tallenna nimi" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Peruuta muokkaus" })).toBeVisible();
   await expect(page.getByText(/Vain sinä voit muuttaa sitä/)).toBeVisible();
 });
 
@@ -557,11 +581,15 @@ test("unconfigured deployments run the in-browser demo without network data", as
   await expect(page.getByRole("link", { name: "Northside Makers" })).toBeVisible();
   await page.getByRole("button", { name: "Account (alex@demo.openjury.app)" }).click();
   await page.getByRole("link", { name: "Profile" }).click();
+  await expect(page.getByText("Alex Rivera", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Edit name" }).click();
   await expect(page.getByRole("textbox", { name: "Your name" })).toHaveValue("Alex Rivera");
   await page.getByRole("textbox", { name: "Your name" }).fill("Demo Alex");
   await page.getByRole("button", { name: "Save name", exact: true }).click();
   await expect(page.getByText("Your name has been saved.")).toBeVisible();
   await page.reload();
+  await expect(page.getByText("Demo Alex", { exact: true })).toBeVisible({ timeout: 60_000 });
+  await page.getByRole("button", { name: "Edit name" }).click();
   await expect(page.getByRole("textbox", { name: "Your name" })).toHaveValue("Demo Alex", { timeout: 60_000 });
   expect(apiRequests).toEqual([]);
 });
