@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useAuth } from "@/components/AuthBoundary";
 import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
 import AddButton from "@/components/AddButton";
@@ -120,6 +120,39 @@ function toLocalInput(value: string | null) {
 
 function toTimestamp(value: string) {
   return value ? new Date(value).toISOString() : null;
+}
+
+function SetupLabel({ label, htmlFor, help, children, action }: {
+  label: string;
+  htmlFor?: string;
+  help: string;
+  children?: ReactNode;
+  action?: ReactNode;
+}) {
+  const { t } = useLocale();
+  const helpId = useId();
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <>
+      <div className="flex items-center gap-1">
+        {htmlFor ? (
+          <label htmlFor={htmlFor} className="flex min-w-0 items-center gap-3">{children}{t(label)}</label>
+        ) : <span className="font-semibold">{t(label)}</span>}
+        <button
+          type="button"
+          aria-label={t("Help: {field}", { field: t(label) })}
+          aria-expanded={expanded}
+          aria-controls={helpId}
+          onClick={() => setExpanded((value) => !value)}
+          className="inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+        >
+          <span aria-hidden className="flex h-5 w-5 items-center justify-center rounded-full border border-current text-xs font-semibold">?</span>
+        </button>
+        {action && <span className="ml-auto">{action}</span>}
+      </div>
+      <p id={helpId} hidden={!expanded} className="mb-2 rounded-xl bg-slate-100 p-3 text-sm text-slate-600">{t(help)}</p>
+    </>
+  );
 }
 
 export function CompetitionManager({ groupId }: { groupId: string }) {
@@ -420,12 +453,14 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             <label className="block">{t("Competition name")}
               <input required maxLength={100} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
-            <label className="block">{t("Description (optional)")}
-              <textarea maxLength={10000} rows={3} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
-            </label>
-            <label className="block">{t("Rules (optional)")}
-              <textarea maxLength={10000} rows={4} value={draft.rules} onChange={(event) => setDraft({ ...draft, rules: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
-            </label>
+            <div>
+              <SetupLabel label="Description (optional)" htmlFor="competition-description" help="Tell members what the competition is about, such as the theme, location, or what to submit. You can update the description and rules later." />
+              <textarea id="competition-description" maxLength={10000} rows={3} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+            </div>
+            <div>
+              <SetupLabel label="Rules (optional)" htmlFor="competition-rules" help="Explain who can enter, what is allowed, and how entries will be judged. Ask members to avoid names or identifying marks so voting stays blind." />
+              <textarea id="competition-rules" maxLength={10000} rows={4} value={draft.rules} onChange={(event) => setDraft({ ...draft, rules: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+            </div>
             <label className="block">{t("Submission format")}
               <select value={draft.submissionType} onChange={(event) => setDraft({ ...draft, submissionType: event.target.value as "photo" | "text" })} className="mt-1 block w-full rounded border border-slate-300 p-2">
                 <option value="photo">{t("Photos")}</option>
@@ -434,28 +469,32 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             </label>
             <p className="text-sm text-slate-600">{t("Submission format is fixed once submissions open.")}</p>
             {draft.submissionType === "photo" && (
-              <label className="block">{t("Maximum photos per entry")}
-                <input type="number" inputMode="numeric" required min={1} max={20} value={draft.maxSubmissionImages} onChange={(event) => setDraft({ ...draft, maxSubmissionImages: Number(event.target.value) })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
-              </label>
+              <div>
+                <SetupLabel label="Maximum photos per entry" htmlFor="competition-photos" help="Choose 1–20 photos per entry. Each photo can be up to 10 MB. This limit is fixed once submissions open." />
+                <input id="competition-photos" type="number" inputMode="numeric" required min={1} max={20} value={draft.maxSubmissionImages} onChange={(event) => setDraft({ ...draft, maxSubmissionImages: Number(event.target.value) })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+              </div>
             )}
-            <label className="flex min-h-11 items-center gap-3">
-              <input type="checkbox" checked={draft.allowParticipantVoting} onChange={(event) => setDraft({ ...draft, allowParticipantVoting: event.target.checked })} className="h-5 w-5" />
-              {t("Allow participants to vote")}
-            </label>
-            <p className="text-sm text-slate-600">{t("Participants can score other entries, never their own. This setting is fixed once submissions open.")}</p>
+            <div>
+              <SetupLabel label="Allow participants to vote" htmlFor="competition-participant-voting" help="Participants can score other entries, never their own. This setting is fixed once submissions open.">
+                <input id="competition-participant-voting" type="checkbox" checked={draft.allowParticipantVoting} onChange={(event) => setDraft({ ...draft, allowParticipantVoting: event.target.checked })} className="h-5 w-5" />
+              </SetupLabel>
+            </div>
             <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-[minmax(8rem,10rem)_minmax(0,1fr)_minmax(0,1fr)]">
-              <label className="block sm:col-span-2 md:col-span-1">{t("Event type")}
-                <select value={draft.eventType} onChange={(event) => setDraft({ ...draft, eventType: event.target.value as "live" | "remote" })} className="mt-1 block w-full rounded border border-slate-300 p-2">
+              <div className="sm:col-span-2 md:col-span-1">
+                <SetupLabel label="Event type" htmlFor="competition-event-type" help="Remote competitions can advance automatically at their deadlines when scheduled processing is configured. Live competitions are advanced by an admin. Both use blind voting." />
+                <select id="competition-event-type" value={draft.eventType} onChange={(event) => setDraft({ ...draft, eventType: event.target.value as "live" | "remote" })} className="mt-1 block w-full rounded border border-slate-300 p-2">
                   <option value="remote">{t("Remote")}</option>
                   <option value="live">{t("Live")}</option>
                 </select>
-              </label>
-              <label className="block">{t("Submission deadline")}
-                <input type="datetime-local" value={draft.submissionDeadline} onChange={(event) => setDraft({ ...draft, submissionDeadline: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
-              </label>
-              <label className="block">{t("Voting deadline")}
-                <input type="datetime-local" value={draft.votingDeadline} onChange={(event) => setDraft({ ...draft, votingDeadline: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
-              </label>
+              </div>
+              <div>
+                <SetupLabel label="Submission deadline" htmlFor="competition-submission-deadline" help="Optional. Set the last time members can submit or edit an entry, in your local time zone. Leave blank to close submissions manually." />
+                <input id="competition-submission-deadline" type="datetime-local" value={draft.submissionDeadline} onChange={(event) => setDraft({ ...draft, submissionDeadline: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+              </div>
+              <div>
+                <SetupLabel label="Voting deadline" htmlFor="competition-voting-deadline" help="Optional. Set the last time voters can save or revise scores, in your local time zone. It must be after the submission deadline if both are set. Results are reviewed before publication." />
+                <input id="competition-voting-deadline" type="datetime-local" value={draft.votingDeadline} onChange={(event) => setDraft({ ...draft, votingDeadline: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+              </div>
               <label className="block sm:col-span-2 md:col-span-3">{t("Results publication time (optional)")}
                 <input type="datetime-local" value={draft.resultsPublishAt} onChange={(event) => setDraft({ ...draft, resultsPublishAt: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
               </label>
@@ -463,13 +502,12 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             <p className="text-sm text-slate-600">{t("The scheduled publication time is used after voting closes and review is complete. You can change it during review.")}</p>
             <fieldset className="space-y-3">
               <legend className="sr-only">{t("Scoring categories")}</legend>
-              <div className="flex items-center justify-between gap-3">
-                <p aria-hidden className="font-semibold">{t("Scoring categories")} <span className="font-normal text-slate-500">{t("(maximum score 1–5)")}</span></p>
+              <SetupLabel label="Scoring categories" help="Add at least one category, such as Taste, Creativity, or Presentation. Give each a unique name and a maximum score from 1 to 5. Overall scores average each category's points equally, so a higher maximum allows a category to contribute more points. Scoring settings are fixed once submissions open." action={
                 <AddButton aria-label={t("Add category")} onClick={() => setDraft({
                   ...draft,
                   categories: [...draft.categories, { name: "", max_score: 5 }],
                 })} />
-              </div>
+              } />
               {draft.categories.map((category, index) => (
                 <div key={index} className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 sm:grid-cols-[1fr_8rem_auto]">
                   <label className="col-span-2 block sm:col-span-1">{t("Category name")}
