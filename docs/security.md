@@ -42,6 +42,10 @@ update their own existing vote. Remote deadlines are processed by a
 security-definer function executable by `service_role` only; invoke it from a
 trusted scheduled process. Its status checks and row locks make repeated or
 concurrent processing safe.
+Migration `27_reopen_competition_phases.sql` keeps those admin and row-lock
+requirements for backward transitions. It blocks reopening submissions after
+votes exist and invalidates published snapshots before returning a competition
+to review.
 Migration `21_competition_start_notifications.sql` adds opt-in
 `start_competition(id, notify default false)` without changing the existing
 two-argument transition RPC. It checks current admin membership and locks the

@@ -117,6 +117,29 @@ begin
   exception when object_not_in_prerequisite_state then null;
   end;
 
+  if public.transition_competition(
+    '00000000-0000-0000-0000-000000000042', 'voting'
+  ) <> 'voting' then
+    raise exception 'Admin could not reopen voting';
+  end if;
+  if public.transition_competition(
+    '00000000-0000-0000-0000-000000000042', 'submission'
+  ) <> 'submission' then
+    raise exception 'Admin could not reopen submissions before voting';
+  end if;
+  if exists (
+    select 1 from public.entries
+    where competition_id = '00000000-0000-0000-0000-000000000042'
+      and random_number is not null
+  ) then
+    raise exception 'Reopening submissions retained blind entry numbers';
+  end if;
+  if public.transition_competition(
+    '00000000-0000-0000-0000-000000000042', 'draft'
+  ) <> 'draft' then
+    raise exception 'Admin could not return an unnotified competition to draft';
+  end if;
+
   begin
     perform public.transition_competition(
       '00000000-0000-0000-0000-000000000041', null

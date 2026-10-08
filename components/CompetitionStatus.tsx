@@ -55,3 +55,30 @@ export const nextTransition: Record<string, { target: string; action: string; co
     confirm: "Close voting? Ballots can no longer be changed, and you can review results before publishing them.",
   },
 };
+
+export const previousTransition: Record<string, { target: string; action: string; confirm: string; error: string }> = {
+  submission: {
+    target: "draft",
+    action: "Return to draft",
+    error: "Unable to return competition to draft: {error}",
+    confirm: "Return this competition to draft? Members will no longer be able to submit entries.",
+  },
+  voting: {
+    target: "submission",
+    action: "Reopen submissions",
+    error: "Unable to reopen submissions: {error}",
+    confirm: "Reopen submissions? This is only available before any votes have been cast.",
+  },
+  review_pending: {
+    target: "voting",
+    action: "Reopen voting",
+    error: "Unable to reopen voting: {error}",
+    confirm: "Reopen voting? Existing ballots will be retained, scheduled publication will be cancelled, and the voting deadline must still be in the future.",
+  },
+  results_published: {
+    target: "review_pending",
+    action: "Return to review",
+    error: "Unable to return competition to review: {error}",
+    confirm: "Return to review? Published results will no longer be visible and their snapshots will be removed.",
+  },
+};
