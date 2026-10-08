@@ -10,8 +10,8 @@ select set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000201
 select public.create_group('Upload preflight tenant');
 
 reset role;
-insert into public.competitions (id, group_id, name, event_type, status)
-select '00000000-0000-4000-8000-000000000203', id, 'Upload preflight', 'live', 'submission'
+insert into public.competitions (id, group_id, name, event_type, status, max_submission_images)
+select '00000000-0000-4000-8000-000000000203', id, 'Upload preflight', 'live', 'submission', 1
 from public.groups where name = 'Upload preflight tenant';
 
 set local role authenticated;
@@ -27,6 +27,12 @@ begin
   select id into entry_id from public.get_my_submission(competition_id);
   media_key := competition_id::text || '/' || entry_id::text
     || '/00000000-0000-4000-8000-000000000204.png';
+
+  begin
+    perform public.save_submission(competition_id, entry_id, 'Photo', array['one', 'two']);
+    raise exception 'Submission exceeded the competition photo limit';
+  exception when invalid_parameter_value then null;
+  end;
 
   -- Match Storage's permission probe, which does not have final size metadata.
   insert into storage.objects (bucket_id, name, owner_id, metadata)

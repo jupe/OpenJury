@@ -275,7 +275,7 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   const saves: Array<{ p_title: string; p_media_keys: string[] }> = [];
   const deletions: string[][] = [];
   await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
-    json: [{ id: secondId, group_id: groupId, name: "Phone photos", status: "submission", submission_deadline: null, voting_deadline: null, competition_participants: [{ role: "participant" }] }],
+    json: [{ id: secondId, group_id: groupId, name: "Phone photos", max_submission_images: 2, status: "submission", submission_deadline: null, voting_deadline: null, competition_participants: [{ role: "participant" }] }],
   }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/save_submission`, (route) => {
@@ -302,6 +302,10 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   await expect.poll(() => pendingPreview.evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBe(1);
   await page.locator('input[type="file"][multiple]').setInputFiles({ name: "phone.heic", mimeType: "image/heic", buffer: png });
   await expect(page.getByText("2 new image(s) selected.")).toBeVisible();
+  await expect(page.getByText("JPEG, PNG, WebP, HEIC, or HEIF · up to 2 images, 10 MB each")).toBeVisible();
+  await page.locator('input[type="file"][multiple]').setInputFiles({ name: "extra.png", mimeType: "image/png", buffer: png });
+  await expect(page.locator("form").filter({ has: page.getByRole("textbox", { name: "Entry title" }) })
+    .getByRole("alert")).toContainText("An entry may contain up to 2 images.");
   await expect(page.getByRole("img", { name: "Your submission image 2", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Remove image 1" }).click();
   await expect(page.getByText("1 new image(s) selected.")).toBeVisible();
@@ -602,6 +606,71 @@ test("magic link permits signup and redirects to dashboard with accessible statu
   await expect(page.getByRole("status")).toContainText("Check your email");
 });
 
+test("Auth email template points to app confirmation rather than a consuming verification URL", async ({ request }) => {
+  const response = await request.get("/auth-email.html");
+  expect(response.ok()).toBe(true);
+  const template = await response.text();
+  expect(template).toContain('href="{{ .SiteURL }}/dashboard#token_hash={{ .TokenHash }}"');
+  expect(template).not.toContain(".ConfirmationURL");
+  expect(template).not.toContain("/auth/v1/verify");
+});
+
+test("email previews and reopens do not consume sign-in links before confirmation @mobile", async ({ page, context }) => {
+  const token = "preview-safe-test-token";
+  const link = `/dashboard#token_hash=${token}`;
+  const verifications: unknown[] = [];
+  const preview = await context.newPage();
+  await configure(preview);
+  await preview.route(`${supabaseURL}/auth/v1/verify`, (route) => {
+    verifications.push(route.request().postDataJSON());
+    return route.fulfill({ json: session() });
+  });
+  await preview.goto(link);
+  await expect(preview.getByRole("button", { name: "Continue to OpenJury" })).toBeVisible();
+  await preview.reload();
+  await expect(preview.getByRole("button", { name: "Continue to OpenJury" })).toBeVisible();
+  expect(verifications).toEqual([]);
+  await preview.close();
+
+  await configure(page);
+  await page.route(`${supabaseURL}/auth/v1/verify`, async (route) => {
+    verifications.push(route.request().postDataJSON());
+    await route.fulfill({ json: session() });
+  });
+  await page.goto(link);
+  await expect(page.getByRole("button", { name: "Continue to OpenJury" })).toBeVisible();
+  expect(verifications).toEqual([]);
+  await expectPhoneLayout(page);
+  await page.getByRole("button", { name: "Continue to OpenJury" }).click();
+  await expect(page.getByRole("button", { name: "Account (member@example.com)" })).toBeVisible();
+  expect(verifications).toMatchObject([{ token_hash: token, type: "email" }]);
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByRole("link", { name: "Baking club" })).toBeVisible();
+});
+
+test("expired confirmation links offer a fresh sign-in link without exposing the token @mobile", async ({ page }) => {
+  await configure(page);
+  await page.route(`${supabaseURL}/auth/v1/verify`, (route) => route.fulfill({
+    status: 403, json: { msg: "Token expired: private-test-token", error_code: "otp_expired" },
+  }));
+  await page.goto("/dashboard#token_hash=private-test-token");
+  await page.getByRole("button", { name: "Continue to OpenJury" }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("Request a new link below.");
+  await expect(page.getByRole("main")).not.toContainText("private-test-token");
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await page.getByRole("textbox", { name: "Email address" }).fill("member@example.com");
+  await page.getByRole("button", { name: "Send sign-in link" }).click();
+  await expect(page.getByRole("status")).toContainText("Check your email");
+});
+
+test("email sign-in confirmation is localized in Finnish", async ({ page }) => {
+  await configure(page);
+  await page.addInitScript(() => localStorage.setItem("openjury:locale", "fi"));
+  await page.goto("/dashboard#token_hash=test-token");
+  await expect(page.getByRole("heading", { name: "Vahvista kirjautuminen" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Jatka OpenJuryyn" })).toBeVisible();
+});
+
 test("password sign-in is hidden unless enabled", async ({ page }) => {
   await configure(page);
   await page.goto("/");
@@ -724,6 +793,7 @@ test("group admins create and edit draft competitions with scoring criteria", as
         name: body.p_name,
         description: body.p_description,
         rules: body.p_rules,
+        max_submission_images: body.p_max_submission_images,
         allow_participant_voting: body.p_allow_participant_voting,
         event_type: body.p_event_type,
         status: "draft",
@@ -758,6 +828,7 @@ test("group admins create and edit draft competitions with scoring criteria", as
     p_rules: "One entry per person.\nNo identifying marks.",
     p_allow_participant_voting: true,
     p_event_type: "remote",
+    p_max_submission_images: 5,
     p_categories: [{ name: "Taste", max_score: 5 }],
   });
 
@@ -779,6 +850,7 @@ test("group admins create and edit draft competitions with scoring criteria", as
     p_description: null,
     p_rules: null,
     p_allow_participant_voting: false,
+    p_max_submission_images: 5,
     p_categories: [{ name: "Creativity", max_score: 5 }],
   });
 });
@@ -841,7 +913,7 @@ test("admins edit competition details after opening; members read plain text det
   await configure(page, true);
   const competitionId = "33333333-3333-4333-8333-333333333333";
   const competition = {
-    id: competitionId, group_id: groupId, name: "Autumn bake-off",
+    id: competitionId, group_id: groupId, name: "Autumn bake-off", max_submission_images: 5,
     description: "Original description" as string | null, rules: null as string | null,
     status: "submission", submission_deadline: null, voting_deadline: null,
     groups: { name: "Baking club" },
@@ -855,7 +927,7 @@ test("admins edit competition details after opening; members read plain text det
     const body = route.request().postDataJSON();
     saves.push(body);
     if (failSave) return route.fulfill({ status: 400, json: { message: "Please try again" } });
-    Object.assign(competition, { name: body.p_name, description: body.p_description, rules: body.p_rules });
+    Object.assign(competition, { name: body.p_name, description: body.p_description, rules: body.p_rules, max_submission_images: body.p_max_submission_images });
     return route.fulfill({ json: null });
   });
   await page.goto(`/competition/${competitionId}/admin`);
@@ -873,6 +945,7 @@ test("admins edit competition details after opening; members read plain text det
   await expect(page.getByLabel("Competition name")).toHaveValue("Autumn bake-off");
   await expect(page.getByLabel("Description (optional)")).toHaveValue("Original description");
   await expect(page.getByLabel("Rules (optional)")).toHaveValue("");
+  await expect(page.getByLabel("Maximum photos per entry")).toHaveValue("5");
   await expect(page.getByLabel("Description (optional)")).toHaveAttribute("maxlength", "10000");
   await expect(page.getByLabel("Rules (optional)")).toHaveAttribute("maxlength", "10000");
   await page.getByLabel("Competition name").fill("Cancelled change");
@@ -883,6 +956,7 @@ test("admins edit competition details after opening; members read plain text det
   await page.getByLabel("Competition name").fill("  Winter bake-off  ");
   await page.getByLabel("Description (optional)").fill("  Share your best bakes.\nEveryone is welcome.  ");
   await page.getByLabel("Rules (optional)").fill("<b>No identifying marks.</b>\nOne entry per person.");
+  await page.getByLabel("Maximum photos per entry").fill("8");
   await page.getByRole("button", { name: "Save details" }).click();
   await expect(page.getByRole("main").getByRole("alert")).toContainText("Unable to save competition details: Please try again");
   await expect(page.getByLabel("Competition name")).toHaveValue("  Winter bake-off  ");
@@ -895,6 +969,7 @@ test("admins edit competition details after opening; members read plain text det
     p_name: "Winter bake-off",
     p_description: "Share your best bakes.\nEveryone is welcome.",
     p_rules: "<b>No identifying marks.</b>\nOne entry per person.",
+    p_max_submission_images: 8,
   });
   await expect(page.getByText("Status: Open for entries")).toBeVisible();
   await expectPhoneLayout(page);
@@ -942,7 +1017,7 @@ test("competition details follow the selected language without translating user 
   const competitionId = "33333333-3333-4333-8333-333333333333";
   const competition = {
     id: competitionId, group_id: groupId, name: "Autumn bake-off",
-    description: "Description", rules: "Rules", status: "submission",
+    description: "Description", rules: "Rules", max_submission_images: 5, status: "submission",
     submission_deadline: "2026-12-10T12:00:00Z", voting_deadline: null,
   };
   let saved: Record<string, unknown> | undefined;
@@ -953,7 +1028,7 @@ test("competition details follow the selected language without translating user 
   await page.route(`${supabaseURL}/rest/v1/rpc/save_competition_details`, (route) => {
     if (failSave) return route.fulfill({ status: 400, json: { message: "backend detail" } });
     saved = route.request().postDataJSON();
-    Object.assign(competition, { name: saved!.p_name, description: saved!.p_description, rules: saved!.p_rules });
+    Object.assign(competition, { name: saved!.p_name, description: saved!.p_description, rules: saved!.p_rules, max_submission_images: saved!.p_max_submission_images });
     return route.fulfill({ json: competitionId });
   });
   await page.goto(`/competition/${competitionId}/admin`);
@@ -976,6 +1051,7 @@ test("competition details follow the selected language without translating user 
   await expect(page.getByRole("status")).toHaveText("Kilpailun tiedot tallennettu.");
   expect(saved).toEqual({
     p_competition_id: competitionId, p_name: "Winter bake-off", p_description: "Description", p_rules: "Rules",
+    p_max_submission_images: 5,
   });
   await expectPhoneLayout(page);
 
@@ -1011,6 +1087,7 @@ test("draft competition details can be created and edited in Finnish", async ({ 
     saves.push(body);
     competitions.splice(0, competitions.length, {
       id: secondId, name: body.p_name, description: body.p_description, rules: body.p_rules,
+      max_submission_images: body.p_max_submission_images,
       event_type: body.p_event_type, status: "draft", submission_deadline: null, voting_deadline: null,
     });
     return route.fulfill({ json: secondId });
@@ -1021,18 +1098,21 @@ test("draft competition details can be created and edited in Finnish", async ({ 
   await page.getByLabel("Kilpailun nimi").fill("Finnish competition");
   await page.getByLabel("Kuvaus (valinnainen)").fill("User description");
   await page.getByLabel("Säännöt (valinnainen)").fill("User rules");
+  await page.getByLabel("Ehdotuksen kuvien enimmäismäärä").fill("12");
   await page.getByLabel("Kategorian nimi").fill("Taste");
   await page.getByRole("button", { name: "Luo kilpailu", exact: true }).click();
   await expect(page.getByRole("link", { name: "Finnish competition", exact: true })).toBeVisible();
-  expect(saves[0]).toMatchObject({ p_name: "Finnish competition", p_description: "User description", p_rules: "User rules" });
+  expect(saves[0]).toMatchObject({ p_name: "Finnish competition", p_description: "User description", p_rules: "User rules", p_max_submission_images: 12 });
   await page.getByRole("button", { name: "Muokkaa luonnosta", exact: true }).click();
   await expect(page.getByLabel("Kuvaus (valinnainen)")).toHaveValue("User description");
   await expect(page.getByLabel("Säännöt (valinnainen)")).toHaveValue("User rules");
+  await expect(page.getByLabel("Ehdotuksen kuvien enimmäismäärä")).toHaveValue("12");
+  await page.getByLabel("Ehdotuksen kuvien enimmäismäärä").fill("7");
   await page.getByLabel("Kuvaus (valinnainen)").fill("");
   await page.getByLabel("Säännöt (valinnainen)").fill("");
   await page.getByRole("button", { name: "Tallenna luonnos", exact: true }).click();
   await expect.poll(() => saves.length).toBe(2);
-  expect(saves[1]).toMatchObject({ p_competition_id: secondId, p_description: null, p_rules: null });
+  expect(saves[1]).toMatchObject({ p_competition_id: secondId, p_description: null, p_rules: null, p_max_submission_images: 7 });
 });
 
 test("participants refetch authorized competition data after reconnect", async ({ page }) => {
@@ -1342,8 +1422,8 @@ test(`adaptive vote points support a maximum of ${max} and autosave @mobile`, as
   await page.goto(`/competition/${competitionId}`);
   await expect(page.getByText(categoryName, { exact: true })).toBeVisible();
   await expect(page.getByText(finnish
-    ? "Ehdotetut asteikon keskipisteet — ei tallennettu. Äänestä valitsemalla pistemäärä."
-    : "Suggested midpoint scores — not recorded. Select a score to vote.")).toBeVisible();
+    ? "Ei tallennettu. Äänestä valitsemalla pistemäärä jokaiseen kategoriaan."
+    : "Not recorded. Select a score for every category to vote.")).toBeVisible();
   await page.clock.install();
   await page.clock.pauseAt(new Date(Date.now() + 1000));
   expect(saved).toHaveLength(0);
@@ -1352,20 +1432,21 @@ test(`adaptive vote points support a maximum of ${max} and autosave @mobile`, as
   if (max <= 10) {
     const group = page.getByRole("group");
     await expect(group.getByRole("button")).toHaveCount(max);
-    await expect(group.getByRole("button", { name: pointLabel(Math.ceil(max / 2)), exact: true }))
-      .toHaveAttribute("aria-pressed", "true");
+    await expect(group.getByRole("button", { pressed: true })).toHaveCount(0);
+    await expect(group).toContainText(finnish ? "Ei arvioitu" : "Not scored");
     await group.getByRole("button", { name: pointLabel(max), exact: true }).focus();
     await page.keyboard.press("Enter");
   } else {
     const slider = page.getByRole("slider", { name: categoryName });
-    await expect(slider).toHaveAttribute("aria-valuetext", pointLabel(Math.ceil(max / 2)));
-    await slider.focus();
-    await page.keyboard.press("Home");
-    await expect(slider).toHaveValue("1");
+    await expect(slider).toHaveAttribute("aria-valuetext", finnish ? "Ei arvioitu" : "Not scored");
+    await expect(slider).toHaveValue("0");
     const decrease = page.getByRole("button", { name: finnish
       ? `Vähennä kategorian ${categoryName} pisteitä` : `Decrease points for ${categoryName}` });
     const increase = page.getByRole("button", { name: finnish
       ? `Lisää kategorian ${categoryName} pisteitä` : `Increase points for ${categoryName}` });
+    await expect(decrease).toBeDisabled();
+    await increase.click();
+    await expect(slider).toHaveValue("1");
     await expect(decrease).toBeDisabled();
     await increase.click();
     await expect(slider).toHaveValue("2");
@@ -1378,6 +1459,11 @@ test(`adaptive vote points support a maximum of ${max} and autosave @mobile`, as
     await expect(slider).toHaveAttribute("aria-valuetext", pointLabel(max));
     const track = await slider.evaluate((element) => getComputedStyle(element).backgroundImage);
     expect(track).toContain("100%");
+    await page.keyboard.press("Home");
+    await expect(slider).toHaveValue("0");
+    await page.clock.fastForward(400);
+    expect(saved).toHaveLength(0);
+    await page.keyboard.press("End");
   }
   await expect(page.getByText(finnish ? "Muutoksia ei ole vielä tallennettu." : "Changes not saved yet.")).toBeVisible();
   await page.clock.fastForward(400);
@@ -1398,6 +1484,63 @@ test(`adaptive vote points support a maximum of ${max} and autosave @mobile`, as
   await page.screenshot({ path: `/tmp/openjury-vote-points-${max}-${finnish ? "fi" : "en"}.png`, fullPage: true });
 });
 }
+
+test("new ballots start unscored and save only after every category is rated @mobile", async ({ page }) => {
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  const tasteId = "44444444-4444-4444-8444-444444444444";
+  const presentationId = "55555555-5555-4555-8555-555555555555";
+  const savedBallots: unknown[] = [];
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{
+      id: competitionId,
+      group_id: groupId,
+      name: "Blind bake-off",
+      status: "voting",
+      submission_deadline: null,
+      voting_deadline: new Date(Date.now() + 60_000).toISOString(),
+      allow_participant_voting: false,
+      competition_participants: [{ role: "audience" }],
+    }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/categories**`, (route) => route.fulfill({
+    json: [
+      { id: tasteId, name: "Taste", max_score: 5 },
+      { id: presentationId, name: "Presentation", max_score: 3 },
+    ],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_blind_voting_entries`, (route) =>
+    route.fulfill({ json: [{ entry_number: 7, media_keys: [] }] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_ballot`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/save_ballot`, async (route) => {
+    savedBallots.push(route.request().postDataJSON());
+    await route.fulfill({ status: 204 });
+  });
+
+  await page.goto(`/competition/${competitionId}`);
+  await expect(page.getByRole("heading", { name: "Entry 7" })).toBeVisible();
+  const taste = page.getByRole("group", { name: /^Taste / });
+  const presentation = page.getByRole("group", { name: /^Presentation / });
+  await expect(taste).toContainText("Not scored");
+  await expect(presentation).toContainText("Not scored");
+  await expect(page.getByRole("button", { pressed: true })).toHaveCount(0);
+  await expect(page.getByText("Voted", { exact: true })).toHaveCount(0);
+
+  await taste.getByRole("button", { name: "4 of 5 points" }).click();
+  await page.waitForTimeout(500);
+  expect(savedBallots).toEqual([]);
+  await presentation.getByRole("button", { name: "2 of 3 points" }).click();
+  await expect(page.getByRole("status")).toContainText("Vote recorded · Entry 7");
+  expect(savedBallots).toEqual([{
+    p_competition_id: competitionId,
+    p_entry_number: 7,
+    p_scores: [
+      { category_id: tasteId, score: 4 },
+      { category_id: presentationId, score: 2 },
+    ],
+  }]);
+});
 
 test("admins disqualify and publish while group members see only final identities", async ({ page }) => {
   const competitionId = "66666666-6666-4666-8666-666666666666";

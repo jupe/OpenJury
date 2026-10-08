@@ -31,7 +31,9 @@ revoked. Authenticated members create or edit only their own entry through an
 RPC that locks the competition row and enforces submission phase and deadline.
 Separate RPC projections expose identity and title only to group admins; the
 blind-voting projection contains only anonymous entry numbers and opaque media
-keys. Entry and vote tables are excluded from the Realtime publication.
+keys. Migration `25_prevent_self_voting.sql` rejects vote inserts or updates
+where the voter created the entry. Entry and vote tables are excluded from the
+Realtime publication.
 Migration `05_transactional_lifecycle.sql` adds admin-only, row-locked adjacent
 phase transitions and persistent shuffled entry numbers. Its vote RPC uses the
 same competition lock as submissions and transitions, checks membership,
@@ -67,6 +69,9 @@ projection and save ballots only when the competition's default-disabled
 `allow_participant_voting` setting is enabled. Only group admins can change it,
 through the row-locked draft-save RPC before submissions open. Membership,
 deadline, full-ballot validation, and self-vote protections remain enforced.
+Migration `26_own_entry_voting_gallery.sql` separately permits an entry's owner
+to read only that entry's linked media during open voting; it does not make the
+entry visible to other voters or expose any scoring controls.
 Migration `19_group_overview.sql` adds a security-definer `get_my_groups()`
 projection limited to the caller's memberships. It returns counts and the
 caller's own role only; member identities remain admin-only through
