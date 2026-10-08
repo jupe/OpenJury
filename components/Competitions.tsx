@@ -87,6 +87,7 @@ type CompetitionDraft = {
   eventType: "live" | "remote";
   submissionDeadline: string;
   votingDeadline: string;
+  resultsPublishAt: string;
   maxSubmissionImages: number;
   submissionType: "photo" | "text";
   categories: CategoryDraft[];
@@ -102,6 +103,7 @@ function emptyDraft(): CompetitionDraft {
     eventType: "remote",
     submissionDeadline: "",
     votingDeadline: "",
+    resultsPublishAt: "",
     maxSubmissionImages: 5,
     submissionType: "photo",
     categories: [{ name: "", max_score: 5 }],
@@ -227,6 +229,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         eventType: competition.event_type,
         submissionDeadline: toLocalInput(competition.submission_deadline),
         votingDeadline: toLocalInput(competition.voting_deadline),
+        resultsPublishAt: toLocalInput(competition.results_publish_at),
         maxSubmissionImages: competition.max_submission_images ?? 5,
         submissionType: competition.submission_type ?? "photo",
         categories: (data || []).map((category) => ({
@@ -268,6 +271,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         p_event_type: draft.eventType,
         p_submission_deadline: toTimestamp(draft.submissionDeadline),
         p_voting_deadline: toTimestamp(draft.votingDeadline),
+        p_results_publish_at: toTimestamp(draft.resultsPublishAt),
         p_max_submission_images: draft.maxSubmissionImages,
         p_submission_type: draft.submissionType,
         p_categories: draft.categories.map((category) => ({
@@ -452,7 +456,11 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
               <label className="block">{t("Voting deadline")}
                 <input type="datetime-local" value={draft.votingDeadline} onChange={(event) => setDraft({ ...draft, votingDeadline: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
               </label>
+              <label className="block sm:col-span-2 md:col-span-3">{t("Results publication time (optional)")}
+                <input type="datetime-local" value={draft.resultsPublishAt} onChange={(event) => setDraft({ ...draft, resultsPublishAt: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+              </label>
             </div>
+            <p className="text-sm text-slate-600">{t("The scheduled publication time is used after voting closes and review is complete. You can change it during review.")}</p>
             <fieldset className="space-y-3">
               <legend className="sr-only">{t("Scoring categories")}</legend>
               <div className="flex items-center justify-between gap-3">

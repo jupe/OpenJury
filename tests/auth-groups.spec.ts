@@ -874,6 +874,7 @@ test("group admins create and edit draft competitions with scoring criteria", as
         status: "draft",
         submission_deadline: body.p_submission_deadline,
         voting_deadline: body.p_voting_deadline,
+        results_publish_at: body.p_results_publish_at,
       });
     } else {
       Object.assign(competitions[0], { name: body.p_name, description: body.p_description, rules: body.p_rules, allow_participant_voting: body.p_allow_participant_voting });
@@ -892,6 +893,9 @@ test("group admins create and edit draft competitions with scoring criteria", as
   await page.getByRole("textbox", { name: "Category name" }).fill("Taste");
   await expect(page.getByLabel("Allow participants to vote")).not.toBeChecked();
   await page.getByLabel("Allow participants to vote").check();
+  await page.getByLabel("Submission deadline").fill("2026-11-01T12:00");
+  await page.getByLabel("Voting deadline").fill("2026-11-02T12:00");
+  await page.getByLabel("Results publication time (optional)").fill("2026-11-03T12:00");
   await page.getByRole("button", { name: "Create competition" }).click();
   await expect(page.getByRole("link", { name: "Autumn bake-off", exact: true })).toHaveAttribute("href", `/competition/${competitionId}`);
   await expect(page.getByRole("dialog")).toBeHidden();
@@ -903,6 +907,9 @@ test("group admins create and edit draft competitions with scoring criteria", as
     p_rules: "One entry per person.\nNo identifying marks.",
     p_allow_participant_voting: true,
     p_event_type: "remote",
+    p_submission_deadline: new Date("2026-11-01T12:00").toISOString(),
+    p_voting_deadline: new Date("2026-11-02T12:00").toISOString(),
+    p_results_publish_at: new Date("2026-11-03T12:00").toISOString(),
     p_max_submission_images: 5,
     p_submission_type: "photo",
     p_categories: [{ name: "Taste", max_score: 5 }],
@@ -913,6 +920,8 @@ test("group admins create and edit draft competitions with scoring criteria", as
   await expect(page.getByLabel("Description (optional)")).toHaveValue("A friendly baking competition.");
   await expect(page.getByLabel("Rules (optional)")).toHaveValue("One entry per person.\nNo identifying marks.");
   await expect(page.getByLabel("Allow participants to vote")).toBeChecked();
+  await expect(page.getByLabel("Results publication time (optional)")).toHaveValue("2026-11-03T12:00");
+  await page.getByLabel("Results publication time (optional)").fill("");
   await page.getByLabel("Allow participants to vote").uncheck();
   await page.getByLabel("Description (optional)").fill("");
   await page.getByLabel("Rules (optional)").fill("");
@@ -926,6 +935,7 @@ test("group admins create and edit draft competitions with scoring criteria", as
     p_description: null,
     p_rules: null,
     p_allow_participant_voting: false,
+    p_results_publish_at: null,
     p_max_submission_images: 5,
     p_submission_type: "photo",
     p_categories: [{ name: "Creativity", max_score: 5 }],

@@ -381,6 +381,8 @@ const finnish: Record<string, string> = {
   "Remote": "Etätapahtuma",
   "Submission deadline": "Osallistumisen määräaika",
   "Voting deadline": "Äänestyksen määräaika",
+  "Results publication time (optional)": "Tulosten julkaisuaika (valinnainen)",
+  "The scheduled publication time is used after voting closes and review is complete. You can change it during review.": "Ajastettua julkaisuaikaa käytetään äänestyksen päätyttyä ja tarkistuksen valmistuttua. Voit muuttaa aikaa tarkistuksen aikana.",
   "Submissions close {date}": "Osallistuminen päättyy {date}",
   "Voting closes {date}": "Äänestys päättyy {date}",
   "Results are scheduled to be published {date}.": "Tulokset on ajastettu julkaistaviksi {date}.",

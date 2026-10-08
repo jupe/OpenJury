@@ -148,9 +148,10 @@ Preliminary rankings and disqualification audit
 data remain admin-only; direct access to result and audit tables is revoked.
 Disqualification audit rows prevent deletion of the associated entries.
 
-Admins can set, replace, or clear `results_publish_at` at any time while review is
-pending. Times must be in the future. Manual publishing remains available and
-publishes immediately. A trusted service-role scheduler must invoke
+Admins can configure `results_publish_at` while a competition is a draft, or set,
+replace, or clear it while review is pending. Times must be in the future. A draft
+schedule is retained until review; manual publishing remains available and publishes
+immediately. A trusted service-role scheduler must invoke
 `process_scheduled_competition_publications()` periodically; it publishes due
 competitions atomically and clients use private Realtime change notifications to
 refetch the published projections. If a device misses a notification, it refetches
@@ -226,6 +227,12 @@ existing seven-argument calls remain valid and clear those optional fields.
 current group admins change only the name and those details in any phase under
 the same row lock. Categories, event type, deadlines, and lifecycle state are
 unchanged. Names remain trimmed and limited to 1–100 characters.
+
+Migration `28_draft_publication_schedule.sql` adds an optional
+`p_results_publish_at` argument to `save_draft_competition`. Draft administrators
+can set or clear the publication time; non-null times must be in the future. The
+schedule is honored after the competition enters review, when the scheduler can
+publish completed results.
 
 Migration `09_group_management.sql` adds `rename_group` and `delete_group` RPCs.
 Only group admins may rename or remove a group, and names are trimmed and limited
