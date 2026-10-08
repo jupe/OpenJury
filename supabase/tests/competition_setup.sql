@@ -15,6 +15,7 @@ do $$
 declare
   v_group_id uuid;
   v_competition_id uuid;
+  v_publish_at timestamptz := clock_timestamp() + interval '1 day';
 begin
   v_group_id := public.create_group('Competition setup tenant');
   v_competition_id := public.save_draft_competition(
@@ -25,7 +26,8 @@ begin
     '2026-10-10 12:00:00+00',
     '2026-10-12 12:00:00+00',
     '[{"name":"Taste","max_score":5},{"name":"Presentation","max_score":3}]',
-    '  Bring your best bake.  ', '  No store-bought entries.  ', false, 12
+    '  Bring your best bake.  ', '  No store-bought entries.  ', false, 12,
+    p_results_publish_at => v_publish_at
   );
 
   if not exists (
@@ -39,6 +41,7 @@ begin
       and competition.submission_type = 'photo'
       and competition.description = 'Bring your best bake.'
       and competition.rules = 'No store-bought entries.'
+      and competition.results_publish_at = v_publish_at
   ) or (select count(*) from public.categories
         where categories.competition_id = v_competition_id) <> 2 then
     raise exception 'Admin competition setup did not persist';
@@ -58,6 +61,8 @@ begin
        <> 'Creativity'
      or (select max_submission_images from public.competitions where id = v_competition_id)
        <> 7
+     or (select results_publish_at from public.competitions where id = v_competition_id)
+       is not null
      or exists (
        select 1 from public.competitions where id = v_competition_id
         and (description is not null or rules is not null)
@@ -72,6 +77,15 @@ begin
       '[{"name":"Taste","max_score":5}]'
     );
     raise exception 'Invalid deadline order accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.save_draft_competition(
+      v_competition_id, v_group_id, 'Updated challenge', 'live',
+      null, null, '[{"name":"Creativity","max_score":4}]',
+      p_results_publish_at => clock_timestamp() - interval '1 second'
+    );
+    raise exception 'Past results publication time accepted for a draft';
   exception when invalid_parameter_value then null;
   end;
   begin
