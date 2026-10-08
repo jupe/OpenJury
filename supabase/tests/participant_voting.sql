@@ -415,7 +415,7 @@ begin
     raise exception 'Old draft RPC signature must be replaced, not overloaded';
   end if;
   foreach signature in array array[
-    'public.save_draft_competition(uuid,uuid,text,text,timestamptz,timestamptz,jsonb,text,text,boolean)',
+    'public.save_draft_competition(uuid,uuid,text,text,timestamptz,timestamptz,jsonb,text,text,boolean,integer)',
     'public.save_ballot(uuid,bigint,jsonb)',
     'public.get_blind_voting_entries(uuid)',
     'public.can_read_submission_media(text)'
@@ -437,7 +437,7 @@ begin
     end if;
   end loop;
   if not exists (select 1 from pg_proc where oid =
-      'public.save_draft_competition(uuid,uuid,text,text,timestamptz,timestamptz,jsonb,text,text,boolean)'::regprocedure
+      'public.save_draft_competition(uuid,uuid,text,text,timestamptz,timestamptz,jsonb,text,text,boolean,integer)'::regprocedure
       and lower(prosrc) like '%for update%')
      or not exists (select 1 from pg_proc where oid = 'public.save_ballot(uuid,bigint,jsonb)'::regprocedure
       and lower(prosrc) like '%for update%') then

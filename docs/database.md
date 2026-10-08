@@ -11,7 +11,7 @@ the `display_name`, `full_name`, or `name` fields in user metadata.
 | --- | --- |
 | `groups` | Tenant name, creator, and creation time |
 | `group_members` | Group/user membership with `admin` or `member` role |
-| `competitions` | Group event, optional description/rules, live/remote type, status, and optional deadlines |
+| `competitions` | Group event, optional description/rules, live/remote type, status, deadlines, and submission photo limit |
 | `categories` | Competition grading criteria with maximum scores from 1 to 5 |
 | `entries` | Submission creator, title, private media keys, anonymous number, and disqualification flag |
 | `votes` | Entry/category/user score, unique per entry, voter, and category |
@@ -78,6 +78,12 @@ When enabled, participants may score other entries and revise their ballots unti
 voting closes; self-voting remains prohibited and their own entry stays hidden
 from the blind ballot. Audience voting is unchanged. PostgreSQL enforces this
 eligibility, not just the interface.
+
+Migration `25_submission_photo_limit.sql` adds an admin-configurable photo cap
+per entry, from 1 to 20 images (default 5). Admins can set it in the draft form
+or competition details; submission saves and Storage upload preflight enforce
+the configured limit, and a cap cannot be lowered below an existing entry's
+image count.
 
 Migration `19_group_overview.sql` adds `get_my_groups()`, which returns each of
 the caller's groups with their role, member and admin counts, and the number of
@@ -157,7 +163,9 @@ Migration `12_roles_and_invites.sql` adds the [roles](architecture.md#roles):
 - `group_invites` holds revocable link tokens; `accept_group_invite(token)` joins
   as a member. `group_email_invites` holds addresses that
   `claim_group_invites()` turns into memberships once that confirmed address
-  signs in. Invitations never reveal whether an account exists.
+  signs in. Email invitations are rejected for addresses that already have an
+  account; invite links can be used to invite those people instead. Repeating
+  an invitation for a pending address is allowed so its email can be resent.
 - Group admins list members with `get_group_members()`, change roles with
   `set_group_member_role()`, and remove members with `remove_group_member()`.
   A group always keeps at least one admin.
@@ -248,16 +256,17 @@ users membership-scoped group reads and reads of their own membership rows,
 without recursive policies. The `create_group(group_name)` RPC validates and
 trims a 1–100 character name, takes the creator from `auth.uid()`, and returns
 the new UUID after atomically creating the group and its admin membership.
-Direct client writes to groups and memberships are not allowed. Invitations,
-general roster visibility, and membership management are deferred; competition
-attendees are visible only through the admin RPC. Entry and vote access
-remain deny-by-default.
+Direct client writes to groups and memberships are not allowed. Group email
+invites and membership management use admin-authorized RPCs; competition
+attendees are visible only through the admin RPC. Entry and vote access remain
+deny-by-default.
 
 On a disposable Supabase database with all migrations applied, run:
 
 ```sh
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_access.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_management.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_email_invites.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/group_overview.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/my_overview.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_deletion.sql
