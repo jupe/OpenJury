@@ -304,7 +304,8 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   await expect(page.getByText("2 new image(s) selected.")).toBeVisible();
   await expect(page.getByText("JPEG, PNG, WebP, HEIC, or HEIF · up to 2 images, 10 MB each")).toBeVisible();
   await page.locator('input[type="file"][multiple]').setInputFiles({ name: "extra.png", mimeType: "image/png", buffer: png });
-  await expect(page.getByRole("alert")).toContainText("An entry may contain up to 2 images.");
+  await expect(page.locator("form").filter({ has: page.getByRole("textbox", { name: "Entry title" }) })
+    .getByRole("alert")).toContainText("An entry may contain up to 2 images.");
   await expect(page.getByRole("img", { name: "Your submission image 2", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Remove image 1" }).click();
   await expect(page.getByText("1 new image(s) selected.")).toBeVisible();

@@ -77,9 +77,9 @@ create function public.save_draft_competition(
   p_submission_deadline timestamptz,
   p_voting_deadline timestamptz,
   p_categories jsonb,
-  p_description text,
-  p_rules text,
-  p_allow_participant_voting boolean,
+  p_description text default null,
+  p_rules text default null,
+  p_allow_participant_voting boolean default null,
   p_max_submission_images integer default null
 )
 returns uuid
