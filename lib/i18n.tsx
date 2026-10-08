@@ -209,6 +209,8 @@ const finnish: Record<string, string> = {
   "Competition status": "Kilpailun tila",
   "Status:": "Tila:",
   "Anonymous entries": "Nimettömät ehdotukset",
+  "Your entry": "Oma ehdotuksesi",
+  "You cannot vote on your own entry.": "Et voi äänestää omaa ehdotustasi.",
   "Category winners": "Kategorioiden voittajat",
   "Published results": "Julkaistut tulokset",
   "Preliminary category winners": "Alustavat kategorioiden voittajat",

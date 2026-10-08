@@ -749,6 +749,17 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       )}
       {competition.status === "voting" && votingOpen && canVote && (
         <Card title={t("Anonymous entries")}>
+          {submission && (
+            <section aria-labelledby="own-entry-heading" className="mb-6 space-y-2">
+              <h2 id="own-entry-heading" className="font-semibold">{t("Your entry")}</h2>
+              <MediaGallery
+                client={client}
+                mediaKeys={submission.media_keys}
+                label={t("Your submission image")}
+              />
+              <p className="text-sm text-slate-600">{t("You cannot vote on your own entry.")}</p>
+            </section>
+          )}
           {blindEntries.length ? (
             <ol className="space-y-6">
               {blindEntries.map((entry) => {

@@ -17,7 +17,7 @@ const MEDIA_DATABASE = "openjury-demo-media";
 const USER_KEY = "openjury-demo-user";
 const LOCK_NAME = "openjury-demo-database";
 // Bump to rebuild existing demo databases after changing the seed.
-const SEED_VERSION = "3";
+const SEED_VERSION = "4";
 
 type ErrorShape = { message: string; code?: string; details?: string; hint?: string };
 type Result<T = unknown> = { data: T; error: ErrorShape | null };

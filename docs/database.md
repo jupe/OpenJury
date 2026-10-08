@@ -69,7 +69,10 @@ projection. Revisions are allowed until the voting deadline, and the unique
 entry/voter/category constraint protects against duplicate votes. `get_my_ballot`
 returns only the caller's own scores; there is no member-facing ballot or
 preliminary-results projection. Direct entry and vote table access remains
-revoked.
+revoked. Migration `25_prevent_self_voting.sql` also rejects self-votes at the
+database level for vote inserts and updates. Migration
+`26_own_entry_voting_gallery.sql` lets an owner view their own linked media while
+voting is open; the ballot UI displays it separately without score controls.
 
 Migration `17_participant_voting.sql` adds `allow_participant_voting`, disabled
 by default. Group admins can enable **Allow participants to vote** when creating
@@ -249,7 +252,8 @@ self-voting prohibition to the single-score `cast_vote` RPC. Migration
 reasoned disqualification with audit retention, and atomic publication.
 `11_review_enhancements.sql` adds category winner snapshots, reversible and
 configurable moderation, the editable publication schedule, and a service-role
-scheduled publisher.
+scheduled publisher. Migration `25_prevent_self_voting.sql` independently
+enforces the self-voting prohibition on vote inserts and updates.
 
 The `02_group_access.sql` migration grants authenticated
 users membership-scoped group reads and reads of their own membership rows,
