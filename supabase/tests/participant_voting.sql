@@ -179,6 +179,31 @@ $$;
 reset role;
 do $$
 begin
+  begin
+    insert into public.votes (entry_id, voter_id, category_id, score)
+    values (
+      '00000000-0000-0000-0000-000000000742',
+      '00000000-0000-0000-0000-000000000702',
+      '00000000-0000-0000-0000-000000000732',
+      1
+    );
+    raise exception 'A direct self-vote insert was allowed';
+  exception when check_violation then null;
+  end;
+
+  begin
+    update public.votes
+    set entry_id = '00000000-0000-0000-0000-000000000742'
+    where entry_id = '00000000-0000-0000-0000-000000000743'
+      and voter_id = '00000000-0000-0000-0000-000000000702'
+      and category_id = '00000000-0000-0000-0000-000000000732';
+    raise exception 'A direct self-vote update was allowed';
+  exception when check_violation then null;
+  end;
+end;
+$$;
+do $$
+begin
   if (select count(*) from public.votes) <> 2
      or not exists (select 1 from public.votes where category_id = '00000000-0000-0000-0000-000000000732' and score = 5)
      or not exists (select 1 from public.votes where category_id = '00000000-0000-0000-0000-000000000733' and score = 3) then

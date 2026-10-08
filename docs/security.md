@@ -31,7 +31,9 @@ revoked. Authenticated members create or edit only their own entry through an
 RPC that locks the competition row and enforces submission phase and deadline.
 Separate RPC projections expose identity and title only to group admins; the
 blind-voting projection contains only anonymous entry numbers and opaque media
-keys. Entry and vote tables are excluded from the Realtime publication.
+keys. Migration `25_prevent_self_voting.sql` rejects vote inserts or updates
+where the voter created the entry. Entry and vote tables are excluded from the
+Realtime publication.
 Migration `05_transactional_lifecycle.sql` adds admin-only, row-locked adjacent
 phase transitions and persistent shuffled entry numbers. Its vote RPC uses the
 same competition lock as submissions and transitions, checks membership,
