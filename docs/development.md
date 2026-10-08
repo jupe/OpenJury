@@ -114,7 +114,8 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/24_registered_email_invites.sql`, and
 `supabase/migrations/25_prevent_self_voting.sql`, and
 `supabase/migrations/26_own_entry_voting_gallery.sql`, and
-`supabase/migrations/27_reopen_competition_phases.sql`, once each, in that order.
+`supabase/migrations/27_text_submissions.sql`, and
+`supabase/migrations/28_reopen_competition_phases.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
