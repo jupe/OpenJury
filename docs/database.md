@@ -79,7 +79,7 @@ voting closes; self-voting remains prohibited and their own entry stays hidden
 from the blind ballot. Audience voting is unchanged. PostgreSQL enforces this
 eligibility, not just the interface.
 
-Migration `24_submission_photo_limit.sql` adds an admin-configurable photo cap
+Migration `25_submission_photo_limit.sql` adds an admin-configurable photo cap
 per entry, from 1 to 20 images (default 5). Admins can set it in the draft form
 or competition details; submission saves and Storage upload preflight enforce
 the configured limit, and a cap cannot be lowered below an existing entry's
