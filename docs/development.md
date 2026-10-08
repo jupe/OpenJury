@@ -114,6 +114,7 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/24_registered_email_invites.sql`, and
 `supabase/migrations/25_prevent_self_voting.sql`, and
 `supabase/migrations/26_own_entry_voting_gallery.sql`, and
+`supabase/migrations/27_absolute_point_scoring.sql`, and
 `supabase/migrations/27_text_submissions.sql`, and
 `supabase/migrations/28_reopen_competition_phases.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
@@ -144,6 +145,8 @@ before completed file-size metadata is available. Existing deployments must
 apply it to resolve upload policy failures.
 Migration 23 adds the home page's personal totals and per-competition next steps.
 Without it, the home page still lists open competitions without totals or highlights.
+Migration 27 switches result scoring to absolute category points and converts
+existing published result snapshots.
 Competition setup and details support English and Finnish through `lib/i18n.tsx`.
 Choose the language from the account menu; the preference is stored in the browser.
 Translate interface labels and messages, not user-provided competition names,

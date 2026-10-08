@@ -1657,7 +1657,7 @@ test("admins disqualify and publish while group members see only final identitie
   await expect(page.getByRole("heading", { name: "Published results" })).toBeVisible();
   await expect(page.getByText("Submitted poem line.")).toBeVisible();
   await expect(page.getByText("Submitted by Alex Baker")).toBeVisible();
-  await expect(page.getByText("83% · 2 complete ballots")).toBeVisible();
+  await expect(page.getByText("82.5 points · 2 complete ballots")).toBeVisible();
   await expectPhoneLayout(page);
 });
 
