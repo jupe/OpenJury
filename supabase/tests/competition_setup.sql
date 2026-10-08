@@ -25,7 +25,7 @@ begin
     '2026-10-10 12:00:00+00',
     '2026-10-12 12:00:00+00',
     '[{"name":"Taste","max_score":5},{"name":"Presentation","max_score":3}]',
-    '  Bring your best bake.  ', '  No store-bought entries.  '
+    '  Bring your best bake.  ', '  No store-bought entries.  ', false, 12
   );
 
   if not exists (
@@ -35,6 +35,7 @@ begin
       and competition.name = 'Baking challenge'
       and competition.event_type = 'remote'
       and competition.status = 'draft'
+      and competition.max_submission_images = 12
       and competition.description = 'Bring your best bake.'
       and competition.rules = 'No store-bought entries.'
   ) or (select count(*) from public.categories
@@ -44,7 +45,8 @@ begin
 
   if public.save_draft_competition(
        v_competition_id, v_group_id, 'Updated challenge', 'live',
-       null, null, '[{"name":"Creativity","max_score":4}]'
+       null, null, '[{"name":"Creativity","max_score":4}]',
+       null, null, false, 7
      ) <> v_competition_id
   then
     raise exception 'Draft save must return the competition ID';
@@ -53,6 +55,8 @@ begin
        <> 'Updated challenge'
      or (select name from public.categories where categories.competition_id = v_competition_id)
        <> 'Creativity'
+     or (select max_submission_images from public.competitions where id = v_competition_id)
+       <> 7
      or exists (
        select 1 from public.competitions where id = v_competition_id
         and (description is not null or rules is not null)
@@ -67,6 +71,15 @@ begin
       '[{"name":"Taste","max_score":5}]'
     );
     raise exception 'Invalid deadline order accepted';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.save_draft_competition(
+      v_competition_id, v_group_id, 'Updated challenge', 'live',
+      null, null, '[{"name":"Creativity","max_score":4}]',
+      null, null, false, 21
+    );
+    raise exception 'Invalid photo limit accepted for a draft';
   exception when invalid_parameter_value then null;
   end;
   begin
@@ -103,6 +116,7 @@ begin
   perform public.save_draft_competition(
     v_competition_id, v_group_id, 'Updated challenge', 'live',
     null, null, '[{"name":"Creativity","max_score":4}]',
+    null, null, false, 7,
     '  New description  ', '  New rules  '
   );
   if not exists (
@@ -167,7 +181,7 @@ begin
   if not exists (
     select 1 from public.competitions where id = v_competition_id
       and char_length(name) = 100 and char_length(description) = 10000
-      and char_length(rules) = 10000
+      and char_length(rules) = 10000 and max_submission_images = 7
   ) then
     raise exception 'Draft boundary lengths or trimming failed';
   end if;
@@ -184,17 +198,24 @@ begin
 
   if public.save_competition_details(
     v_competition_id, ' ' || repeat('n', 100) || ' ',
-    ' ' || repeat('é', 10000) || ' ', ' ' || repeat('r', 10000) || ' '
+    ' ' || repeat('é', 10000) || ' ', ' ' || repeat('r', 10000) || ' ', 11
   ) is distinct from v_competition_id then
     raise exception 'Metadata save must return the competition ID';
   end if;
   if not exists (
     select 1 from public.competitions where id = v_competition_id
       and char_length(name) = 100 and char_length(description) = 10000
-      and char_length(rules) = 10000
+      and char_length(rules) = 10000 and max_submission_images = 11
   ) then
     raise exception 'Metadata boundary lengths or return ID failed';
   end if;
+  begin
+    perform public.save_competition_details(
+      v_competition_id, 'Invalid photo limit', null, null, 0
+    );
+    raise exception 'Invalid photo limit accepted for competition details';
+  exception when invalid_parameter_value then null;
+  end;
   perform public.save_competition_details(v_competition_id, 'x', '   ', '');
   if exists (
     select 1 from public.competitions where id = v_competition_id
@@ -439,7 +460,7 @@ begin
   end if;
   if not exists (
     select 1 from pg_proc
-    where oid = 'public.save_competition_details(uuid,text,text,text)'::regprocedure
+    where oid = 'public.save_competition_details(uuid,text,text,text,integer)'::regprocedure
       and prosecdef and proconfig @> array['search_path=""']
       and lower(prosrc) like '%for update%'
   ) then
