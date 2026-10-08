@@ -602,9 +602,9 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     };
   }, []);
 
-  /** The slider value for a category: the chosen score, or the middle of the scale before voting. */
+  /** An unscored category uses zero as a client-side placeholder; saved scores start at one. */
   function ballotScore(entryNumber: number, category: Category) {
-    return ballotScores[entryNumber]?.[category.id] || String(Math.ceil(category.max_score / 2));
+    return ballotScores[entryNumber]?.[category.id] || "0";
   }
 
   function saveBallot(entryNumber: number, scores: Record<string, string>) {
@@ -636,6 +636,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       [categoryId]: value,
     };
     setBallotScores((current) => ({ ...current, [entryNumber]: scores }));
+    if (Object.values(scores).some((score) => Number(score) < 1)) return;
     const pending = pendingBallots.current;
     window.clearTimeout(pending.get(entryNumber)?.timer);
     const save = () => {
@@ -766,20 +767,24 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                       {categories.map((category) => {
                         const id = `ballot-${entry.entry_number}-${category.id}`;
                         const score = ballotScore(entry.entry_number, category);
+                        const hasSavedBallot = !!savedBallots[entry.entry_number];
                         return (
                           <div key={category.id} className="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)_auto] items-center gap-3">
                             <label htmlFor={id} className="truncate">{category.name}</label>
                             <input
                               id={id}
                               type="range"
-                              min={1}
+                              min={hasSavedBallot ? 1 : 0}
                               max={category.max_score}
                               step={1}
                               value={score}
+                              aria-valuetext={score === "0" ? t("Not scored") : `${score}/${category.max_score}`}
                               onChange={(event) => changeScore(entry.entry_number, category.id, event.target.value)}
                               className="h-11 w-full cursor-pointer accent-indigo-600"
                             />
-                            <span aria-hidden className="w-12 text-right font-semibold tabular-nums">{score}/{category.max_score}</span>
+                            <span aria-hidden className="w-12 text-right font-semibold tabular-nums">
+                              {score === "0" ? "—" : `${score}/${category.max_score}`}
+                            </span>
                           </div>
                         );
                       })}
