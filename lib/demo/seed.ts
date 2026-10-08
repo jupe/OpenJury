@@ -107,7 +107,7 @@ export async function seedDemo(database: DemoDatabase) {
   await call(alex, "join_competition", { p_competition_id: bakeoff, p_role: "audience" });
   await submit(sam, bakeoff, "Rhubarb custard tart", ["rhubarb-tart.jpg", "rhubarb-tart-slice.jpg"]);
   await submit(kai, bakeoff, "Lemon layer cake", ["lemon-layer-cake.jpg"]);
-  await submit(robin, bakeoff, "Blueberry crumble", ["blueberry-crumble.jpg"]);
+  await submit(robin, bakeoff, "Blueberry crumble", ["lemon-layer-cake.jpg"]);
   await call(alex, "transition_competition", { p_competition_id: bakeoff, p_target_status: "voting" });
   await vote(robin, bakeoff, [[4, 5], [5, 3]]);
 
