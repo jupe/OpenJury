@@ -69,6 +69,9 @@ projection and save ballots only when the competition's default-disabled
 `allow_participant_voting` setting is enabled. Only group admins can change it,
 through the row-locked draft-save RPC before submissions open. Membership,
 deadline, full-ballot validation, and self-vote protections remain enforced.
+Migration `26_own_entry_voting_gallery.sql` separately permits an entry's owner
+to read only that entry's linked media during open voting; it does not make the
+entry visible to other voters or expose any scoring controls.
 Migration `19_group_overview.sql` adds a security-definer `get_my_groups()`
 projection limited to the caller's memberships. It returns counts and the
 caller's own role only; member identities remain admin-only through

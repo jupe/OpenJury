@@ -36,7 +36,7 @@ export async function seedDemo(database: DemoDatabase) {
     [northside, sam.id, robin.id, kai.id, riverside],
   );
 
-  async function competition(name: string, eventType: "live" | "remote", deadlines: [string | null, string | null], categories: [string, number][]) {
+  async function competition(name: string, eventType: "live" | "remote", deadlines: [string | null, string | null], categories: [string, number][], allowParticipantVoting = false) {
     return call<string>(alex, "save_draft_competition", {
       p_competition_id: null,
       p_group_id: northside,
@@ -45,6 +45,7 @@ export async function seedDemo(database: DemoDatabase) {
       p_submission_deadline: deadlines[0],
       p_voting_deadline: deadlines[1],
       p_categories: categories.map(([category, maxScore]) => ({ name: category, max_score: maxScore })),
+      p_allow_participant_voting: allowParticipantVoting,
     });
   }
 
@@ -99,13 +100,14 @@ export async function seedDemo(database: DemoDatabase) {
   await call(alex, "transition_competition", { p_competition_id: photo, p_target_status: "review_pending" });
   await call(alex, "publish_competition_results", { p_competition_id: photo });
 
-  // Voting open: Alex and Robin are the audience; Robin has already voted.
-  const bakeoff = await competition("Spring Bake-off", "live", [null, inDays(5)], [["Presentation", 5], ["Taste", 5]]);
+  // Voting open: Alex is an audience member; Robin is a participant who has already voted.
+  const bakeoff = await competition("Spring Bake-off", "live", [null, inDays(5)], [["Presentation", 5], ["Taste", 5]], true);
   await call(alex, "transition_competition", { p_competition_id: bakeoff, p_target_status: "submission" });
-  for (const persona of [sam, kai]) await call(persona, "join_competition", { p_competition_id: bakeoff, p_role: "participant" });
-  for (const persona of [alex, robin]) await call(persona, "join_competition", { p_competition_id: bakeoff, p_role: "audience" });
+  for (const persona of [sam, kai, robin]) await call(persona, "join_competition", { p_competition_id: bakeoff, p_role: "participant" });
+  await call(alex, "join_competition", { p_competition_id: bakeoff, p_role: "audience" });
   await submit(sam, bakeoff, "Rhubarb custard tart", ["rhubarb-tart.jpg", "rhubarb-tart-slice.jpg"]);
   await submit(kai, bakeoff, "Lemon layer cake", ["lemon-layer-cake.jpg"]);
+  await submit(robin, bakeoff, "Blueberry crumble", ["blueberry-crumble.jpg"]);
   await call(alex, "transition_competition", { p_competition_id: bakeoff, p_target_status: "voting" });
   await vote(robin, bakeoff, [[4, 5], [5, 3]]);
 
@@ -119,4 +121,3 @@ export async function seedDemo(database: DemoDatabase) {
   // Draft: only admins see it until submissions open.
   await competition("Autumn Karaoke Night", "live", [inDays(20), inDays(21)], [["Vocals", 5], ["Stage presence", 5]]);
 }
-

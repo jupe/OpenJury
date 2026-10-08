@@ -56,6 +56,8 @@ select set_config('test.voting_scores', '[
 ]', true);
 select set_config('test.voting_media',
   '00000000-0000-0000-0000-000000000722/00000000-0000-0000-0000-000000000743/00000000-0000-4000-8000-000000000751.jpg', true);
+select set_config('test.own_voting_media',
+  '00000000-0000-0000-0000-000000000722/00000000-0000-0000-0000-000000000742/00000000-0000-4000-8000-000000000751.jpg', true);
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000701', true);
@@ -124,7 +126,8 @@ begin
     raise exception 'Blind entries must exclude own and disqualified entries';
   end if;
   if not public.can_read_submission_media(current_setting('test.voting_media'))
-     or (select count(*) from storage.objects where name like '00000000-0000-0000-0000-000000000722/%') <> 1 then
+     or not public.can_read_submission_media(current_setting('test.own_voting_media'))
+     or (select count(*) from storage.objects where name like '00000000-0000-0000-0000-000000000722/%') <> 2 then
     raise exception 'Voting media read policy did not match blind eligibility';
   end if;
   perform public.save_ballot('00000000-0000-0000-0000-000000000722', 2, current_setting('test.voting_scores')::jsonb);
@@ -223,6 +226,14 @@ begin
      or (select count(*) from public.get_blind_voting_entries('00000000-0000-0000-0000-000000000722')) <> 2
      or (select count(*) from storage.objects) <> 3 then
     raise exception 'Audience access changed with flag off/on';
+  end if;
+end;
+$$;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000705', true);
+do $$
+begin
+  if public.can_read_submission_media(current_setting('test.own_voting_media')) then
+    raise exception 'A participant who had not joined could access voting media';
   end if;
 end;
 $$;
