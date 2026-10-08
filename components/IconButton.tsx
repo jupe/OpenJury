@@ -32,6 +32,7 @@ const paths = {
   retry: "M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1",
   disqualify: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM6 6l12 12",
   reinstate: "M9 4 4 9l5 5M4 9h10a6 6 0 0 1 0 12",
+  undo: "M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12",
 };
 
 export type IconName = keyof typeof paths;
