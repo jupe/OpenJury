@@ -125,12 +125,11 @@ category rankings recalculate after moderation.
 
 A ballot counts for an entry only when it contains a score for every category.
 Partial single-score votes and entries without complete ballots do not affect
-preliminary scores. Each category's complete-ballot scores are averaged after
-normalizing by that category's maximum to a percentage; the category
-percentages are then averaged with equal weight. Entries are ranked by this
-score in descending order; exact ties share a rank using standard competition
-ranking after scores are rounded to four decimal percentage points (for example,
-1, 1, 3). Before publication, each eligible entry must
+preliminary scores. Each category's complete-ballot scores are averaged as
+absolute points, then the category averages are averaged with equal weight.
+Entries are ranked by this score in descending order; exact ties share a rank
+using standard competition ranking after scores are rounded to four decimal
+places (for example, 1, 1, 3). Before publication, each eligible entry must
 have at least one complete ballot. Admins may disqualify an entry that does not
 meet that minimum; publication otherwise fails without changing competition
 status or writing a partial snapshot.
