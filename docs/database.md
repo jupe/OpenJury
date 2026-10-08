@@ -11,7 +11,7 @@ the `display_name`, `full_name`, or `name` fields in user metadata.
 | --- | --- |
 | `groups` | Tenant name, creator, and creation time |
 | `group_members` | Group/user membership with `admin` or `member` role |
-| `competitions` | Group event, optional description/rules, live/remote type, status, and optional deadlines |
+| `competitions` | Group event, optional description/rules, live/remote type, status, deadlines, and submission photo limit |
 | `categories` | Competition grading criteria with maximum scores from 1 to 5 |
 | `entries` | Submission creator, title, private media keys, anonymous number, and disqualification flag |
 | `votes` | Entry/category/user score, unique per entry, voter, and category |
@@ -78,6 +78,12 @@ When enabled, participants may score other entries and revise their ballots unti
 voting closes; self-voting remains prohibited and their own entry stays hidden
 from the blind ballot. Audience voting is unchanged. PostgreSQL enforces this
 eligibility, not just the interface.
+
+Migration `25_submission_photo_limit.sql` adds an admin-configurable photo cap
+per entry, from 1 to 20 images (default 5). Admins can set it in the draft form
+or competition details; submission saves and Storage upload preflight enforce
+the configured limit, and a cap cannot be lowered below an existing entry's
+image count.
 
 Migration `19_group_overview.sql` adds `get_my_groups()`, which returns each of
 the caller's groups with their role, member and admin counts, and the number of
