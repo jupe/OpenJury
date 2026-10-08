@@ -237,6 +237,7 @@ const finnish: Record<string, string> = {
   "Submit an entry": "Lähetä ehdotus",
   "Edit your submission": "Muokkaa ehdotustasi",
   "Save submission": "Tallenna ehdotus",
+  "Thanks for taking part! Your entry has been saved.": "Kiitos osallistumisesta! Ehdotuksesi on tallennettu.",
   "Your text entry": "Tekstiehdotuksesi",
   "Up to 10000 characters.": "Enintään 10 000 merkkiä.",
   "Edit the draft from the group page. Opening submissions locks its settings.": "Muokkaa luonnosta ryhmäsivulla. Osallistumisen avaaminen lukitsee sen asetukset.",

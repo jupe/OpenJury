@@ -405,6 +405,7 @@ test("text competitions accept editable text submissions without uploading media
     p_title: "A short poem",
     p_submission_text: "First line\nSecond line",
   }]);
+  await expect(page.getByRole("status")).toContainText("Thanks for taking part! Your entry has been saved.");
   expect(mediaRequests).toEqual([]);
   await expect(page.getByRole("heading", { name: "Edit your submission" })).toBeVisible();
 });

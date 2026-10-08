@@ -354,6 +354,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | LocalizedError>("");
+  const [saveMessage, setSaveMessage] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const captureInput = useRef<HTMLInputElement>(null);
 
@@ -520,6 +521,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       return;
     }
     setError("");
+    setSaveMessage("");
     setNewFiles((current) => append ? [...current, ...selected] : selected);
   }
 
@@ -536,6 +538,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     if (saving || !competition || !editable) return;
     setSaving(true);
     setError("");
+    setSaveMessage("");
     let entryId = submission?.id || null;
     const uploaded: string[] = [];
     try {
@@ -553,7 +556,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           media_keys: [],
           submission_text: submissionText.trim(),
         });
-        setError("");
+        setSaveMessage(t("Thanks for taking part! Your entry has been saved."));
         return;
       }
 
@@ -602,6 +605,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       ]);
       setCleanupKeys(pendingCleanup);
       setError(pendingCleanup.length ? t("Saved, but some removed media could not be cleaned up. Retry cleanup below.") : "");
+      setSaveMessage(t("Thanks for taking part! Your entry has been saved."));
     } catch (saveError) {
       const pendingCleanup = await cleanup(uploaded);
       setCleanupKeys(pendingCleanup);
@@ -716,7 +720,10 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                 required
                 maxLength={100}
                 value={title}
-                onChange={(event) => setTitle(event.target.value)}
+                onChange={(event) => {
+                  setSaveMessage("");
+                  setTitle(event.target.value);
+                }}
                 className="mt-1 block w-full rounded border border-slate-300 p-2"
               />
             </label>
@@ -727,7 +734,10 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                   maxLength={10000}
                   rows={12}
                   value={submissionText}
-                  onChange={(event) => setSubmissionText(event.target.value)}
+                  onChange={(event) => {
+                    setSaveMessage("");
+                    setSubmissionText(event.target.value);
+                  }}
                   className="mt-1 block w-full rounded border border-slate-300 p-3"
                 />
                 <span className="mt-1 block text-xs text-slate-500">{t("Up to 10000 characters.")}</span>
@@ -739,9 +749,15 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                   mediaKeys={activeMedia}
                   label={t("Your submission image")}
                   removeLabel={(key) => t("Remove image {number}", { number: (submission?.media_keys.indexOf(key) ?? 0) + 1 })}
-                  onRemove={(key) => setRemovedKeys((current) => [...current, key])}
+                  onRemove={(key) => {
+                    setSaveMessage("");
+                    setRemovedKeys((current) => [...current, key]);
+                  }}
                   pendingFiles={newFiles}
-                  onRemovePending={(index) => setNewFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))}
+                  onRemovePending={(index) => {
+                    setSaveMessage("");
+                    setNewFiles((current) => current.filter((_, fileIndex) => fileIndex !== index));
+                  }}
                 />
                 <div className="flex items-center gap-1">
                   <IconButton icon="camera" aria-label={t("Take a photo")} onClick={() => captureInput.current?.click()} />
@@ -776,6 +792,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                 {removedKeys.length > 0 && <p role="status">{t("Save submission to delete the removed images.")}</p>}
               </>
             )}
+            {saveMessage && <p role="status" className="rounded-lg bg-emerald-50 p-3 font-medium text-emerald-800">{saveMessage}</p>}
             {error && <p role="alert"><ErrorText error={error} /></p>}
             <div className="flex justify-end">
               <IconButton type="submit" icon={saving ? "pending" : "save"} tone="primary" disabled={saving} aria-label={t(saving ? "Saving…" : "Save submission")} />
