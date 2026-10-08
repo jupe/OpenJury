@@ -1316,6 +1316,7 @@ test(`adaptive vote points support a maximum of ${max} and autosave @mobile`, as
   const finnish = max === 1 || max === 100;
   const pointLabel = (score: number) => finnish ? `${score} / ${max} pistettä` : `${score} of ${max} points`;
   const saved: Array<{ p_scores: Array<{ category_id: string; score: number }> }> = [];
+  let rejectNextSave = max === 11;
   await configure(page, true);
   if (finnish) await page.addInitScript(() => localStorage.setItem("openjury:locale", "fi"));
   await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
@@ -1332,6 +1333,10 @@ test(`adaptive vote points support a maximum of ${max} and autosave @mobile`, as
   await page.route(`${supabaseURL}/rest/v1/rpc/get_my_ballot`, (route) => route.fulfill({ json: [] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/save_ballot`, async (route) => {
     saved.push(route.request().postDataJSON());
+    if (rejectNextSave) {
+      rejectNextSave = false;
+      return route.fulfill({ status: 500, json: { message: "Save failed" } });
+    }
     await route.fulfill({ status: 204 });
   });
   await page.goto(`/competition/${competitionId}`);
@@ -1340,7 +1345,7 @@ test(`adaptive vote points support a maximum of ${max} and autosave @mobile`, as
     ? "Ehdotetut asteikon keskipisteet — ei tallennettu. Äänestä valitsemalla pistemäärä."
     : "Suggested midpoint scores — not recorded. Select a score to vote.")).toBeVisible();
   await page.clock.install();
-  await page.clock.fastForward(1000);
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
   expect(saved).toHaveLength(0);
   await expectPhoneLayout(page);
 
@@ -1376,11 +1381,19 @@ test(`adaptive vote points support a maximum of ${max} and autosave @mobile`, as
   }
   await expect(page.getByText(finnish ? "Muutoksia ei ole vielä tallennettu." : "Changes not saved yet.")).toBeVisible();
   await page.clock.fastForward(400);
+  if (max === 11) {
+    await expect(page.getByRole("status")).toContainText("Select a score to try again.");
+    await expect(page.getByText("Voted", { exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: `Decrease points for ${categoryName}` }).click();
+    await page.getByRole("slider", { name: categoryName }).focus();
+    await page.keyboard.press("End");
+    await page.clock.fastForward(400);
+  }
   await expect(page.getByText(finnish ? "Äänestänyt" : "Voted", { exact: true })).toBeVisible();
-  expect(saved).toEqual([{
+  expect(saved).toEqual(Array.from({ length: max === 11 ? 2 : 1 }, () => ({
     p_competition_id: competitionId, p_entry_number: 7,
     p_scores: [{ category_id: categoryId, score: max }],
-  }]);
+  })));
   await expectPhoneLayout(page);
   await page.screenshot({ path: `/tmp/openjury-vote-points-${max}-${finnish ? "fi" : "en"}.png`, fullPage: true });
 });
