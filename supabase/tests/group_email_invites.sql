@@ -19,8 +19,8 @@ begin
 
   perform public.invite_group_member_by_email(test_group_id, ' Pending@Example.com ');
   perform public.invite_group_member_by_email(test_group_id, 'pending@example.com');
-  if (select count(*) from public.group_email_invites
-      where group_id = test_group_id and email = 'pending@example.com') <> 1 then
+  if (select count(*) from public.get_group_email_invites(test_group_id)
+      where email = 'pending@example.com') <> 1 then
     raise exception 'A pending invitation could not be resent idempotently';
   end if;
 
@@ -32,8 +32,8 @@ begin
       raise;
     end if;
   end;
-  if exists (select 1 from public.group_email_invites
-      where group_id = test_group_id and email = 'registered@example.com') then
+  if exists (select 1 from public.get_group_email_invites(test_group_id)
+      where email = 'registered@example.com') then
     raise exception 'An existing account received a pending email invitation';
   end if;
 end;

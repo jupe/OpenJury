@@ -147,6 +147,7 @@ unreferenced Storage object. Referenced images cannot be deleted directly.
 
 Run `supabase/tests/group_access.sql`,
 `supabase/tests/group_management.sql`,
+`supabase/tests/group_email_invites.sql`,
 `supabase/tests/competition_setup.sql`,
 `supabase/tests/secure_submissions.sql`,
 `supabase/tests/submission_upload_preflight.sql`,
