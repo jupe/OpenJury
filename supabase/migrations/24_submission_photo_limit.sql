@@ -4,12 +4,17 @@ alter table public.competitions
   add column max_submission_images integer not null default 5
     check (max_submission_images between 1 and 20);
 
+alter function public.save_competition_details(uuid, text, text, text)
+  rename to save_competition_details_base;
+revoke all on function public.save_competition_details_base(uuid, text, text, text)
+  from public, anon, authenticated, service_role;
+
 create function public.save_competition_details(
   p_competition_id uuid,
   p_name text,
   p_description text,
   p_rules text,
-  p_max_submission_images integer
+  p_max_submission_images integer default null
 )
 returns uuid
 language plpgsql
@@ -18,17 +23,23 @@ set search_path = ''
 as $$
 declare
   saved_competition_id uuid;
+  locked_competition_id uuid;
 begin
-  if p_max_submission_images is null
-     or p_max_submission_images not between 1 and 20 then
+  if p_max_submission_images is not null
+     and p_max_submission_images not between 1 and 20 then
     raise exception 'Photo limit must be from 1 to 20' using errcode = '22023';
   end if;
 
-  saved_competition_id := public.save_competition_details(
+  saved_competition_id := public.save_competition_details_base(
     p_competition_id, p_name, p_description, p_rules
   );
 
-  if exists (
+  select competition.id into locked_competition_id
+    from public.competitions as competition
+    where competition.id = p_competition_id
+    for update;
+
+  if p_max_submission_images is not null and exists (
     select 1
     from public.entries as entry
     where entry.competition_id = p_competition_id
@@ -39,7 +50,7 @@ begin
   end if;
 
   update public.competitions
-    set max_submission_images = p_max_submission_images
+    set max_submission_images = coalesce(p_max_submission_images, max_submission_images)
     where id = p_competition_id;
 
   return saved_competition_id;
@@ -47,9 +58,16 @@ end;
 $$;
 
 revoke all on function public.save_competition_details(uuid, text, text, text, integer)
-  from public, anon, authenticated;
+  from public, anon, authenticated, service_role;
 grant execute on function public.save_competition_details(uuid, text, text, text, integer)
   to authenticated;
+
+alter function public.save_draft_competition(
+  uuid, uuid, text, text, timestamptz, timestamptz, jsonb, text, text, boolean
+) rename to save_draft_competition_base;
+revoke all on function public.save_draft_competition_base(
+  uuid, uuid, text, text, timestamptz, timestamptz, jsonb, text, text, boolean
+) from public, anon, authenticated, service_role;
 
 create function public.save_draft_competition(
   p_competition_id uuid,
@@ -62,7 +80,7 @@ create function public.save_draft_competition(
   p_description text,
   p_rules text,
   p_allow_participant_voting boolean,
-  p_max_submission_images integer
+  p_max_submission_images integer default null
 )
 returns uuid
 language plpgsql
@@ -71,13 +89,14 @@ set search_path = ''
 as $$
 declare
   saved_competition_id uuid;
+  locked_competition_id uuid;
 begin
-  if p_max_submission_images is null
-     or p_max_submission_images not between 1 and 20 then
+  if p_max_submission_images is not null
+     and p_max_submission_images not between 1 and 20 then
     raise exception 'Photo limit must be from 1 to 20' using errcode = '22023';
   end if;
 
-  saved_competition_id := public.save_draft_competition(
+  saved_competition_id := public.save_draft_competition_base(
     p_competition_id,
     p_group_id,
     p_name,
@@ -90,8 +109,22 @@ begin
     p_allow_participant_voting
   );
 
+  select competition.id into locked_competition_id
+    from public.competitions as competition
+    where competition.id = saved_competition_id
+    for update;
+
+  if p_max_submission_images is not null and exists (
+    select 1 from public.entries as entry
+    where entry.competition_id = saved_competition_id
+      and cardinality(entry.media_keys) > p_max_submission_images
+  ) then
+    raise exception 'Photo limit cannot be lower than photos already submitted'
+      using errcode = '22023';
+  end if;
+
   update public.competitions
-    set max_submission_images = p_max_submission_images
+    set max_submission_images = coalesce(p_max_submission_images, max_submission_images)
     where id = saved_competition_id;
 
   return saved_competition_id;
@@ -100,7 +133,7 @@ $$;
 
 revoke all on function public.save_draft_competition(
   uuid, uuid, text, text, timestamptz, timestamptz, jsonb, text, text, boolean, integer
-) from public, anon, authenticated;
+) from public, anon, authenticated, service_role;
 grant execute on function public.save_draft_competition(
   uuid, uuid, text, text, timestamptz, timestamptz, jsonb, text, text, boolean, integer
 ) to authenticated;
