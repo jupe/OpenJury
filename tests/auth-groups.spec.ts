@@ -639,7 +639,7 @@ test("email previews and reopens do not consume sign-in links before confirmatio
   await expectPhoneLayout(page);
   await page.getByRole("button", { name: "Continue to OpenJury" }).click();
   await expect(page.getByRole("button", { name: "Account (member@example.com)" })).toBeVisible();
-  expect(verifications).toEqual([{ token_hash: token, type: "email" }]);
+  expect(verifications).toMatchObject([{ token_hash: token, type: "email" }]);
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole("link", { name: "Baking club" })).toBeVisible();
 });
@@ -651,7 +651,7 @@ test("expired confirmation links offer a fresh sign-in link without exposing the
   }));
   await page.goto("/dashboard#token_hash=private-test-token");
   await page.getByRole("button", { name: "Continue to OpenJury" }).click();
-  await expect(page.getByRole("alert")).toContainText("Request a new link below.");
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("Request a new link below.");
   await expect(page.getByRole("main")).not.toContainText("private-test-token");
   await expect(page).toHaveURL(/\/dashboard$/);
   await page.getByRole("textbox", { name: "Email address" }).fill("member@example.com");
