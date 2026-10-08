@@ -69,7 +69,19 @@ Enable the email provider in Supabase Auth. Set the Site URL to the deployed
 origin and add exact allowed redirect URLs for each trusted environment, such
 as `http://localhost:3000/dashboard` locally and your production
 `https://<host>/dashboard`. The sign-in form sends a magic link returning to
-`/dashboard`; Supabase's browser client processes the returned session.
+`/dashboard`. For preview-safe links, set the **Magic Link**, **Confirm signup**,
+and **Invite user** email templates in Supabase Auth to the contents of
+`public/auth-email.html`. Set Site URL to the app origin without a trailing slash.
+The template links directly to the app with `{{ .TokenHash }}` in the URL fragment,
+not to `{{ .ConfirmationURL }}` (which consumes the token on a GET).
+The app calls `verifyOtp` only after the recipient selects **Continue to OpenJury**.
+Fragments are not sent in HTTP requests or referrer headers. Gmail long-press
+previews and email scanners can load the page without spending the token, even
+when they execute JavaScript. The recipient can reopen the original email link.
+Keep tokens single-use and retain Supabase's normal expiration (one hour by
+default); extending expiration alone does not fix premature consumption.
+Previously sent links still use the old flow; request a fresh link after updating
+the templates.
 Configure production email delivery and rate limits in Supabase. Do not allow
 untrusted preview origins against a production Auth project.
 

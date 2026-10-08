@@ -606,6 +606,71 @@ test("magic link permits signup and redirects to dashboard with accessible statu
   await expect(page.getByRole("status")).toContainText("Check your email");
 });
 
+test("Auth email template points to app confirmation rather than a consuming verification URL", async ({ request }) => {
+  const response = await request.get("/auth-email.html");
+  expect(response.ok()).toBe(true);
+  const template = await response.text();
+  expect(template).toContain('href="{{ .SiteURL }}/dashboard#token_hash={{ .TokenHash }}"');
+  expect(template).not.toContain(".ConfirmationURL");
+  expect(template).not.toContain("/auth/v1/verify");
+});
+
+test("email previews and reopens do not consume sign-in links before confirmation @mobile", async ({ page, context }) => {
+  const token = "preview-safe-test-token";
+  const link = `/dashboard#token_hash=${token}`;
+  const verifications: unknown[] = [];
+  const preview = await context.newPage();
+  await configure(preview);
+  await preview.route(`${supabaseURL}/auth/v1/verify`, (route) => {
+    verifications.push(route.request().postDataJSON());
+    return route.fulfill({ json: session() });
+  });
+  await preview.goto(link);
+  await expect(preview.getByRole("button", { name: "Continue to OpenJury" })).toBeVisible();
+  await preview.reload();
+  await expect(preview.getByRole("button", { name: "Continue to OpenJury" })).toBeVisible();
+  expect(verifications).toEqual([]);
+  await preview.close();
+
+  await configure(page);
+  await page.route(`${supabaseURL}/auth/v1/verify`, async (route) => {
+    verifications.push(route.request().postDataJSON());
+    await route.fulfill({ json: session() });
+  });
+  await page.goto(link);
+  await expect(page.getByRole("button", { name: "Continue to OpenJury" })).toBeVisible();
+  expect(verifications).toEqual([]);
+  await expectPhoneLayout(page);
+  await page.getByRole("button", { name: "Continue to OpenJury" }).click();
+  await expect(page.getByRole("button", { name: "Account (member@example.com)" })).toBeVisible();
+  expect(verifications).toMatchObject([{ token_hash: token, type: "email" }]);
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByRole("link", { name: "Baking club" })).toBeVisible();
+});
+
+test("expired confirmation links offer a fresh sign-in link without exposing the token @mobile", async ({ page }) => {
+  await configure(page);
+  await page.route(`${supabaseURL}/auth/v1/verify`, (route) => route.fulfill({
+    status: 403, json: { msg: "Token expired: private-test-token", error_code: "otp_expired" },
+  }));
+  await page.goto("/dashboard#token_hash=private-test-token");
+  await page.getByRole("button", { name: "Continue to OpenJury" }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("Request a new link below.");
+  await expect(page.getByRole("main")).not.toContainText("private-test-token");
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await page.getByRole("textbox", { name: "Email address" }).fill("member@example.com");
+  await page.getByRole("button", { name: "Send sign-in link" }).click();
+  await expect(page.getByRole("status")).toContainText("Check your email");
+});
+
+test("email sign-in confirmation is localized in Finnish", async ({ page }) => {
+  await configure(page);
+  await page.addInitScript(() => localStorage.setItem("openjury:locale", "fi"));
+  await page.goto("/dashboard#token_hash=test-token");
+  await expect(page.getByRole("heading", { name: "Vahvista kirjautuminen" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Jatka OpenJuryyn" })).toBeVisible();
+});
+
 test("password sign-in is hidden unless enabled", async ({ page }) => {
   await configure(page);
   await page.goto("/");

@@ -30,6 +30,7 @@ export default function AuthBoundary({ children, signedOut }: {
   const [demo, setDemo] = useState(false);
   const [sessionError, setSessionError] = useState("");
   const [linkError, setLinkError] = useState("");
+  const [linkToken, setLinkToken] = useState("");
   const [actionError, setActionError] = useState("");
   const [message, setMessage] = useState("");
   const [email, setEmail] = useState("");
@@ -39,6 +40,7 @@ export default function AuthBoundary({ children, signedOut }: {
   const mounted = useRef(false);
   const revision = useRef(0);
   const currentSession = useRef<Session | null>(null);
+  const confirmingLink = useRef(false);
   const translate = useRef(t);
 
   useEffect(() => {
@@ -55,6 +57,9 @@ export default function AuthBoundary({ children, signedOut }: {
       if (!active) return;
       const hash = new URLSearchParams(window.location.hash.slice(1));
       const query = new URLSearchParams(window.location.search);
+      // Email previews may run JavaScript; only a deliberate click may redeem this token.
+      const token = hash.get("token_hash");
+      if (token) setLinkToken(token);
       const error = hash.get("error_description") || query.get("error_description") || hash.get("error") || query.get("error");
       if (error) {
         setLinkError(translate.current("Sign-in link failed: {error}. Request a new link below.", { error }));
@@ -117,6 +122,29 @@ export default function AuthBoundary({ children, signedOut }: {
       unsubscribe();
     };
   }, []);
+
+  async function confirmLink() {
+    if (!client || !linkToken || confirmingLink.current) return;
+    confirmingLink.current = true;
+    setPending(true);
+    setLinkError("");
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    hash.delete("token_hash");
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${hash.size ? `#${hash}` : ""}`);
+    try {
+      const { error } = await client.auth.verifyOtp({ token_hash: linkToken, type: "email" });
+      if (!mounted.current) return;
+      if (error) setLinkError(t("This sign-in link has expired or could not be verified. Request a new link below."));
+    } catch {
+      if (mounted.current) setLinkError(t("This sign-in link has expired or could not be verified. Request a new link below."));
+    } finally {
+      if (mounted.current) {
+        setLinkToken("");
+        setPending(false);
+      }
+      confirmingLink.current = false;
+    }
+  }
 
   async function requestLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -185,6 +213,13 @@ export default function AuthBoundary({ children, signedOut }: {
   if (loading) return <>{banner}<p role="status">{t(demo ? "Preparing the demo database…" : "Loading your session…")}</p></>;
   if (sessionError) {
     return <>{banner}<Card title={t("Session unavailable")}><p role="alert">{sessionError}</p><Button onClick={() => window.location.reload()}>{t("Retry session")}</Button></Card></>;
+  }
+  if (linkToken) {
+    return <Card title={t("Confirm sign-in")}>
+      <p>{t("Continue to sign in to OpenJury. Email previews do not use your sign-in link.")}</p>
+      <Button onClick={confirmLink} disabled={pending}>{t(pending ? "Signing in…" : "Continue to OpenJury")}</Button>
+      {pending && <p role="status">{t("Signing in…")}</p>}
+    </Card>;
   }
   return (
     <>
