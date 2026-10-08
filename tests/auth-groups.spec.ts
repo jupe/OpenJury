@@ -1386,6 +1386,61 @@ test(`${votingRole} voting cards load a private ballot and save score revisions`
 });
 }
 
+test("new ballots start unscored and save only after every category is rated", async ({ page }) => {
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  const tasteId = "44444444-4444-4444-8444-444444444444";
+  const presentationId = "55555555-5555-4555-8555-555555555555";
+  const savedBallots: unknown[] = [];
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{
+      id: competitionId,
+      group_id: groupId,
+      name: "Blind bake-off",
+      status: "voting",
+      submission_deadline: null,
+      voting_deadline: new Date(Date.now() + 60_000).toISOString(),
+      allow_participant_voting: false,
+      competition_participants: [{ role: "audience" }],
+    }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/categories**`, (route) => route.fulfill({
+    json: [
+      { id: tasteId, name: "Taste", max_score: 5 },
+      { id: presentationId, name: "Presentation", max_score: 3 },
+    ],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_blind_voting_entries`, (route) =>
+    route.fulfill({ json: [{ entry_number: 7, media_keys: [] }] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_ballot`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/save_ballot`, async (route) => {
+    savedBallots.push(route.request().postDataJSON());
+    await route.fulfill({ status: 204 });
+  });
+
+  await page.goto(`/competition/${competitionId}`);
+  await expect(page.getByRole("heading", { name: "Entry 7" })).toBeVisible();
+  await expect(page.getByRole("slider", { name: "Taste" })).toHaveValue("0");
+  await expect(page.getByRole("slider", { name: "Presentation" })).toHaveValue("0");
+  await expect(page.getByText("Voted", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("—", { exact: true })).toHaveCount(2);
+
+  await page.getByRole("slider", { name: "Taste" }).fill("4");
+  await page.waitForTimeout(500);
+  expect(savedBallots).toEqual([]);
+  await page.getByRole("slider", { name: "Presentation" }).fill("2");
+  await expect(page.getByRole("status")).toContainText("Vote recorded · Entry 7");
+  expect(savedBallots).toEqual([{
+    p_competition_id: competitionId,
+    p_entry_number: 7,
+    p_scores: [
+      { category_id: tasteId, score: 4 },
+      { category_id: presentationId, score: 2 },
+    ],
+  }]);
+});
+
 test("admins disqualify and publish while group members see only final identities", async ({ page }) => {
   const competitionId = "66666666-6666-4666-8666-666666666666";
   let status = "review_pending";

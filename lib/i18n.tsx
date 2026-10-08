@@ -461,6 +461,7 @@ const finnish: Record<string, string> = {
   "{count} new image(s) selected.": "Valittu {count} uutta kuvaa.",
   "Vote recorded · Entry {number}": "Ääni tallennettu · ehdotus {number}",
   "Couldn't save your vote for Entry {number}. Move a slider to try again.": "Äänesi ehdotukselle {number} ei tallentunut. Yritä uudelleen siirtämällä liukusäädintä.",
+  "Not scored": "Ei arvioitu",
   "Entry {number}": "Ehdotus {number}",
   "Anonymous entry {number} image": "Nimettömän ehdotuksen {number} kuva",
   "Voted": "Äänestänyt",
