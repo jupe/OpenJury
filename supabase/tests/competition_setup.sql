@@ -36,6 +36,7 @@ begin
       and competition.event_type = 'remote'
       and competition.status = 'draft'
       and competition.max_submission_images = 12
+      and competition.submission_type = 'photo'
       and competition.description = 'Bring your best bake.'
       and competition.rules = 'No store-bought entries.'
   ) or (select count(*) from public.categories
@@ -80,6 +81,15 @@ begin
       null, null, false, 21
     );
     raise exception 'Invalid photo limit accepted for a draft';
+  exception when invalid_parameter_value then null;
+  end;
+  begin
+    perform public.save_draft_competition(
+      v_competition_id, v_group_id, 'Updated challenge', 'live',
+      null, null, '[{"name":"Creativity","max_score":4}]',
+      p_submission_type => 'video'
+    );
+    raise exception 'Invalid submission type accepted for a draft';
   exception when invalid_parameter_value then null;
   end;
   begin

@@ -11,9 +11,9 @@ the `display_name`, `full_name`, or `name` fields in user metadata.
 | --- | --- |
 | `groups` | Tenant name, creator, and creation time |
 | `group_members` | Group/user membership with `admin` or `member` role |
-| `competitions` | Group event, optional description/rules, live/remote type, status, deadlines, and submission photo limit |
+| `competitions` | Group event, optional description/rules, live/remote type, status, deadlines, and photo or text submission format |
 | `categories` | Competition grading criteria with maximum scores from 1 to 5 |
-| `entries` | Submission creator, title, private media keys, anonymous number, and disqualification flag |
+| `entries` | Submission creator, title, private media keys or submitted text, anonymous number, and disqualification flag |
 | `votes` | Entry/category/user score, unique per entry, voter, and category |
 
 UUID primary keys, foreign keys, allowed-value checks, and cascading deletion of
@@ -88,6 +88,12 @@ or competition details; submission saves and Storage upload preflight enforce
 the configured limit, and a cap cannot be lowered below an existing entry's
 image count.
 
+Migration `27_text_submissions.sql` lets admins choose photo or text submissions
+when creating or editing a draft. Photo remains the default. Text entries are
+limited to 10,000 characters and are stored on the entry; owner, admin, eligible
+blind-voting, and published-result RPCs expose them only in their authorized
+phases. Text competitions reject photo saves and Storage uploads.
+
 Migration `19_group_overview.sql` adds `get_my_groups()`, which returns each of
 the caller's groups with their role, member and admin counts, and the number of
 competitions in total and currently open for entries or voting. It exposes only
@@ -110,8 +116,9 @@ After voting closes, group admins can access preliminary rankings and
 disqualification controls only while a competition is in `review_pending`.
 Disqualification requires a 1–500 character reason, records the acting admin
 and timestamp. Admins can exclude an entry from results, retain it at the bottom
-with a disqualification label, or remove its title and media while retaining the
-entry, votes, and moderation audit. Removed media is deleted from private Storage.
+with a disqualification label, or remove its title and content while retaining
+the entry, votes, and moderation audit. Removed media is deleted from private
+Storage, and removed submitted text is cleared.
 An admin can reinstate a disqualified entry during review unless its content was
 removed; reinstatement is also recorded in the audit. Preliminary overall and
 category rankings recalculate after moderation.
@@ -231,9 +238,10 @@ database-owned data and is blocked when disqualification audit records exist.
 Group admins can remove a competition from its group's competition list; the
 existing group settings also let admins remove an entire group.
 
-Migration `04_secure_submissions.sql` allows authenticated members to create
-and edit one submission per competition through `save_submission`. It locks the
-competition before validating its submission phase and deadline; direct entry
+Migration `04_secure_submissions.sql` allows authenticated participants to create
+and edit one submission per competition. Photo entries use `save_submission`;
+text entries use `save_text_submission` with a 10,000-character limit. Both lock
+the competition before validating its submission phase and deadline; direct entry
 and vote reads/writes remain revoked. `get_my_submission`,
 `get_admin_submissions`, and `get_blind_voting_entries` return distinct owner,
 admin, and blind-voting projections. Private images are stored in the
@@ -275,6 +283,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/my_overview.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_deletion.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_setup.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/secure_submissions.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/text_submissions.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/transactional_lifecycle.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_start_notifications.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/admin_review_and_publication.sql
@@ -287,6 +296,8 @@ and test data inside a transaction and rolls everything back; do not run it
 against a production database. The competition setup test covers optional detail
 creation/clearing, length limits, authorization/revocation, and metadata-only
 edits across every phase without changing scoring or lifecycle fields.
+The text-submission test covers format selection, participant saves, owner/admin
+and anonymous-voting projections, photo-upload rejection, and content removal.
 The lifecycle test covers role authorization,
 legal transitions, ballot creation and revision, self-voting and membership
 denial, stable numbering, and idempotent remote deadline processing. The
