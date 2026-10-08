@@ -83,6 +83,10 @@ services:
       GOTRUE_JWT_ISSUER: ${SUPABASE_URL:-}
       GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
       GOTRUE_MAILER_AUTOCONFIRM: "false"
+      # GoTrue fetches templates over HTTP from the configured Site URL.
+      GOTRUE_MAILER_TEMPLATES_MAGIC_LINK: /auth-email.html
+      GOTRUE_MAILER_TEMPLATES_CONFIRMATION: /auth-email.html
+      GOTRUE_MAILER_TEMPLATES_INVITE: /auth-email.html
       # Without SMTP settings, magic links go to the VM's Mailpit (vm-bootstrap.sh).
       GOTRUE_SMTP_HOST: ${SMTP_HOST:-openjury-mail}
       GOTRUE_SMTP_PORT: ${SMTP_PORT:-1025}
