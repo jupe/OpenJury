@@ -98,7 +98,8 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/20_member_display_names.sql`,
 `supabase/migrations/21_competition_start_notifications.sql`,
 `supabase/migrations/22_submission_upload_preflight.sql`, and
-`supabase/migrations/23_my_overview.sql`, once each, in that order.
+`supabase/migrations/23_my_overview.sql`, and
+`supabase/migrations/24_registered_email_invites.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
