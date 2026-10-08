@@ -29,15 +29,6 @@ from ranked
 where result.competition_id = ranked.competition_id
   and result.entry_id = ranked.entry_id;
 
-update public.published_competition_results as result
-set rank = null, score = null
-where result.is_disqualified
-  and result.entry_id in (
-    select entry.id
-    from public.entries as entry
-    where entry.disqualification_display <> 'bottom'
-  );
-
 with eligible_ranks as (
   select result.competition_id, coalesce(max(result.rank), 0) as max_rank
   from public.published_competition_results as result

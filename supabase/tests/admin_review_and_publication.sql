@@ -177,15 +177,15 @@ begin
   select * into result_record
   from public.get_admin_review_results('00000000-0000-0000-0000-000000000071')
   where entry_id = '00000000-0000-0000-0000-000000000074';
-  if result_record.rank <> 1 or result_record.score <> 77.5
+  if result_record.rank <> 1 or result_record.score <> 2.75
      or result_record.vote_count <> 2 or result_record.is_disqualified then
-    raise exception 'Category-normalized aggregation or complete-ballot count failed';
+    raise exception 'Absolute-point aggregation or complete-ballot count failed';
   end if;
 
   select * into result_record
   from public.get_admin_review_results('00000000-0000-0000-0000-000000000071')
   where entry_id = '00000000-0000-0000-0000-000000000075';
-  if result_record.rank <> 1 or result_record.score <> 77.5
+  if result_record.rank <> 1 or result_record.score <> 2.75
      or result_record.vote_count <> 2 then
     raise exception 'Equal scores did not receive the same rank';
   end if;
@@ -193,7 +193,7 @@ begin
   select * into result_record
   from public.get_admin_review_results('00000000-0000-0000-0000-000000000071')
   where entry_id = '00000000-0000-0000-0000-000000000078';
-  if result_record.rank <> 3 or result_record.score <> 35
+  if result_record.rank <> 3 or result_record.score <> 1
      or result_record.vote_count <> 1 then
     raise exception 'Ties or the one-complete-ballot minimum were not applied';
   end if;
@@ -302,6 +302,17 @@ begin
        ) as result where result.rank = 2 and result.is_disqualified
          and result.score is null) <> 1 then
     raise exception 'Published ties or disqualification filtering failed';
+  end if;
+  if (select result.score from public.get_published_competition_results(
+      '00000000-0000-0000-0000-000000000071'
+    ) as result where result.title = 'Entry Alpha') <> 2.75
+     or (select category_result.score
+         from public.get_published_competition_category_results(
+           '00000000-0000-0000-0000-000000000071'
+         ) as category_result
+         where category_result.category_id = '00000000-0000-0000-0000-000000000072'
+           and category_result.title = 'Entry Alpha') <> 4 then
+    raise exception 'Published results did not preserve absolute points';
   end if;
   if (select count(*) from public.get_published_competition_category_results(
       '00000000-0000-0000-0000-000000000071'

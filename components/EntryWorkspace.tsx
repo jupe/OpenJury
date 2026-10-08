@@ -30,8 +30,10 @@ function ErrorText({ error }: { error: string | LocalizedError }) {
   return <>{typeof error === "string" ? t(error) : t(error.message, { error: t(error.error ?? "Please try again.") })}</>;
 }
 
-/** Scores are percentages of the maximum; whole numbers read better than the stored precision. */
-const formatPercent = (score: number) => `${Math.round(score)}%`;
+const formatPoints = (score: number, locale: string) => new Intl.NumberFormat(
+  locale === "fi" ? "fi-FI" : "en",
+  { maximumFractionDigits: 4 },
+).format(score);
 
 const MAX_MEDIA_FILES = 5;
 const MAX_MEDIA_SIZE = 10 * 1024 * 1024;
@@ -315,7 +317,7 @@ function MediaGallery({
 }
 
 export function EntryWorkspace({ competitionId }: { competitionId: string }) {
-  const { t, formatDateTime } = useLocale();
+  const { t, formatDateTime, locale } = useLocale();
   const { client, session } = useAuth();
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
@@ -839,7 +841,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                   )}
                   {result.is_disqualified
                     ? <p>{t("Disqualified")}</p>
-                    : <p>{result.score === null ? "—" : formatPercent(result.score)} · {t("{count} complete ballots", { count: result.vote_count })}</p>}
+                    : <p>{result.score === null ? "—" : `${formatPoints(result.score, locale)} ${t("points")}`} · {t("{count} complete ballots", { count: result.vote_count })}</p>}
                 </li>
               ))}
             </ol>
@@ -857,7 +859,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                     {publishedCategoryResults.filter((result) => result.category_id === categoryId).map((result, index) => (
                       <li key={`${categoryId}:${index}`} className={result.rank === 1 ? "category-winner font-semibold text-amber-800" : ""}>
                         {result.rank === 1 ? `${t("Winner:")} ` : ""}{result.title} ({result.creator_name})
-                        {" — "}{formatPercent(result.score)}
+                        {" — "}{formatPoints(result.score, locale)} {t("points")}
                       </li>
                     ))}
                   </ol>
@@ -879,7 +881,7 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
 }
 
 function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
-  const { t, formatDateTime } = useLocale();
+  const { t, formatDateTime, locale } = useLocale();
   const { client, session } = useAuth();
   const [groupId, setGroupId] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -1362,7 +1364,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       </Card>
       {reviewResults && (
         <Card title={t("Preliminary rankings (admins only)")}>
-          <p>{t("Scores are category-normalized averages. Ties share a rank; only complete ballots count.")}</p>
+          <p>{t("Scores are absolute-point averages across categories. Ties share a rank; only complete ballots count.")}</p>
           <ul className="space-y-4">
             {reviewResults.map((entry) => (
               <li key={entry.entry_id} className="rounded border border-slate-200 p-4">
@@ -1371,7 +1373,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
                 </h3>
                 <p className="break-words text-sm text-slate-600">{t("Submitted by {name}", { name: attendeeName(entry.creator_id) })}</p>
                 {!entry.is_disqualified && (
-                  <p>{entry.score === null ? t("No complete ballots") : formatPercent(entry.score)}
+                  <p>{entry.score === null ? t("No complete ballots") : `${formatPoints(entry.score, locale)} ${t("points")}`}
                     {" · "}{t("{count} complete ballots", { count: entry.vote_count })}</p>
                 )}
                 {entry.is_disqualified && (
@@ -1447,7 +1449,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
               <h3 className="text-lg font-semibold">{t("Preliminary category winners")}</h3>
               {reviewCategories.filter((category) => category.rank === 1).map((winner) => (
                 <p key={`${winner.category_id}:${winner.entry_id}`}>
-                  {winner.category_name}: {winner.title} ({attendeeName(winner.creator_id)}) — {formatPercent(winner.score)}
+                  {winner.category_name}: {winner.title} ({attendeeName(winner.creator_id)}) — {formatPoints(winner.score, locale)} {t("points")}
                 </p>
               ))}
             </section>
