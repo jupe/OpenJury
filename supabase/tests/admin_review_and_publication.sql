@@ -411,4 +411,30 @@ begin
 end;
 $$;
 
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000061', true);
+do $$
+begin
+  if public.transition_competition(
+    '00000000-0000-0000-0000-000000000071', 'review_pending'
+  ) <> 'review_pending' then
+    raise exception 'Admin could not return published results to review';
+  end if;
+  if exists (
+    select 1 from public.published_competition_results
+    where competition_id = '00000000-0000-0000-0000-000000000071'
+  ) or exists (
+    select 1 from public.published_competition_category_results
+    where competition_id = '00000000-0000-0000-0000-000000000071'
+  ) then
+    raise exception 'Returning to review retained published result snapshots';
+  end if;
+  begin
+    perform public.get_published_competition_results('00000000-0000-0000-0000-000000000071');
+    raise exception 'Published results remained visible after returning to review';
+  exception when insufficient_privilege then null;
+  end;
+end;
+$$;
+
 rollback;

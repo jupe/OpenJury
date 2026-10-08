@@ -11,7 +11,7 @@ import Card from "@/components/Card";
 import IconButton, { Icon, IconLink } from "@/components/IconButton";
 import ImageLightbox from "@/components/ImageLightbox";
 import Toast, { type ToastMessage } from "@/components/Toast";
-import { StatusBadge, nextTransition } from "@/components/CompetitionStatus";
+import { StatusBadge, nextTransition, previousTransition } from "@/components/CompetitionStatus";
 import { CompetitionRole, type CompetitionRoleName } from "@/components/Membership";
 import { useLocale } from "@/lib/i18n";
 
@@ -1137,6 +1137,25 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
     }
   }
 
+  async function revert() {
+    const step = previousTransition[competitionStatus];
+    if (!step || transitioning || !window.confirm(t(step.confirm))) return;
+    setTransitioning(true);
+    setTransitionError(null);
+    try {
+      const { error: transitionFailure } = await client.rpc("transition_competition", {
+        p_competition_id: competitionId,
+        p_target_status: step.target,
+      });
+      if (transitionFailure) throw transitionFailure;
+      refresh();
+    } catch (failure) {
+      setTransitionError(localizedFailure(step.error, failure));
+    } finally {
+      setTransitioning(false);
+    }
+  }
+
   async function disqualify(entry: AdminReviewResult) {
     const reason = reasons[entry.entry_id]?.trim();
     if (!reason || workingEntry) return;
@@ -1262,6 +1281,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
   }
   if (error && !competition) return <p role="alert"><ErrorText error={error} /></p>;
   const step = nextTransition[competitionStatus];
+  const previousStep = previousTransition[competitionStatus];
 
   const attendeeName = (userId: string) =>
     attendees.find((attendee) => attendee.user_id === userId)?.display_name || t("Participant");
@@ -1323,6 +1343,12 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
             <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
               <p className="text-sm font-medium">{t(step.action)}</p>
               <IconButton icon={transitioning ? "pending" : "advance"} tone="primary" aria-label={t(transitioning ? "Updating…" : step.action)} disabled={transitioning} onClick={() => void advance()} />
+            </div>
+          )}
+          {previousStep && (
+            <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
+              <p className="text-sm font-medium">{t(previousStep.action)}</p>
+              <IconButton icon={transitioning ? "pending" : "undo"} aria-label={t(transitioning ? "Updating…" : previousStep.action)} disabled={transitioning} onClick={() => void revert()} />
             </div>
           )}
         </Card>
