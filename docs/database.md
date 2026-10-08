@@ -11,7 +11,7 @@ the `display_name`, `full_name`, or `name` fields in user metadata.
 | --- | --- |
 | `groups` | Tenant name, creator, and creation time |
 | `group_members` | Group/user membership with `admin` or `member` role |
-| `competitions` | Group event, optional description/rules, live/remote type, status, deadlines, and photo or text submission format |
+| `competitions` | Group event, optional description/rules, live/remote type, status, submission/voting deadlines, optional results publication time, and photo or text submission format |
 | `categories` | Competition grading criteria with maximum scores from 1 to 5 |
 | `entries` | Submission creator, title, private media keys or submitted text, anonymous number, and disqualification flag |
 | `votes` | Entry/category/user score, unique per entry, voter, and category |
