@@ -774,6 +774,32 @@ test("dashboard and group lobby show member and competition counts @mobile", asy
   await expect(page.getByRole("heading", { name: "Group lobby" })).toHaveCount(0);
 });
 
+test("competition setup guides expand without clutter or mobile overflow @mobile", async ({ page }) => {
+  await configure(page, true);
+  await page.goto(`/group/${groupId}`);
+  await page.getByRole("button", { name: "New competition" }).click();
+  const dialog = page.getByRole("dialog", { name: "Create a draft competition" });
+  const guides = dialog.getByRole("button", { name: /^Help: / });
+  await expect(guides).toHaveCount(8);
+  for (const guide of await guides.all()) {
+    await expect(guide).toHaveAttribute("aria-expanded", "false");
+    const helpId = await guide.getAttribute("aria-controls");
+    const help = dialog.locator(`[id="${helpId}"]`);
+    await expect(help).toBeHidden();
+    await guide.click();
+    await expect(guide).toHaveAttribute("aria-expanded", "true");
+    await expect(help).toBeVisible();
+    await expect(help).not.toBeEmpty();
+    await expectPhoneLayout(page);
+    await guide.click();
+    await expect(help).toBeHidden();
+  }
+  await expect(dialog).toBeVisible();
+  await expect(page.getByLabel("Allow participants to vote", { exact: true })).not.toBeChecked();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toBeHidden();
+});
+
 test("group admins create and edit draft competitions with scoring criteria", async ({ page }) => {
   await configure(page, true);
   const competitionId = "33333333-3333-4333-8333-333333333333";
@@ -815,6 +841,14 @@ test("group admins create and edit draft competitions with scoring criteria", as
   await page.getByLabel("Description (optional)").fill("  A friendly baking competition.  ");
   await page.getByLabel("Rules (optional)").fill("One entry per person.\nNo identifying marks.");
   await page.getByRole("textbox", { name: "Category name" }).fill("Taste");
+  const votingHelp = page.getByRole("button", { name: "Help: Allow participants to vote", exact: true });
+  await votingHelp.focus();
+  await page.keyboard.press("Enter");
+  await expect(votingHelp).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByText("Participants can score other entries, never their own. This setting is fixed once submissions open.", { exact: true })).toBeVisible();
+  await page.keyboard.press("Space");
+  await expect(votingHelp).toHaveAttribute("aria-expanded", "false");
+  expect(saves).toHaveLength(0);
   await expect(page.getByLabel("Allow participants to vote")).not.toBeChecked();
   await page.getByLabel("Allow participants to vote").check();
   await page.getByRole("button", { name: "Create competition" }).click();
@@ -1095,6 +1129,8 @@ test("draft competition details can be created and edited in Finnish", async ({ 
   await page.goto(`/group/${groupId}`);
   await page.getByRole("button", { name: "Uusi kilpailu", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Luo kilpailuluonnos" })).toBeVisible();
+  await page.getByRole("button", { name: "Ohje: Ehdotuksen kuvien enimmäismäärä", exact: true }).click();
+  await expect(page.getByText("Valitse 1–20 kuvaa ehdotusta kohden. Yhden kuvan koko voi olla enintään 10 Mt. Rajaa ei voi muuttaa osallistumisen avaamisen jälkeen.", { exact: true })).toBeVisible();
   await page.getByLabel("Kilpailun nimi").fill("Finnish competition");
   await page.getByLabel("Kuvaus (valinnainen)").fill("User description");
   await page.getByLabel("Säännöt (valinnainen)").fill("User rules");
