@@ -106,14 +106,15 @@ test("demo personas vote on fictional data saved in the browser", async ({ page 
   await demoExpect(page.getByRole("button", { name: "Account (robin@demo.openjury.app)" })).toBeVisible();
   await page.getByRole("link", { name: "Northside Makers", exact: true }).click();
   await page.getByRole("link", { name: "Spring Bake-off", exact: true }).click();
-  // Robin's seeded ballots are already saved; moving a slider updates them.
+  // Robin's seeded ballots are already saved; choosing a score updates them.
   await demoExpect(page.getByText("Voted", { exact: true })).toHaveCount(2, { timeout: 30_000 });
   // Anonymous entries are listed in a different order on each load, so follow one by number.
   const entry = () => page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: /^Entry 1\b/ }) });
-  await entry().getByRole("slider", { name: "Taste" }).fill("1");
+  await entry().getByRole("group", { name: /^Taste / }).getByRole("button", { name: "1 of 5 points" }).click();
   await demoExpect(page.getByRole("status").filter({ hasText: "Vote recorded · Entry 1" })).toBeVisible();
   await page.reload();
-  await demoExpect(entry().getByRole("slider", { name: "Taste" })).toHaveValue("1", { timeout: 60_000 });
+  await demoExpect(entry().getByRole("group", { name: /^Taste / }).getByRole("button", { name: "1 of 5 points" }))
+    .toHaveAttribute("aria-pressed", "true", { timeout: 60_000 });
 });
 
 test("database identifiers stay hidden but are preserved by navigation links", async ({ page }) => {

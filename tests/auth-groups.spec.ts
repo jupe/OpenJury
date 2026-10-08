@@ -1245,7 +1245,7 @@ test("auth changes discard in-flight data from the previous user", async ({ page
 });
 
 for (const votingRole of ["audience", "participant"]) {
-test(`${votingRole} voting cards load a private ballot and save score revisions`, async ({ page }) => {
+test(`${votingRole} voting cards load a private ballot and save score revisions @mobile`, async ({ page }) => {
   const competitionId = "33333333-3333-4333-8333-333333333333";
   const tasteId = "44444444-4444-4444-8444-444444444444";
   const presentationId = "55555555-5555-4555-8555-555555555555";
@@ -1288,11 +1288,13 @@ test(`${votingRole} voting cards load a private ballot and save score revisions`
     await expect(page.getByText("Submit your own entry and vote on other entries. You cannot vote on your own entry.")).toBeVisible();
     await expect(page.getByText("Submit your own entry. Participants do not vote.")).toHaveCount(0);
   }
-  await expect(page.getByRole("slider", { name: "Taste" })).toHaveValue("2");
-  await expect(page.getByRole("slider", { name: "Presentation" })).toHaveValue("3");
+  const taste = page.getByRole("group", { name: "Taste 2 of 5 points" });
+  await expect(taste.getByRole("button", { name: "2 of 5 points" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("group", { name: "Presentation 3 of 3 points" })
+    .getByRole("button", { name: "3 of 3 points" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("Voted", { exact: true })).toBeVisible();
   await expectPhoneLayout(page);
-  await page.getByRole("slider", { name: "Taste" }).fill("4");
+  await taste.getByRole("button", { name: "4 of 5 points" }).click();
   await expect(page.getByRole("status")).toContainText("Vote recorded · Entry 7");
   expect(savedBallot).toEqual({
     p_competition_id: competitionId,
@@ -1303,6 +1305,84 @@ test(`${votingRole} voting cards load a private ballot and save score revisions`
     ],
   });
   await page.screenshot({ path: "/tmp/openjury-voting-ballot.png", fullPage: true });
+});
+}
+
+for (const max of [1, 10, 11, 100]) {
+test(`adaptive vote points support a maximum of ${max} and autosave @mobile`, async ({ page }) => {
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  const categoryId = "44444444-4444-4444-8444-444444444444";
+  const categoryName = "A category with a long name that should remain fully readable";
+  const finnish = max === 1 || max === 100;
+  const pointLabel = (score: number) => finnish ? `${score} / ${max} pistettä` : `${score} of ${max} points`;
+  const saved: Array<{ p_scores: Array<{ category_id: string; score: number }> }> = [];
+  await configure(page, true);
+  if (finnish) await page.addInitScript(() => localStorage.setItem("openjury:locale", "fi"));
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{
+      id: competitionId, name: "Adaptive voting", status: "voting",
+      voting_deadline: null, competition_participants: [{ role: "audience" }],
+    }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/categories**`, (route) =>
+    route.fulfill({ json: [{ id: categoryId, name: categoryName, max_score: max }] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_blind_voting_entries`, (route) =>
+    route.fulfill({ json: [{ entry_number: 7, media_keys: [] }] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_ballot`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/save_ballot`, async (route) => {
+    saved.push(route.request().postDataJSON());
+    await route.fulfill({ status: 204 });
+  });
+  await page.goto(`/competition/${competitionId}`);
+  await expect(page.getByText(categoryName, { exact: true })).toBeVisible();
+  await expect(page.getByText(finnish
+    ? "Ehdotetut asteikon keskipisteet — ei tallennettu. Äänestä valitsemalla pistemäärä."
+    : "Suggested midpoint scores — not recorded. Select a score to vote.")).toBeVisible();
+  await page.clock.install();
+  await page.clock.fastForward(1000);
+  expect(saved).toHaveLength(0);
+  await expectPhoneLayout(page);
+
+  if (max <= 10) {
+    const group = page.getByRole("group");
+    await expect(group.getByRole("button")).toHaveCount(max);
+    await expect(group.getByRole("button", { name: pointLabel(Math.ceil(max / 2)), exact: true }))
+      .toHaveAttribute("aria-pressed", "true");
+    await group.getByRole("button", { name: pointLabel(max), exact: true }).focus();
+    await page.keyboard.press("Enter");
+  } else {
+    const slider = page.getByRole("slider", { name: categoryName });
+    await expect(slider).toHaveAttribute("aria-valuetext", pointLabel(Math.ceil(max / 2)));
+    await slider.focus();
+    await page.keyboard.press("Home");
+    await expect(slider).toHaveValue("1");
+    const decrease = page.getByRole("button", { name: finnish
+      ? `Vähennä kategorian ${categoryName} pisteitä` : `Decrease points for ${categoryName}` });
+    const increase = page.getByRole("button", { name: finnish
+      ? `Lisää kategorian ${categoryName} pisteitä` : `Increase points for ${categoryName}` });
+    await expect(decrease).toBeDisabled();
+    await increase.click();
+    await expect(slider).toHaveValue("2");
+    await decrease.click();
+    await expect(slider).toHaveValue("1");
+    await slider.focus();
+    await page.keyboard.press("End");
+    await expect(slider).toHaveValue(String(max));
+    await expect(increase).toBeDisabled();
+    await expect(slider).toHaveAttribute("aria-valuetext", pointLabel(max));
+    const track = await slider.evaluate((element) => getComputedStyle(element).backgroundImage);
+    expect(track).toContain("100%");
+  }
+  await expect(page.getByText(finnish ? "Muutoksia ei ole vielä tallennettu." : "Changes not saved yet.")).toBeVisible();
+  await page.clock.fastForward(400);
+  await expect(page.getByText(finnish ? "Äänestänyt" : "Voted", { exact: true })).toBeVisible();
+  expect(saved).toEqual([{
+    p_competition_id: competitionId, p_entry_number: 7,
+    p_scores: [{ category_id: categoryId, score: max }],
+  }]);
+  await expectPhoneLayout(page);
+  await page.screenshot({ path: `/tmp/openjury-vote-points-${max}-${finnish ? "fi" : "en"}.png`, fullPage: true });
 });
 }
 
