@@ -44,6 +44,13 @@ competitions, skips rows already being processed, and is safe to call repeatedly
 The move from review to `results_published` is only available through atomic result
 publication.
 
+Admins can also return a competition to its immediately preceding phase through
+the same RPC. Reopening voting is allowed only before its deadline; reopening
+submissions after voting requires that no ballots exist. Returning to draft is
+blocked if start-notification emails were queued. Returning from published results
+to review removes both published result snapshots, cancels any schedule, and makes
+member-facing results unavailable until the admin publishes again.
+
 Migration `21_competition_start_notifications.sql` adds
 `start_competition(id, notify default false)`. Opt-in locks the draft competition,
 invokes the existing transition to submission, and atomically snapshots current
@@ -93,6 +100,10 @@ when creating or editing a draft. Photo remains the default. Text entries are
 limited to 10,000 characters and are stored on the entry; owner, admin, eligible
 blind-voting, and published-result RPCs expose them only in their authorized
 phases. Text competitions reject photo saves and Storage uploads.
+
+Migration `28_reopen_competition_phases.sql` allows group admins to return a
+competition to its previous lifecycle phase under the same row lock and
+authorization checks as forward transitions.
 
 Migration `19_group_overview.sql` adds `get_my_groups()`, which returns each of
 the caller's groups with their role, member and admin counts, and the number of

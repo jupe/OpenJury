@@ -343,6 +343,7 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   await saveSubmission.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Edit your submission" })).toBeVisible();
+  await expect(page.getByRole("status")).toContainText("Thanks for taking part! Your entry has been saved.");
   expect(saves[1].p_title).toBe("My phone photo");
   expect(saves[1].p_media_keys).toHaveLength(1);
   expect(saves[1].p_media_keys[0]).toMatch(/\.heic$/);
@@ -405,6 +406,9 @@ test("text competitions accept editable text submissions without uploading media
     p_title: "A short poem",
     p_submission_text: "First line\nSecond line",
   }]);
+  await expect(page.getByRole("status")).toContainText("Thanks for taking part! Your entry has been saved.");
+  await text.fill("Updated poem");
+  await expect(page.getByRole("status")).toHaveCount(0);
   expect(mediaRequests).toEqual([]);
   await expect(page.getByRole("heading", { name: "Edit your submission" })).toBeVisible();
 });

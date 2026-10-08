@@ -116,8 +116,9 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/25_submission_photo_limit.sql`,
 `supabase/migrations/26_own_entry_voting_gallery.sql`,
 `supabase/migrations/27_absolute_point_scoring.sql`,
-`supabase/migrations/27_text_submissions.sql`, and
-`supabase/migrations/28_draft_publication_schedule.sql`, once each, in that order.
+`supabase/migrations/27_text_submissions.sql`,
+`supabase/migrations/28_draft_publication_schedule.sql`, and
+`supabase/migrations/28_reopen_competition_phases.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
@@ -133,6 +134,8 @@ Migration 17 adds default-disabled participant voting, configurable by admins
 while a competition is a draft. Participants still cannot vote on their own entry.
 Migration 28 lets admins configure or clear the future results-publication time
 while a competition is still a draft.
+Migration 28 also lets admins reopen the previous competition phase; the affected
+publication schedule is cleared when voting or review restarts.
 Migration 18 adds HEIC/HEIF support for private submission media.
 Migration 19 adds a read-only group overview RPC with member and competition counts.
 Without it, groups still list but show no counts.
