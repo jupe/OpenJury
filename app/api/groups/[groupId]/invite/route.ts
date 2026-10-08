@@ -91,9 +91,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ gro
     });
     if (error) {
       log("invite-rejected", { ...context, code: error.code, error: error.message }, "error");
-      const status = error.code === "42501" ? 403 : error.code === "22023" ? 400 : 502;
+      const status = error.code === "42501" ? 403 : error.code === "22023" ? 400
+        : error.code === "P0001" ? 409 : 502;
       return json({ error: status === 403 ? "Group administrator access required"
-        : status === 400 ? "Enter a valid email address" : "Unable to invite member" }, status);
+        : status === 400 ? "Enter a valid email address"
+          : status === 409 ? "This email is already registered. Use an invite link instead."
+            : "Unable to invite member" }, status);
     }
     invited = true;
     log("invite-saved", context);

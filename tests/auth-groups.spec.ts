@@ -1828,11 +1828,13 @@ test("group admins manage members, email invites, and invite links", async ({ pa
     name: "send_invitation", body: { email: "new@example.com" },
   });
   await expect(page.getByRole("textbox", { name: "Email address" })).toHaveValue("");
+  await expect(page.getByRole("status")).toContainText("Invitation email sent to new@example.com.");
   await expect(page.getByText("pending@example.com · waiting to sign in")).toBeVisible();
   await page.getByRole("button", { name: "Resend invite to pending@example.com" }).click();
   await expect.poll(() => calls.at(-1)).toEqual({
     name: "send_invitation", body: { email: "pending@example.com" },
   });
+  await expect(page.getByRole("status")).toContainText("Invitation email sent to pending@example.com.");
 
   await page.getByRole("button", { name: "Create invite link" }).click();
   await expect(page.getByRole("textbox", { name: "Invite link" })).toHaveValue(new RegExp(`/invite/${"a".repeat(64)}$`));
@@ -1849,11 +1851,12 @@ test("email delivery errors stay visible and preserve the address for retry", as
   for (const rpc of ["get_group_email_invites", "get_group_invite_links"]) {
     await page.route(`${supabaseURL}/rest/v1/rpc/${rpc}`, (route) => route.fulfill({ json: [] }));
   }
-  let fails = true;
+  let responseMode: "delivery-failure" | "success" | "registered" = "delivery-failure";
   await page.route(`**/api/groups/${groupId}/invite`, (route) => route.fulfill({
-    status: fails ? 502 : 200,
-    json: fails ? { invited: true, error: "Invitation saved, but email delivery failed. Please retry." }
-      : { invited: true, emailSent: true },
+    status: responseMode === "delivery-failure" ? 502 : responseMode === "registered" ? 409 : 200,
+    json: responseMode === "delivery-failure" ? { invited: true, error: "Invitation saved, but email delivery failed. Please retry." }
+      : responseMode === "registered" ? { error: "This email is already registered. Use an invite link instead." }
+        : { invited: true, emailSent: true },
   }));
   await page.goto(`/group/${groupId}`);
   await page.getByText("Invite people").click();
@@ -1862,10 +1865,17 @@ test("email delivery errors stay visible and preserve the address for retry", as
   await page.getByRole("button", { name: "Invite", exact: true }).click();
   await expect(page.getByRole("main").getByRole("alert")).toContainText("Invitation saved, but email delivery failed. Please retry.");
   await expect(address).toHaveValue("retry@example.com");
-  fails = false;
+  responseMode = "success";
   await page.getByRole("button", { name: "Invite", exact: true }).click();
   await expect(address).toHaveValue("");
   await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("main").getByRole("status")).toContainText("Invitation email sent to retry@example.com.");
+
+  responseMode = "registered";
+  await address.fill("registered@example.com");
+  await page.getByRole("button", { name: "Invite", exact: true }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("This email is already registered. Use an invite link instead.");
+  await expect(address).toHaveValue("registered@example.com");
 });
 
 for (const locale of ["en", "fi"] as const) {

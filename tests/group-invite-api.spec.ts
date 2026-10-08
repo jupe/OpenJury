@@ -121,10 +121,16 @@ test("authentication and RPC permissions gate email delivery without leaking err
   authStatus = 401;
   expect((await request()).status).toBe(401);
   authStatus = 200;
-  for (const [code, status] of [["42501", 403], ["22023", 400], ["XX000", 502]] as const) {
+  for (const [code, status] of [["42501", 403], ["22023", 400], ["P0001", 409], ["XX000", 502]] as const) {
     rpcError = code;
     const response = await request();
     expect(response.status).toBe(status);
+    if (code === "P0001") {
+      expect(await response.json()).toEqual({
+        error: "This email is already registered. Use an invite link instead.",
+      });
+      continue;
+    }
     expect(await response.text()).not.toContain("Private");
   }
   expect(calls.some((call) => call.url === "smtp://send")).toBe(false);
