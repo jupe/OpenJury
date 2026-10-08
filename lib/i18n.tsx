@@ -59,6 +59,7 @@ const finnish: Record<string, string> = {
   "Profile": "Profiili",
   "Account details": "Tilin tiedot",
   "Your name": "Oma nimi",
+  "Edit name": "Muokkaa nimeä",
   "Name / email": "Nimi / sähköposti",
   "Optional. Shown in lists and published results. Only you can change it.": "Vapaaehtoinen. Näkyy listoissa ja julkaistuissa tuloksissa. Vain sinä voit muuttaa sitä.",
   "Save name": "Tallenna nimi",
