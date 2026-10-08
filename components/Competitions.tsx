@@ -494,7 +494,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             </div>
             <fieldset className="space-y-3">
               <legend className="sr-only">{t("Scoring categories")}</legend>
-              <SetupLabel label="Scoring categories" help="Add at least one category, such as Taste, Creativity, or Presentation. Give each a unique name and a maximum score from 1 to 5. Category scores are normalized, so a higher maximum does not give a category more weight. Scoring settings are fixed once submissions open." action={
+              <SetupLabel label="Scoring categories" help="Add at least one category, such as Taste, Creativity, or Presentation. Give each a unique name and a maximum score from 1 to 5. Overall scores average each category's points equally, so a higher maximum allows a category to contribute more points. Scoring settings are fixed once submissions open." action={
                 <AddButton aria-label={t("Add category")} onClick={() => setDraft({
                   ...draft,
                   categories: [...draft.categories, { name: "", max_score: 5 }],
