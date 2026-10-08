@@ -466,6 +466,25 @@ end;
 $$;
 
 set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000031', true);
+do $$
+begin
+  begin
+    perform public.transition_competition(
+      '00000000-0000-0000-0000-000000000041', 'submission'
+    );
+    raise exception 'Submissions reopened after votes had been cast';
+  exception when object_not_in_prerequisite_state then null;
+  end;
+  if (select status from public.competitions
+      where id = '00000000-0000-0000-0000-000000000041') <> 'voting' then
+    raise exception 'A rejected submission reopening changed competition status';
+  end if;
+end;
+$$;
+reset role;
+
+set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000033', true);
 do $$
 begin

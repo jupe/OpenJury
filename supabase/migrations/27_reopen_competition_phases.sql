@@ -38,7 +38,6 @@ begin
     (current_status = 'draft' and p_target_status = 'submission')
     or (current_status = 'submission' and p_target_status = 'voting')
     or (current_status = 'voting' and p_target_status = 'review_pending')
-    or (current_status = 'review_pending' and p_target_status = 'results_published')
     or (current_status = 'submission' and p_target_status = 'draft')
     or (current_status = 'voting' and p_target_status = 'submission')
     or (current_status = 'review_pending' and p_target_status = 'voting')
