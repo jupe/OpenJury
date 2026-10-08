@@ -855,7 +855,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                   <h3 className="font-semibold">{categoryName}</h3>
                   <ol className="list-inside list-decimal">
                     {publishedCategoryResults.filter((result) => result.category_id === categoryId).map((result, index) => (
-                      <li key={`${categoryId}:${index}`} className={result.rank === 1 ? "font-semibold text-amber-800" : ""}>
+                      <li key={`${categoryId}:${index}`} className={result.rank === 1 ? "category-winner font-semibold text-amber-800" : ""}>
                         {result.rank === 1 ? `${t("Winner:")} ` : ""}{result.title} ({result.creator_name})
                         {" — "}{formatPercent(result.score)}
                       </li>
