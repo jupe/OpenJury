@@ -143,6 +143,8 @@ before completed file-size metadata is available. Existing deployments must
 apply it to resolve upload policy failures.
 Migration 23 adds the home page's personal totals and per-competition next steps.
 Without it, the home page still lists open competitions without totals or highlights.
+Migration 27 switches result scoring to absolute category points and converts
+existing published result snapshots.
 Competition setup and details support English and Finnish through `lib/i18n.tsx`.
 Choose the language from the account menu; the preference is stored in the browser.
 Translate interface labels and messages, not user-provided competition names,

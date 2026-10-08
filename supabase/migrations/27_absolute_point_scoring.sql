@@ -43,7 +43,8 @@ bottom_entries as (
          )::integer as entry_rank
   from public.published_competition_results as result
   join public.entries as entry on entry.id = result.entry_id
-  join eligible_ranks as eligible using (competition_id)
+  join eligible_ranks as eligible
+    on eligible.competition_id = result.competition_id
   where result.is_disqualified
     and entry.disqualification_display = 'bottom'
 )

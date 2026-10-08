@@ -1364,7 +1364,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       </Card>
       {reviewResults && (
         <Card title={t("Preliminary rankings (admins only)")}>
-          <p>{t("Scores are absolute-point averages across categories. Ties share a rank; only complete ballots count.")}</p>
+          <p>{t("Scores average absolute points across categories equally. Ties share a rank; only complete ballots count.")}</p>
           <ul className="space-y-4">
             {reviewResults.map((entry) => (
               <li key={entry.entry_id} className="rounded border border-slate-200 p-4">

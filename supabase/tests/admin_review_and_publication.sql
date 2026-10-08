@@ -232,6 +232,13 @@ begin
        ) as category_result where category_result.rank = 1) < 2 then
     raise exception 'Preliminary category scores or winners were not calculated';
   end if;
+  if (select category_result.score from public.get_admin_review_category_results(
+      '00000000-0000-0000-0000-000000000071'
+    ) as category_result
+    where category_result.category_id = '00000000-0000-0000-0000-000000000073'
+      and category_result.entry_id = '00000000-0000-0000-0000-000000000074') <> 1.5 then
+    raise exception 'Preliminary category results did not use absolute points';
+  end if;
 
   begin
     perform public.publish_competition_results('00000000-0000-0000-0000-000000000071');
@@ -311,7 +318,13 @@ begin
            '00000000-0000-0000-0000-000000000071'
          ) as category_result
          where category_result.category_id = '00000000-0000-0000-0000-000000000072'
-           and category_result.title = 'Entry Alpha') <> 4 then
+                and category_result.title = 'Entry Alpha') <> 4
+          or (select category_result.score
+              from public.get_published_competition_category_results(
+                '00000000-0000-0000-0000-000000000071'
+              ) as category_result
+              where category_result.category_id = '00000000-0000-0000-0000-000000000073'
+                and category_result.title = 'Entry Alpha') <> 1.5 then
     raise exception 'Published results did not preserve absolute points';
   end if;
   if (select count(*) from public.get_published_competition_category_results(
