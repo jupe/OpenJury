@@ -103,14 +103,23 @@ security definer
 set search_path = ''
 as $$
 declare
+  actor uuid := auth.uid();
+  target_group_id uuid;
   target_submission_type text;
 begin
-  select competition.submission_type
-    into target_submission_type
+  select competition.group_id, competition.submission_type
+    into target_group_id, target_submission_type
     from public.competitions as competition
     where competition.id = p_competition_id;
 
   if target_submission_type = 'text' then
+    if actor is null or not exists (
+      select 1 from public.group_members as membership
+      where membership.group_id = target_group_id
+        and membership.user_id = actor
+    ) then
+      raise exception 'Competition not found or access denied' using errcode = '42501';
+    end if;
     raise exception 'Photo submissions are not enabled for this competition'
       using errcode = '22023';
   end if;

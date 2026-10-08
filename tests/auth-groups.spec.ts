@@ -840,6 +840,7 @@ test("group admins create and edit draft competitions with scoring criteria", as
         description: body.p_description,
         rules: body.p_rules,
         max_submission_images: body.p_max_submission_images,
+        submission_type: body.p_submission_type,
         allow_participant_voting: body.p_allow_participant_voting,
         event_type: body.p_event_type,
         status: "draft",
@@ -875,6 +876,7 @@ test("group admins create and edit draft competitions with scoring criteria", as
     p_allow_participant_voting: true,
     p_event_type: "remote",
     p_max_submission_images: 5,
+    p_submission_type: "photo",
     p_categories: [{ name: "Taste", max_score: 5 }],
   });
 
@@ -897,6 +899,7 @@ test("group admins create and edit draft competitions with scoring criteria", as
     p_rules: null,
     p_allow_participant_voting: false,
     p_max_submission_images: 5,
+    p_submission_type: "photo",
     p_categories: [{ name: "Creativity", max_score: 5 }],
   });
 });
@@ -1134,6 +1137,7 @@ test("draft competition details can be created and edited in Finnish", async ({ 
     competitions.splice(0, competitions.length, {
       id: secondId, name: body.p_name, description: body.p_description, rules: body.p_rules,
       max_submission_images: body.p_max_submission_images,
+      submission_type: body.p_submission_type,
       event_type: body.p_event_type, status: "draft", submission_deadline: null, voting_deadline: null,
     });
     return route.fulfill({ json: secondId });
@@ -1148,7 +1152,10 @@ test("draft competition details can be created and edited in Finnish", async ({ 
   await page.getByLabel("Kategorian nimi").fill("Taste");
   await page.getByRole("button", { name: "Luo kilpailu", exact: true }).click();
   await expect(page.getByRole("link", { name: "Finnish competition", exact: true })).toBeVisible();
-  expect(saves[0]).toMatchObject({ p_name: "Finnish competition", p_description: "User description", p_rules: "User rules", p_max_submission_images: 12 });
+  expect(saves[0]).toMatchObject({
+    p_name: "Finnish competition", p_description: "User description", p_rules: "User rules",
+    p_max_submission_images: 12, p_submission_type: "photo",
+  });
   await page.getByRole("button", { name: "Muokkaa luonnosta", exact: true }).click();
   await expect(page.getByLabel("Kuvaus (valinnainen)")).toHaveValue("User description");
   await expect(page.getByLabel("Säännöt (valinnainen)")).toHaveValue("User rules");
@@ -1159,6 +1166,42 @@ test("draft competition details can be created and edited in Finnish", async ({ 
   await page.getByRole("button", { name: "Tallenna luonnos", exact: true }).click();
   await expect.poll(() => saves.length).toBe(2);
   expect(saves[1]).toMatchObject({ p_competition_id: secondId, p_description: null, p_rules: null, p_max_submission_images: 7 });
+});
+
+test("competition admins can create a text-entry draft", async ({ page }) => {
+  await configure(page, true);
+  const competitions: Array<Record<string, unknown>> = [];
+  let saved: Record<string, unknown> | undefined;
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({ json: competitions }));
+  await page.route(`${supabaseURL}/rest/v1/categories**`, (route) =>
+    route.fulfill({ json: [{ name: "Creativity", max_score: 5 }] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/save_draft_competition`, (route) => {
+    const body = route.request().postDataJSON();
+    saved = body;
+    competitions.push({
+      id: secondId,
+      name: body.p_name,
+      submission_type: body.p_submission_type,
+      event_type: body.p_event_type,
+      status: "draft",
+      submission_deadline: null,
+      voting_deadline: null,
+    });
+    return route.fulfill({ json: secondId });
+  });
+
+  await page.goto(`/group/${groupId}`);
+  await page.getByRole("button", { name: "New competition" }).click();
+  await page.getByLabel("Competition name").fill("Poetry night");
+  await page.getByLabel("Submission format").selectOption("text");
+  await expect(page.getByLabel("Maximum photos per entry")).toHaveCount(0);
+  await page.getByLabel("Category name").fill("Creativity");
+  await page.getByRole("button", { name: "Create competition" }).click();
+  await expect(page.getByRole("link", { name: "Poetry night", exact: true })).toBeVisible();
+  expect(saved).toMatchObject({
+    p_name: "Poetry night",
+    p_submission_type: "text",
+  });
 });
 
 test("participants refetch authorized competition data after reconnect", async ({ page }) => {
@@ -1509,7 +1552,7 @@ test("admins disqualify and publish while group members see only final identitie
   let disqualification: Record<string, unknown> | undefined;
   await configure(page, true);
   await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
-    json: [{ id: competitionId, name: "Finals", status, submission_deadline: null, voting_deadline: null }],
+    json: [{ id: competitionId, name: "Finals", submission_type: "text", status, submission_deadline: null, voting_deadline: null }],
   }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) =>
     route.fulfill({ json: [{
@@ -1517,6 +1560,7 @@ test("admins disqualify and publish while group members see only final identitie
       creator_id: reviewRows[0].creator_id,
       title: reviewRows[0].title,
       media_keys: [],
+      submission_text: "Submitted poem line.",
     }] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_review_results`, (route) =>
     route.fulfill({ json: reviewRows }));
@@ -1553,12 +1597,14 @@ test("admins disqualify and publish while group members see only final identitie
       creator_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       creator_name: "Alex Baker",
       is_disqualified: false,
+      submission_text: "Submitted poem line.",
     }] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_published_competition_category_results`, (route) =>
     route.fulfill({ json: [] }));
 
   await page.goto(`/competition/${competitionId}/admin`);
   await expect(page.getByRole("heading", { name: "Preliminary rankings (admins only)" })).toBeVisible();
+  await expect(page.getByText("Submitted poem line.")).toBeVisible();
   for (const name of ["Save publication schedule", "Disqualify", "Publish final results"]) {
     const control = page.getByRole("button", { name, exact: true });
     await expect(control).toHaveAttribute("title", name);
@@ -1581,6 +1627,7 @@ test("admins disqualify and publish while group members see only final identitie
 
   await page.goto(`/competition/${competitionId}`);
   await expect(page.getByRole("heading", { name: "Published results" })).toBeVisible();
+  await expect(page.getByText("Submitted poem line.")).toBeVisible();
   await expect(page.getByText("Submitted by Alex Baker")).toBeVisible();
   await expect(page.getByText("83% · 2 complete ballots")).toBeVisible();
   await expectPhoneLayout(page);

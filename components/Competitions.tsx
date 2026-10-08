@@ -162,7 +162,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             .abortSignal(controller.signal)
             .maybeSingle(),
           client.from("competitions")
-            .select("id,name,description,rules,max_submission_images,allow_participant_voting,event_type,status,submission_deadline,voting_deadline,results_publish_at,competition_participants(role)")
+            .select("id,name,description,rules,max_submission_images,submission_type,allow_participant_voting,event_type,status,submission_deadline,voting_deadline,results_publish_at,competition_participants(role)")
             .eq("group_id", groupId)
             .order("name")
             .abortSignal(controller.signal),
