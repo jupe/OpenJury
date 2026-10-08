@@ -18,8 +18,10 @@ async function checkLandingNavigation(page: Page) {
   });
   await page.goto("/");
   await demoExpect(page).toHaveTitle("OpenJury");
+  // Signed-out visitors see the introduction; the demo signs in and shows the overview.
+  // The demo's heading waits for its in-browser database, as other demo checks do.
   await demoExpect(page.getByRole("heading", { level: 1 })).toHaveText(
-    "Competitions for every community",
+    /^(Competitions for every community|Welcome back.*)$/, { timeout: 60_000 },
   );
   const signIn = page.getByRole("heading", { name: "Sign in to OpenJury" });
   // Without Supabase configuration the app runs on an in-browser demo database.
@@ -69,6 +71,7 @@ test("configured signed-out smoke navigation @mobile", async ({ page }) => {
 });
 
 test("shared warm theme is present on public and sign-in screens @mobile", async ({ page, isMobile }) => {
+  await page.emulateMedia({ colorScheme: "light" });
   await page.route("**/runtime-config.js", (route) => route.fulfill({
     contentType: "application/javascript",
     body: 'window.__OPENJURY_CONFIG__ = {SUPABASE_URL: "https://foundation.supabase.co", SUPABASE_ANON_KEY: "public-test-anon"};',
@@ -99,6 +102,32 @@ test("shared warm theme is present on public and sign-in screens @mobile", async
   }
 });
 
+test("theme preference supports white, dark, and automatic system mode", async ({ page }) => {
+  await page.goto("/");
+  const account = page.getByRole("button", { name: /^Account/ });
+  const signIn = page.getByRole("heading", { name: "Sign in to OpenJury" });
+  await account.or(signIn).first().waitFor({ timeout: 60_000 });
+  test.skip(await signIn.isVisible(), "Supabase is configured");
+
+  await account.click();
+  const theme = page.getByRole("combobox", { name: "Theme" });
+  await expect(theme.locator("option")).toHaveText(["White", "Dark", "Auto"]);
+  await theme.selectOption("dark");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.locator("body")).toHaveCSS("background-color", "rgb(11, 17, 32)");
+
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await account.click();
+  await page.getByRole("combobox", { name: "Theme" }).selectOption("auto");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "white");
+  await page.getByRole("combobox", { name: "Theme" }).selectOption("white");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "white");
+});
+
 test("demo personas vote on fictional data saved in the browser", async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto("/dashboard");
@@ -110,13 +139,24 @@ test("demo personas vote on fictional data saved in the browser", async ({ page 
   await page.getByRole("link", { name: "Northside Makers", exact: true }).click();
   await page.getByRole("link", { name: "Spring Bake-off", exact: true }).click();
   // Robin's seeded ballots are already saved; moving a slider updates them.
+  const ownEntry = page.getByRole("region", { name: "Your entry" });
+  await demoExpect(ownEntry).toBeVisible();
+  await demoExpect(ownEntry.getByText("You cannot vote on your own entry.")).toBeVisible();
+  await demoExpect(ownEntry.getByRole("slider")).toHaveCount(0);
+  await demoExpect(ownEntry.getByRole("img", { name: "Your submission image 1" })).toBeVisible();
   await demoExpect(page.getByText("Voted", { exact: true })).toHaveCount(2, { timeout: 30_000 });
-  // Anonymous entries are listed in a different order on each load, so follow one by number.
-  const entry = () => page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: /^Entry 1\b/ }) });
-  await entry().getByRole("slider", { name: "Taste" }).fill("1");
-  await demoExpect(page.getByRole("status").filter({ hasText: "Vote recorded · Entry 1" })).toBeVisible();
+  // The anonymous number assigned to Robin's own entry is hidden from the ballot.
+  const ballots = page.getByRole("list").filter({ has: page.getByRole("slider") });
+  const firstEntry = ballots.getByRole("listitem").first();
+  const entryNumber = (await firstEntry.getByRole("heading").innerText()).match(/^Entry (\d+)/)?.[1];
+  expect(entryNumber).toBeDefined();
+  await firstEntry.getByRole("slider", { name: "Taste" }).fill("1");
+  await demoExpect(page.getByRole("status").filter({ hasText: `Vote recorded · Entry ${entryNumber}` })).toBeVisible();
   await page.reload();
-  await demoExpect(entry().getByRole("slider", { name: "Taste" })).toHaveValue("1", { timeout: 60_000 });
+  const savedEntry = ballots.getByRole("listitem").filter({
+    has: page.getByRole("heading", { name: new RegExp(`^Entry ${entryNumber}\\b`) }),
+  });
+  await demoExpect(savedEntry.getByRole("slider", { name: "Taste" })).toHaveValue("1", { timeout: 60_000 });
 });
 
 test("database identifiers stay hidden but are preserved by navigation links", async ({ page }) => {

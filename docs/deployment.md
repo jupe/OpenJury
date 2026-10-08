@@ -79,6 +79,14 @@ Gmail also limits how many messages an account may send per day. Store these onl
 in trusted runtime environments, never `NEXT_PUBLIC_*`, browser config, or image
 build args, and never configure real delivery in untrusted/disposable previews.
 
+Self-hosted Supabase fetches `public/auth-email.html` from the app's Site URL for
+magic links, signup confirmation, and Auth invitations. These links require an
+explicit **Continue to OpenJury** action before verification; Gmail previews do
+not consume them. Keep the app reachable from the Auth container so GoTrue can
+load the template. Hosted Supabase projects must update their email templates
+manually as described in [local development](development.md#2-configure-supabase).
+Existing emails cannot be retroactively protected; send a new sign-in link.
+
 ### Group invitation emails
 
 Invitations need the SMTP settings above, `APP_URL` (the trusted public HTTPS
@@ -92,6 +100,9 @@ recipient joins after signing in with the invited, confirmed email address.
 Missing email configuration fails before saving an invitation. If delivery fails
 after saving, the UI reports that failure, preserves the pending invitation, and
 offers **Resend invite**. Existing pending invitations can also be resent.
+Addresses already registered with OpenJury cannot receive email invitations;
+use an invite link for those people instead. The members screen confirms when
+the SMTP server accepts an invitation email.
 Success means the SMTP server accepted the email, not guaranteed inbox delivery.
 Demo mode continues to save fictional invitations without sending email.
 

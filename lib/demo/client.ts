@@ -17,7 +17,7 @@ const MEDIA_DATABASE = "openjury-demo-media";
 const USER_KEY = "openjury-demo-user";
 const LOCK_NAME = "openjury-demo-database";
 // Bump to rebuild existing demo databases after changing the seed.
-const SEED_VERSION = "3";
+const SEED_VERSION = "4";
 
 type ErrorShape = { message: string; code?: string; details?: string; hint?: string };
 type Result<T = unknown> = { data: T; error: ErrorShape | null };
@@ -267,14 +267,15 @@ function splitSelect(select: string) {
 
 class QueryBuilder implements PromiseLike<Result> {
   private selectList = "*";
-  private filters: [string, unknown][] = [];
+  private filters: [string, unknown, "eq" | "in"][] = [];
   private orders: [string, boolean][] = [];
   private mode: "many" | "maybeSingle" | "single" = "many";
 
   constructor(private readonly client: DemoClient, private readonly table: string) {}
 
   select(columns = "*") { this.selectList = columns; return this; }
-  eq(column: string, value: unknown) { this.filters.push([column, value]); return this; }
+  eq(column: string, value: unknown) { this.filters.push([column, value, "eq"]); return this; }
+  in(column: string, values: unknown[]) { this.filters.push([column, values, "in"]); return this; }
   order(column: string, options: { ascending?: boolean } = {}) { this.orders.push([column, options.ascending !== false]); return this; }
   abortSignal() { return this; }
   maybeSingle() { this.mode = "maybeSingle"; return this; }
@@ -304,7 +305,8 @@ class QueryBuilder implements PromiseLike<Result> {
         if (!tables.get(related)!.has(toManyKey)) throw new Error(`Could not find a relationship between '${this.table}' and '${related}'`);
         return `coalesce((select json_agg(json_build_object(${fields})) from public.${quoteIdent(related)} as e where e.${quoteIdent(toManyKey)} = t.id), '[]'::json) as ${quoteIdent(related)}`;
       });
-      const where = this.filters.map(([column], index) => `t.${quoteIdent(column)} = $${index + 1}`);
+      const where = this.filters.map(([column, , operator], index) =>
+        `t.${quoteIdent(column)} = ${operator === "in" ? `any($${index + 1})` : `$${index + 1}`}`);
       const sql = `select ${selected.join(", ")} from public.${quoteIdent(this.table)} as t`
         + (where.length ? ` where ${where.join(" and ")}` : "")
         + (this.orders.length ? ` order by ${this.orders.map(([column, ascending]) => `t.${quoteIdent(column)} ${ascending ? "asc" : "desc"}`).join(", ")}` : "");

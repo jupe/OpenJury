@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import IconButton, { Icon } from "@/components/IconButton";
 import { useLocale, type Locale } from "@/lib/i18n";
+import { useTheme, type Theme } from "@/lib/theme";
 
 /** Header account control: who is signed in, a link to their profile, language, and sign-out. */
 export default function AccountMenu({ displayName, email, signingOut, onSignOut }: {
@@ -13,6 +14,7 @@ export default function AccountMenu({ displayName, email, signingOut, onSignOut 
   onSignOut: () => void;
 }) {
   const { locale, setLocale, t } = useLocale();
+  const { theme, setTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -90,6 +92,19 @@ export default function AccountMenu({ displayName, email, signingOut, onSignOut 
               >
                 <option value="en">{t("English")}</option>
                 <option value="fi">{t("Finnish")}</option>
+              </select>
+            </label>
+            <label className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-semibold text-slate-800">
+              <span className="flex-1">{t("Theme")}</span>
+              <select
+                aria-label={t("Theme")}
+                value={theme}
+                onChange={(event) => setTheme(event.target.value as Theme)}
+                className="min-h-11 w-auto cursor-pointer rounded-lg border-slate-200 py-1 pr-7 pl-2 font-normal"
+              >
+                <option value="white">{t("White")}</option>
+                <option value="dark">{t("Dark")}</option>
+                <option value="auto">{t("Auto")}</option>
               </select>
             </label>
           </div>

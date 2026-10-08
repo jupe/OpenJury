@@ -19,6 +19,7 @@ type Competition = {
   name: string;
   description: string | null;
   rules: string | null;
+  max_submission_images?: number;
   allow_participant_voting: boolean;
   event_type: "live" | "remote";
   status: string;
@@ -85,6 +86,7 @@ type CompetitionDraft = {
   eventType: "live" | "remote";
   submissionDeadline: string;
   votingDeadline: string;
+  maxSubmissionImages: number;
   categories: CategoryDraft[];
 };
 
@@ -98,6 +100,7 @@ function emptyDraft(): CompetitionDraft {
     eventType: "remote",
     submissionDeadline: "",
     votingDeadline: "",
+    maxSubmissionImages: 5,
     categories: [{ name: "", max_score: 5 }],
   };
 }
@@ -156,7 +159,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             .abortSignal(controller.signal)
             .maybeSingle(),
           client.from("competitions")
-            .select("id,name,description,rules,allow_participant_voting,event_type,status,submission_deadline,voting_deadline,results_publish_at,competition_participants(role)")
+            .select("id,name,description,rules,max_submission_images,allow_participant_voting,event_type,status,submission_deadline,voting_deadline,results_publish_at,competition_participants(role)")
             .eq("group_id", groupId)
             .order("name")
             .abortSignal(controller.signal),
@@ -221,6 +224,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         eventType: competition.event_type,
         submissionDeadline: toLocalInput(competition.submission_deadline),
         votingDeadline: toLocalInput(competition.voting_deadline),
+        maxSubmissionImages: competition.max_submission_images ?? 5,
         categories: (data || []).map((category) => ({
           name: category.name,
           max_score: category.max_score,
@@ -260,6 +264,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         p_event_type: draft.eventType,
         p_submission_deadline: toTimestamp(draft.submissionDeadline),
         p_voting_deadline: toTimestamp(draft.votingDeadline),
+        p_max_submission_images: draft.maxSubmissionImages,
         p_categories: draft.categories.map((category) => ({
           name: category.name.trim(),
           max_score: category.max_score,
@@ -410,6 +415,9 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             </label>
             <label className="block">{t("Rules (optional)")}
               <textarea maxLength={10000} rows={4} value={draft.rules} onChange={(event) => setDraft({ ...draft, rules: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+            </label>
+            <label className="block">{t("Maximum photos per entry")}
+              <input type="number" inputMode="numeric" required min={1} max={20} value={draft.maxSubmissionImages} onChange={(event) => setDraft({ ...draft, maxSubmissionImages: Number(event.target.value) })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
             <label className="flex min-h-11 items-center gap-3">
               <input type="checkbox" checked={draft.allowParticipantVoting} onChange={(event) => setDraft({ ...draft, allowParticipantVoting: event.target.checked })} className="h-5 w-5" />

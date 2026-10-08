@@ -49,6 +49,7 @@ type Competition = {
   name: string;
   description: string | null;
   rules: string | null;
+  max_submission_images?: number;
   allow_participant_voting: boolean;
   status: string;
   submission_deadline: string | null;
@@ -359,7 +360,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     setPublishedCategoryResults([]);
     try {
       const result = await client.from("competitions")
-        .select("id,group_id,name,description,rules,allow_participant_voting,status,submission_deadline,voting_deadline,results_publish_at,groups(name),competition_participants(role)")
+        .select("id,group_id,name,description,rules,max_submission_images,allow_participant_voting,status,submission_deadline,voting_deadline,results_publish_at,groups(name),competition_participants(role)")
         .eq("id", competitionId)
         .maybeSingle();
       if (result.error || !result.data) {
@@ -490,13 +491,14 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   const editable = competition?.status === "submission" && submissionOpen && role === "participant";
   const canVote = role === "audience" || (role === "participant" && competition?.allow_participant_voting);
   const activeMedia = (submission?.media_keys || []).filter((key) => !removedKeys.includes(key));
+  const maxSubmissionImages = competition?.max_submission_images ?? MAX_MEDIA_FILES;
 
   function selectFiles(files: FileList | null, append = false) {
     const selected = Array.from(files || []);
     const existing = append ? newFiles : [];
-    const available = MAX_MEDIA_FILES - activeMedia.length - existing.length;
+    const available = maxSubmissionImages - activeMedia.length - existing.length;
     if (selected.length > available) {
-      setError(t("An entry may contain up to {count} images.", { count: MAX_MEDIA_FILES }));
+      setError(t("An entry may contain up to {count} images.", { count: maxSubmissionImages }));
       if (!append) setNewFiles([]);
       return;
     }
@@ -602,9 +604,9 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     };
   }, []);
 
-  /** The slider value for a category: the chosen score, or the middle of the scale before voting. */
+  /** An unscored category uses zero as a client-side placeholder; saved scores start at one. */
   function ballotScore(entryNumber: number, category: Category) {
-    return ballotScores[entryNumber]?.[category.id] || String(Math.ceil(category.max_score / 2));
+    return ballotScores[entryNumber]?.[category.id] || "0";
   }
 
   function saveBallot(entryNumber: number, scores: Record<string, string>) {
@@ -636,6 +638,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       [categoryId]: value,
     };
     setBallotScores((current) => ({ ...current, [entryNumber]: scores }));
+    if (Object.values(scores).some((score) => Number(score) < 1)) return;
     const pending = pendingBallots.current;
     window.clearTimeout(pending.get(entryNumber)?.timer);
     const save = () => {
@@ -699,7 +702,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
             <div className="flex items-center gap-1">
               <IconButton icon="camera" aria-label={t("Take a photo")} onClick={() => captureInput.current?.click()} />
               <IconButton icon="addImage" aria-label={t("Add images")} onClick={() => fileInput.current?.click()} />
-              <p className="ml-2 text-xs text-slate-500">{t("JPEG, PNG, WebP, HEIC, or HEIF · up to 5 images, 10 MB each")}</p>
+              <p className="ml-2 text-xs text-slate-500">{t("JPEG, PNG, WebP, HEIC, or HEIF · up to {count} images, 10 MB each", { count: maxSubmissionImages })}</p>
             </div>
             <input
               ref={fileInput}
@@ -746,6 +749,17 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       )}
       {competition.status === "voting" && votingOpen && canVote && (
         <Card title={t("Anonymous entries")}>
+          {submission && (
+            <section aria-labelledby="own-entry-heading" className="mb-6 space-y-2">
+              <h2 id="own-entry-heading" className="font-semibold">{t("Your entry")}</h2>
+              <MediaGallery
+                client={client}
+                mediaKeys={submission.media_keys}
+                label={t("Your submission image")}
+              />
+              <p className="text-sm text-slate-600">{t("You cannot vote on your own entry.")}</p>
+            </section>
+          )}
           {blindEntries.length ? (
             <ol className="space-y-6">
               {blindEntries.map((entry) => {
@@ -766,20 +780,24 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                       {categories.map((category) => {
                         const id = `ballot-${entry.entry_number}-${category.id}`;
                         const score = ballotScore(entry.entry_number, category);
+                        const hasSavedBallot = !!savedBallots[entry.entry_number];
                         return (
                           <div key={category.id} className="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)_auto] items-center gap-3">
                             <label htmlFor={id} className="truncate">{category.name}</label>
                             <input
                               id={id}
                               type="range"
-                              min={1}
+                              min={hasSavedBallot ? 1 : 0}
                               max={category.max_score}
                               step={1}
                               value={score}
+                              aria-valuetext={score === "0" ? t("Not scored") : `${score}/${category.max_score}`}
                               onChange={(event) => changeScore(entry.entry_number, category.id, event.target.value)}
                               className="h-11 w-full cursor-pointer accent-golden"
                             />
-                            <span aria-hidden className="w-12 text-right font-semibold tabular-nums">{score}/{category.max_score}</span>
+                            <span aria-hidden className="w-12 text-right font-semibold tabular-nums">
+                              {score === "0" ? "—" : `${score}/${category.max_score}`}
+                            </span>
                           </div>
                         );
                       })}
@@ -887,7 +905,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
   const [notifyMembers, setNotifyMembers] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState("");
   const [notificationsPending, setNotificationsPending] = useState(false);
-  const [detailsDraft, setDetailsDraft] = useState<{ name: string; description: string; rules: string } | null>(null);
+  const [detailsDraft, setDetailsDraft] = useState<{ name: string; description: string; rules: string; maxSubmissionImages: number } | null>(null);
   const [savingDetails, setSavingDetails] = useState(false);
   const [detailsError, setDetailsError] = useState<LocalizedError | null>(null);
   const [detailsMessage, setDetailsMessage] = useState("");
@@ -909,7 +927,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
         const [submissionResult, competitionResult, attendeeResult, roleResult, notificationResult] = await Promise.all([
           client.rpc("get_admin_submissions", { p_competition_id: competitionId }),
           client.from("competitions")
-            .select("id,group_id,name,description,rules,allow_participant_voting,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
+            .select("id,group_id,name,description,rules,max_submission_images,allow_participant_voting,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
             .eq("id", competitionId).maybeSingle(),
           client.rpc("get_admin_competition_attendees", { p_competition_id: competitionId }),
           client.rpc("get_competition_participants", { p_competition_id: competitionId }),
@@ -982,6 +1000,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
         p_name: detailsDraft.name.trim(),
         p_description: detailsDraft.description.trim() || null,
         p_rules: detailsDraft.rules.trim() || null,
+        p_max_submission_images: detailsDraft.maxSubmissionImages,
       });
       if (saveError) throw saveError;
       setDetailsDraft(null);
@@ -1257,7 +1276,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
             title={t("Competition details")}
             action={!detailsDraft && (
               <IconButton icon="edit" aria-label={t("Edit competition details")} onClick={() => {
-                setDetailsDraft({ name: competition.name, description: competition.description ?? "", rules: competition.rules ?? "" });
+                setDetailsDraft({ name: competition.name, description: competition.description ?? "", rules: competition.rules ?? "", maxSubmissionImages: competition.max_submission_images ?? MAX_MEDIA_FILES });
                 setDetailsError(null);
                 setDetailsMessage("");
               }} />
@@ -1274,6 +1293,9 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
                   </label>
                   <label className="block">{t("Rules (optional)")}
                     <textarea maxLength={10000} rows={4} value={detailsDraft.rules} onChange={(event) => setDetailsDraft({ ...detailsDraft, rules: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+                  </label>
+                  <label className="block">{t("Maximum photos per entry")}
+                    <input type="number" inputMode="numeric" required min={1} max={20} value={detailsDraft.maxSubmissionImages} onChange={(event) => setDetailsDraft({ ...detailsDraft, maxSubmissionImages: Number(event.target.value) })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
                   </label>
                   <div className="flex justify-end gap-2">
                     <IconButton icon="cancel" aria-label={t("Cancel edit")} onClick={() => { setDetailsDraft(null); setDetailsError(null); }} />
