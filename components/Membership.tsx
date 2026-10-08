@@ -496,7 +496,7 @@ export function CompetitionRole({
   const fixedReason = role && !available.length
     ? (!beforeVoting ? "Roles are fixed once voting starts." : hasEntry ? "You have submitted an entry, so you stay a participant." : null)
     : null;
-  const roleStyle = (name: CompetitionRoleName) => name === "participant" ? "bg-violet-50 text-violet-700" : "bg-amber-50 text-amber-700";
+  const roleStyle = (name: CompetitionRoleName) => name === "participant" ? "bg-indigo-50 text-indigo-700" : "bg-amber-50 text-amber-700";
 
   return (
     <Card title={t(role ? "How you take part" : "Take part")}>

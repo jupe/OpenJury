@@ -6,7 +6,7 @@ export default function AddButton({ className = "", ...props }: ButtonHTMLAttrib
     <button
       type="button"
       title={props["aria-label"]}
-      className={`inline-flex size-12 shrink-0 cursor-pointer items-center justify-center rounded-full bg-indigo-600 text-2xl leading-none text-white hover:bg-indigo-700 active:bg-indigo-800 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
+      className={`inline-flex size-12 shrink-0 cursor-pointer items-center justify-center rounded-full bg-coral text-2xl leading-none text-charcoal hover:bg-coral-hover active:bg-coral-active focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
       {...props}
     >
       <span aria-hidden="true">+</span>

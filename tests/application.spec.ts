@@ -70,6 +70,38 @@ test("configured signed-out smoke navigation @mobile", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Sign in to OpenJury" })).toBeVisible();
 });
 
+test("shared warm theme is present on public and sign-in screens @mobile", async ({ page, isMobile }) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.route("**/runtime-config.js", (route) => route.fulfill({
+    contentType: "application/javascript",
+    body: 'window.__OPENJURY_CONFIG__ = {SUPABASE_URL: "https://foundation.supabase.co", SUPABASE_ANON_KEY: "public-test-anon"};',
+  }));
+  await page.route("https://foundation.supabase.co/**", (route) => route.abort());
+  for (const path of ["/", "/dashboard", "/competitions", "/profile"]) {
+    await page.goto(path);
+    await expect(page.locator("body")).toHaveCSS("background-color", "rgb(255, 248, 240)");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveCSS("color", "rgb(45, 49, 66)");
+    await expect(page.getByRole("navigation", { name: "Main navigation" })).toHaveCSS("display", "flex");
+    const primary = page.getByRole("button", { name: "Send sign-in link" });
+    await expect(primary).toHaveCSS("background-color", "rgb(255, 107, 91)");
+    await expect(primary).toHaveCSS("color", "rgb(45, 49, 66)");
+    if (!isMobile) {
+      await primary.hover();
+      await expect(primary).toHaveCSS("background-color", "rgb(255, 130, 116)");
+      await page.mouse.down();
+      await expect(primary).toHaveCSS("background-color", "rgb(255, 117, 102)");
+      await page.mouse.up();
+    }
+    await expect(page.getByRole("textbox", { name: "Email address" })).toHaveCSS("min-height", "48px");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+  const mobileNavigation = page.getByRole("navigation", { name: "Mobile navigation" });
+  if (await mobileNavigation.isVisible()) {
+    await mobileNavigation.getByRole("link", { name: "Groups" }).click();
+    await expect(mobileNavigation.getByRole("link", { name: "Groups" })).toHaveCSS("background-color", "rgb(255, 226, 218)");
+  }
+});
+
 test("theme preference supports white, dark, and automatic system mode", async ({ page }) => {
   await page.goto("/");
   const account = page.getByRole("button", { name: /^Account/ });
