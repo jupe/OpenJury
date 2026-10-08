@@ -383,6 +383,7 @@ const finnish: Record<string, string> = {
   "Voting deadline": "Äänestyksen määräaika",
   "Results publication time (optional)": "Tulosten julkaisuaika (valinnainen)",
   "The scheduled publication time is used after voting closes and review is complete. You can change it during review.": "Ajastettua julkaisuaikaa käytetään äänestyksen päätyttyä ja tarkistuksen valmistuttua. Voit muuttaa aikaa tarkistuksen aikana.",
+  "Scheduled publication time must be in the future": "Ajastetun julkaisuajan on oltava tulevaisuudessa.",
   "Submissions close {date}": "Osallistuminen päättyy {date}",
   "Voting closes {date}": "Äänestys päättyy {date}",
   "Results are scheduled to be published {date}.": "Tulokset on ajastettu julkaistaviksi {date}.",

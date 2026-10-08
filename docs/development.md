@@ -113,8 +113,8 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/23_my_overview.sql`,
 `supabase/migrations/24_registered_email_invites.sql`, and
 `supabase/migrations/25_prevent_self_voting.sql`,
-`supabase/migrations/26_own_entry_voting_gallery.sql`, and
 `supabase/migrations/25_submission_photo_limit.sql`,
+`supabase/migrations/26_own_entry_voting_gallery.sql`,
 `supabase/migrations/27_absolute_point_scoring.sql`,
 `supabase/migrations/27_text_submissions.sql`, and
 `supabase/migrations/28_draft_publication_schedule.sql`, once each, in that order.

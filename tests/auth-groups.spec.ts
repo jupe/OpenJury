@@ -877,7 +877,15 @@ test("group admins create and edit draft competitions with scoring criteria", as
         results_publish_at: body.p_results_publish_at,
       });
     } else {
-      Object.assign(competitions[0], { name: body.p_name, description: body.p_description, rules: body.p_rules, allow_participant_voting: body.p_allow_participant_voting });
+      Object.assign(competitions[0], {
+        name: body.p_name,
+        description: body.p_description,
+        rules: body.p_rules,
+        allow_participant_voting: body.p_allow_participant_voting,
+        submission_deadline: body.p_submission_deadline,
+        voting_deadline: body.p_voting_deadline,
+        results_publish_at: body.p_results_publish_at,
+      });
     }
     expect(categories).toHaveLength(1);
     return route.fulfill({ json: competitionId });
@@ -920,7 +928,11 @@ test("group admins create and edit draft competitions with scoring criteria", as
   await expect(page.getByLabel("Description (optional)")).toHaveValue("A friendly baking competition.");
   await expect(page.getByLabel("Rules (optional)")).toHaveValue("One entry per person.\nNo identifying marks.");
   await expect(page.getByLabel("Allow participants to vote")).toBeChecked();
+  await expect(page.getByLabel("Submission deadline")).toHaveValue("2026-11-01T12:00");
+  await expect(page.getByLabel("Voting deadline")).toHaveValue("2026-11-02T12:00");
   await expect(page.getByLabel("Results publication time (optional)")).toHaveValue("2026-11-03T12:00");
+  await page.getByLabel("Submission deadline").fill("2026-11-04T12:00");
+  await page.getByLabel("Voting deadline").fill("2026-11-05T12:00");
   await page.getByLabel("Results publication time (optional)").fill("");
   await page.getByLabel("Allow participants to vote").uncheck();
   await page.getByLabel("Description (optional)").fill("");
@@ -935,6 +947,8 @@ test("group admins create and edit draft competitions with scoring criteria", as
     p_description: null,
     p_rules: null,
     p_allow_participant_voting: false,
+    p_submission_deadline: new Date("2026-11-04T12:00").toISOString(),
+    p_voting_deadline: new Date("2026-11-05T12:00").toISOString(),
     p_results_publish_at: null,
     p_max_submission_images: 5,
     p_submission_type: "photo",
