@@ -339,6 +339,52 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   await expect.poll(() => deletions).toEqual([saves[1].p_media_keys]);
 });
 
+test("text competitions accept editable text submissions without uploading media", async ({ page }) => {
+  await configure(page, true);
+  const saves: Array<Record<string, unknown>> = [];
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{
+      id: secondId,
+      group_id: groupId,
+      name: "Poetry competition",
+      submission_type: "text",
+      status: "submission",
+      submission_deadline: null,
+      voting_deadline: null,
+      competition_participants: [{ role: "participant" }],
+    }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) =>
+    route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/save_text_submission`, (route) => {
+    saves.push(route.request().postDataJSON());
+    return route.fulfill({ json: groupId });
+  });
+  const mediaRequests: string[] = [];
+  await page.route(`${supabaseURL}/storage/v1/**`, (route) => {
+    mediaRequests.push(route.request().url());
+    return route.fulfill({ status: 400, json: { message: "Unexpected media request" } });
+  });
+
+  await page.goto(`/competition/${secondId}`);
+  await page.getByRole("textbox", { name: "Entry title" }).fill("A short poem");
+  const text = page.getByRole("textbox", { name: "Your text entry" });
+  await expect(text).toHaveAttribute("maxlength", "10000");
+  await text.fill("First line\nSecond line");
+  await expect(page.getByRole("button", { name: "Take a photo" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Add images" })).toHaveCount(0);
+  await expectPhoneLayout(page);
+  await page.getByRole("button", { name: "Save submission" }).click();
+  await expect.poll(() => saves).toEqual([{
+    p_competition_id: secondId,
+    p_entry_id: null,
+    p_title: "A short poem",
+    p_submission_text: "First line\nSecond line",
+  }]);
+  expect(mediaRequests).toEqual([]);
+  await expect(page.getByRole("heading", { name: "Edit your submission" })).toBeVisible();
+});
+
 for (const failureStage of ["initial save", "upload", "final save"] as const) {
   test(`photo submission shows ${failureStage} errors and can retry @mobile`, async ({ page }) => {
     await configure(page, true);
@@ -1335,6 +1381,7 @@ test(`${votingRole} voting cards load a private ballot and save score revisions`
     json: [{
       id: competitionId,
       name: "Blind bake-off",
+      submission_type: "text",
       status: "voting",
       submission_deadline: null,
       voting_deadline: new Date(Date.now() + 60_000).toISOString(),
@@ -1351,7 +1398,7 @@ test(`${votingRole} voting cards load a private ballot and save score revisions`
   await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) =>
     route.fulfill({ json: [] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_blind_voting_entries`, (route) =>
-    route.fulfill({ json: [{ entry_number: 7, media_keys: [] }] }));
+    route.fulfill({ json: [{ entry_number: 7, media_keys: [], submission_text: "Anonymous poem line." }] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_my_ballot`, (route) =>
     route.fulfill({ json: [
       { entry_number: 7, category_id: tasteId, score: 2 },
@@ -1364,6 +1411,7 @@ test(`${votingRole} voting cards load a private ballot and save score revisions`
 
   await page.goto(`/competition/${competitionId}`);
   await expect(page.getByRole("heading", { name: "Entry 7" })).toBeVisible();
+  await expect(page.getByText("Anonymous poem line.")).toBeVisible();
   if (votingRole === "participant") {
     await expect(page.getByText("Submit your own entry and vote on other entries. You cannot vote on your own entry.")).toBeVisible();
     await expect(page.getByText("Submit your own entry. Participants do not vote.")).toHaveCount(0);

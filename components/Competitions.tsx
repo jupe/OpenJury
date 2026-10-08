@@ -20,6 +20,7 @@ type Competition = {
   description: string | null;
   rules: string | null;
   max_submission_images?: number;
+  submission_type?: "photo" | "text";
   allow_participant_voting: boolean;
   event_type: "live" | "remote";
   status: string;
@@ -87,6 +88,7 @@ type CompetitionDraft = {
   submissionDeadline: string;
   votingDeadline: string;
   maxSubmissionImages: number;
+  submissionType: "photo" | "text";
   categories: CategoryDraft[];
 };
 
@@ -101,6 +103,7 @@ function emptyDraft(): CompetitionDraft {
     submissionDeadline: "",
     votingDeadline: "",
     maxSubmissionImages: 5,
+    submissionType: "photo",
     categories: [{ name: "", max_score: 5 }],
   };
 }
@@ -225,6 +228,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         submissionDeadline: toLocalInput(competition.submission_deadline),
         votingDeadline: toLocalInput(competition.voting_deadline),
         maxSubmissionImages: competition.max_submission_images ?? 5,
+        submissionType: competition.submission_type ?? "photo",
         categories: (data || []).map((category) => ({
           name: category.name,
           max_score: category.max_score,
@@ -265,6 +269,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         p_submission_deadline: toTimestamp(draft.submissionDeadline),
         p_voting_deadline: toTimestamp(draft.votingDeadline),
         p_max_submission_images: draft.maxSubmissionImages,
+        p_submission_type: draft.submissionType,
         p_categories: draft.categories.map((category) => ({
           name: category.name.trim(),
           max_score: category.max_score,
@@ -338,6 +343,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
                     {competition.competition_participants?.[0] && <RoleBadge role={competition.competition_participants[0].role} />}
                     <StatusBadge status={competition.status} />
                     {t(competition.event_type === "live" ? "Live" : "Remote")}
+                    {t(competition.submission_type === "text" ? "Text submissions" : "Photo submissions")}
                   </p>
                 </div>
                 <div className="flex items-center justify-between gap-3">
@@ -416,9 +422,18 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             <label className="block">{t("Rules (optional)")}
               <textarea maxLength={10000} rows={4} value={draft.rules} onChange={(event) => setDraft({ ...draft, rules: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
-            <label className="block">{t("Maximum photos per entry")}
-              <input type="number" inputMode="numeric" required min={1} max={20} value={draft.maxSubmissionImages} onChange={(event) => setDraft({ ...draft, maxSubmissionImages: Number(event.target.value) })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+            <label className="block">{t("Submission format")}
+              <select value={draft.submissionType} onChange={(event) => setDraft({ ...draft, submissionType: event.target.value as "photo" | "text" })} className="mt-1 block w-full rounded border border-slate-300 p-2">
+                <option value="photo">{t("Photos")}</option>
+                <option value="text">{t("Text")}</option>
+              </select>
             </label>
+            <p className="text-sm text-slate-600">{t("Submission format is fixed once submissions open.")}</p>
+            {draft.submissionType === "photo" && (
+              <label className="block">{t("Maximum photos per entry")}
+                <input type="number" inputMode="numeric" required min={1} max={20} value={draft.maxSubmissionImages} onChange={(event) => setDraft({ ...draft, maxSubmissionImages: Number(event.target.value) })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+              </label>
+            )}
             <label className="flex min-h-11 items-center gap-3">
               <input type="checkbox" checked={draft.allowParticipantVoting} onChange={(event) => setDraft({ ...draft, allowParticipantVoting: event.target.checked })} className="h-5 w-5" />
               {t("Allow participants to vote")}
