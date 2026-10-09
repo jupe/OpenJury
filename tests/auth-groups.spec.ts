@@ -1151,6 +1151,27 @@ test("ordinary group members can view competitions but cannot create drafts", as
   await expect(page.getByRole("button", { name: "Edit draft" })).toHaveCount(0);
 });
 
+test("group competition list shows drafts first and published results last", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [
+      { id: "44444444-4444-4444-8444-444444444444", name: "Published", status: "results_published", results_publish_at: "2027-01-01T00:00:00Z" },
+      { id: "55555555-5555-4555-8555-555555555555", name: "Voting", status: "voting", voting_deadline: "2026-12-01T00:00:00Z" },
+      { id: "66666666-6666-4666-8666-666666666666", name: "Draft", status: "draft" },
+      { id: "77777777-7777-4777-8777-777777777777", name: "Submission", status: "submission", submission_deadline: "2026-11-01T00:00:00Z" },
+    ],
+  }));
+
+  await page.goto(`/group/${groupId}`);
+  const competitions = page.locator("#competitions").getByRole("listitem");
+  await expect(competitions).toHaveText([
+    /Draft/,
+    /Voting/,
+    /Submission/,
+    /Published/,
+  ]);
+});
+
 test("competition details follow the selected language without translating user content @mobile", async ({ page }) => {
   await configure(page, true);
   const competitionId = "33333333-3333-4333-8333-333333333333";
