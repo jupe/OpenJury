@@ -145,6 +145,9 @@ object to its entry owner and competition phase. The UI downloads protected
 objects through the authenticated Storage client into temporary in-memory Blob
 URLs; it does not create public or signed media URLs. Removed media and failed
 uploads are deleted through Storage, and failed cleanup can be retried.
+Before browser uploads, images are decoded and re-encoded to remove embedded
+camera/device and GPS metadata. If the browser cannot process an image, the
+original file is not uploaded.
 Migration `22_submission_upload_preflight.sql` authorizes upload preflight by
 entry ownership, competition phase/deadline, random filename, and upload quota,
 without requiring completed object metadata. Storage's bucket limits still

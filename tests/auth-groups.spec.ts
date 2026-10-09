@@ -296,8 +296,10 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   await configure(page, true);
   await page.setViewportSize({ width: 320, height: 568 });
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
+  const metadataPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAARHRFWHRDYW1lcmFNb2RlbABUZXN0IENhbWVyYTsgR1BTTGF0aXR1ZGU9MzcuNzc0OTsgR1BTTG9uZ2l0dWRlPS0xMjIuNDE5NLfDVksAAAALSURBVHjaY/z/HwADAwIA76NFmQAAAABJRU5ErkJggg==", "base64");
   const saves: Array<{ p_title: string; p_media_keys: string[] }> = [];
   const deletions: string[][] = [];
+  let uploadedBytes: Buffer | undefined;
   await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
     json: [{ id: secondId, group_id: groupId, name: "Phone photos", max_submission_images: 2, status: "submission", submission_deadline: null, voting_deadline: null, competition_participants: [{ role: "participant" }] }],
   }));
@@ -307,7 +309,10 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
     return route.fulfill({ json: groupId });
   });
   await page.route(`${supabaseURL}/storage/v1/object/**`, (route) => {
-    if (route.request().method() === "POST") return route.fulfill({ json: { Key: "uploaded.png" } });
+    if (route.request().method() === "POST") {
+      uploadedBytes = route.request().postDataBuffer() || undefined;
+      return route.fulfill({ json: { Key: "uploaded.jpg" } });
+    }
     if (route.request().method() === "DELETE") {
       deletions.push(route.request().postDataJSON().prefixes);
       return route.fulfill({ json: [] });
@@ -324,7 +329,7 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   const pendingPreview = page.getByRole("img", { name: "Your submission image 1", exact: true });
   await expect(pendingPreview).toBeVisible();
   await expect.poll(() => pendingPreview.evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBe(1);
-  await page.locator('input[type="file"][multiple]').setInputFiles({ name: "phone.heic", mimeType: "image/heic", buffer: png });
+  await page.locator('input[type="file"][multiple]').setInputFiles({ name: "phone.heic", mimeType: "image/heic", buffer: metadataPng });
   await expect(page.getByText("2 new image(s) selected.")).toBeVisible();
   await expect(page.getByText("JPEG, PNG, WebP, HEIC, or HEIF · up to 2 images, 10 MB each")).toBeVisible();
   await page.locator('input[type="file"][multiple]').setInputFiles({ name: "extra.png", mimeType: "image/png", buffer: png });
@@ -346,7 +351,11 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   await expect(page.getByRole("status")).toContainText("Thanks for taking part! Your entry has been saved.");
   expect(saves[1].p_title).toBe("My phone photo");
   expect(saves[1].p_media_keys).toHaveLength(1);
-  expect(saves[1].p_media_keys[0]).toMatch(/\.heic$/);
+  expect(saves[1].p_media_keys[0]).toMatch(/\.jpg$/);
+  expect(uploadedBytes?.subarray(0, 3)).toEqual(Buffer.from([0xff, 0xd8, 0xff]));
+  expect(uploadedBytes?.includes(Buffer.from("CameraModel"))).toBe(false);
+  expect(uploadedBytes?.includes(Buffer.from("GPSLatitude"))).toBe(false);
+  expect(uploadedBytes?.includes(Buffer.from("GPSLongitude"))).toBe(false);
   const preview = page.getByRole("img", { name: "Your submission image 1", exact: true });
   await preview.scrollIntoViewIfNeeded();
   await expect(preview).toBeVisible();
