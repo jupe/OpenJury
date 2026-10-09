@@ -709,12 +709,6 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         <CompetitionDetails competition={competition} />
       </Card>
 
-      <WinnerCertificates
-        competitionName={competition.name}
-        published={competition.status === "results_published"}
-        winners={publishedResults}
-      />
-
       {["draft", "submission", "voting"].includes(competition.status) && (
         <CompetitionRole
           competitionId={competitionId}
@@ -953,6 +947,11 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           )}
         </Card>
       )}
+      <WinnerCertificates
+        competitionName={competition.name}
+        published={competition.status === "results_published"}
+        winners={publishedResults}
+      />
       {error && !editable && <p role="alert"><ErrorText error={error} /></p>}
     </div>
   );
