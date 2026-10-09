@@ -1067,7 +1067,7 @@ test("admins can create a new competition from a past template without copying c
   await expect(page.getByLabel("Rules (optional)", { exact: true })).toHaveValue("No identifying details.");
   await expect(page.getByLabel("Submission format")).toHaveValue("text");
   await expect(page.getByLabel("Allow participants to vote", { exact: true })).toBeChecked();
-  await expect(page.getByLabel("Event type")).toHaveValue("live");
+  await expect(page.getByLabel("Event type", { exact: true })).toHaveValue("live");
   await expect(page.getByLabel("Submission deadline", { exact: true })).toHaveValue("");
   await expect(page.getByLabel("Voting deadline", { exact: true })).toHaveValue("");
   await expect(page.getByLabel("Results publication time (optional)")).toHaveValue("");
