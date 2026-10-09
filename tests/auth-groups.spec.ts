@@ -773,7 +773,7 @@ test("preview password sign-in uses the seeded account", async ({ page }) => {
 test("OTP failures and rejected links are visible and retryable", async ({ page }) => {
   await configure(page);
   await page.route(`${supabaseURL}/auth/v1/otp**`, (route) => route.fulfill({
-    status: 429, json: { msg: "Too many requests" },
+    status: 500, json: { msg: "Too many requests" },
   }));
   await page.goto("/dashboard#error=access_denied&error_description=Link%20expired");
   await expect(page.getByRole("alert").filter({ hasText: "Link expired" })).toBeVisible();
@@ -782,6 +782,39 @@ test("OTP failures and rejected links are visible and retryable", async ({ page 
   await page.getByRole("button", { name: "Send sign-in link" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Unable to send" })).toContainText("Too many requests");
   await expect(page.getByRole("button", { name: "Send sign-in link" })).toBeEnabled();
+});
+
+test("sign-in links wait out the resend limit instead of failing repeatedly", async ({ page }) => {
+  await page.clock.install();
+  await configure(page);
+  let limited = false;
+  const requests: unknown[] = [];
+  await page.route(`${supabaseURL}/auth/v1/otp**`, (route) => {
+    requests.push(route.request().postDataJSON());
+    return limited
+      ? route.fulfill({ status: 429, json: { code: 429, error_code: "over_email_send_rate_limit", msg: "For security purposes, you can only request this after 5 seconds." } })
+      : route.fulfill({ json: {} });
+  });
+  await page.goto("/");
+  const address = page.getByRole("textbox", { name: "Email address" });
+  await address.fill("member@example.com");
+  await page.getByRole("button", { name: "Send sign-in link" }).click();
+  await expect(page.getByRole("status")).toContainText("Check your email");
+  // A repeat request would invalidate the link that was just sent.
+  await expect(page.getByRole("button", { name: "Send a new link in 60 s" })).toBeDisabled();
+  await page.clock.runFor(1000);
+  await expect(page.getByRole("button", { name: "Send a new link in 59 s" })).toBeDisabled();
+  expect(requests).toHaveLength(1);
+
+  // A corrected address is not limited, but the server's remaining wait is honoured.
+  limited = true;
+  await address.fill("other@example.com");
+  await page.getByRole("button", { name: "Send sign-in link" }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("A sign-in link was sent recently.");
+  await expect(page.getByRole("button", { name: "Send a new link in 5 s" })).toBeDisabled();
+  await page.clock.runFor(5000);
+  await expect(page.getByRole("button", { name: "Send sign-in link" })).toBeEnabled();
+  expect(requests).toHaveLength(2);
 });
 
 test("session initialization errors fail closed and offer retry", async ({ page }) => {
@@ -2203,7 +2236,9 @@ test("email delivery errors stay visible and preserve the address for retry", as
   responseMode = "registered";
   await address.fill("registered@example.com");
   await page.getByRole("button", { name: "Invite", exact: true }).click();
-  await expect(page.getByRole("main").getByRole("alert")).toContainText("This email is already registered. Use an invite link instead.");
+  // Shown inside the invite form, not below the invite links.
+  await expect(page.locator("form").filter({ has: address }).getByRole("alert"))
+    .toContainText("This email is already registered. Use an invite link instead.");
   await expect(address).toHaveValue("registered@example.com");
 });
 

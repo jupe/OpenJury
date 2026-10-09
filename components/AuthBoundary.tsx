@@ -10,6 +10,10 @@ import AccountMenu from "@/components/AccountMenu";
 import DemoToolbar from "@/components/DemoToolbar";
 import { useLocale } from "@/lib/i18n";
 
+// Supabase Auth refuses a new sign-in email to the same address for 60 seconds
+// (GOTRUE_SMTP_MAX_FREQUENCY), and each new link invalidates the previous one.
+const LINK_COOLDOWN_SECONDS = 60;
+
 const AuthContext = createContext<{ client: SupabaseClient; session: Session } | null>(null);
 
 export function useAuth() {
@@ -36,6 +40,7 @@ export default function AuthBoundary({ children, signedOut }: {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   const [signingOut, setSigningOut] = useState(false);
   const mounted = useRef(false);
   const revision = useRef(0);
@@ -46,6 +51,12 @@ export default function AuthBoundary({ children, signedOut }: {
   useEffect(() => {
     translate.current = t;
   }, [t]);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = window.setTimeout(() => setCooldown((seconds) => seconds - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [cooldown]);
 
   useEffect(() => {
     mounted.current = true;
@@ -148,7 +159,7 @@ export default function AuthBoundary({ children, signedOut }: {
 
   async function requestLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!client || pending) return;
+    if (!client || pending || cooldown > 0) return;
     const requestRevision = revision.current;
     setPending(true);
     setActionError("");
@@ -159,8 +170,15 @@ export default function AuthBoundary({ children, signedOut }: {
         options: { emailRedirectTo: `${window.location.origin}/dashboard`, shouldCreateUser: true },
       });
       if (!mounted.current || revision.current !== requestRevision) return;
-      if (error) setActionError(t("Unable to send sign-in link: {error}", { error: t(error.message) }));
-      else setMessage(t("Check your email for a sign-in link. You can close this tab."));
+      if (error?.status === 429) {
+        const wait = Number(/after (\d+) seconds/.exec(error.message)?.[1]);
+        setCooldown(Number.isInteger(wait) && wait > 0 ? wait : LINK_COOLDOWN_SECONDS);
+        setActionError(t("A sign-in link was sent recently. Check your email, including the spam folder, or wait before requesting a new one."));
+      } else if (error) setActionError(t("Unable to send sign-in link: {error}", { error: t(error.message) }));
+      else {
+        setCooldown(LINK_COOLDOWN_SECONDS);
+        setMessage(t("Check your email for a sign-in link. You can close this tab."));
+      }
     } catch {
       if (mounted.current && revision.current === requestRevision) setActionError(t("Unable to send sign-in link. Please try again."));
     } finally {
@@ -248,9 +266,14 @@ export default function AuthBoundary({ children, signedOut }: {
           {demo && <p>{t("In the demo, any email signs in instantly as a new account, or pick a demo person in the toolbar below.")}</p>}
           <form onSubmit={requestLink} className="space-y-4" aria-busy={pending}>
             <label className="block">{t("Email address")}
-              <input type="email" autoComplete="email" autoCapitalize="none" spellCheck={false} enterKeyHint="send" required value={email} onChange={(event) => setEmail(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+              <input type="email" autoComplete="email" autoCapitalize="none" spellCheck={false} enterKeyHint="send" required value={email} onChange={(event) => {
+                setEmail(event.target.value);
+                // The limit is per address, so a corrected address may be sent at once.
+                setCooldown(0);
+              }} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
-            <Button type="submit" disabled={pending}>{t(pending ? "Sending link…" : "Send sign-in link")}</Button>
+            <Button type="submit" disabled={pending || cooldown > 0}>{pending ? t("Sending link…")
+              : cooldown > 0 ? t("Send a new link in {seconds} s", { seconds: cooldown }) : t("Send sign-in link")}</Button>
           </form>
           {(pending || message) && <p role="status">{pending ? t("Sending your sign-in link…") : message}</p>}
           {passwordSignInEnabled() && (
