@@ -68,6 +68,12 @@ export default function AuthBoundary({ children, signedOut }: {
       if (!active) return;
       const hash = new URLSearchParams(window.location.hash.slice(1));
       const query = new URLSearchParams(window.location.search);
+      const invitedEmail = hash.get("email");
+      if (invitedEmail) {
+        setEmail(invitedEmail);
+        hash.delete("email");
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${hash.size ? `#${hash}` : ""}`);
+      }
       // Email previews may run JavaScript; only a deliberate click may redeem this token.
       const token = hash.get("token_hash");
       if (token) setLinkToken(token);

@@ -90,13 +90,21 @@ Existing emails cannot be retroactively protected; send a new sign-in link.
 ### Group invitation emails
 
 Invitations need the SMTP settings above, `APP_URL` (the trusted public HTTPS
-origin), and the Supabase public URL/key. They do not require a service-role key
-or a new database migration.
+origin), and the Supabase public URL/key. No new database migration is required.
+Set the server-only `SUPABASE_SERVICE_ROLE_KEY` to include a real sign-in link in
+the invitation itself; self-hosted stacks already supply this key.
 
 `POST /api/groups/<id>/invite` verifies the session bearer token and uses the
 user-scoped `invite_group_member_by_email` RPC to enforce group-admin access before
-sending a private plain-text invitation. The email links to `/dashboard`; the
-recipient joins after signing in with the invited, confirmed email address.
+sending a private plain-text invitation. Only after authorization, the server
+generates a Supabase magic link and includes its token hash in the `/dashboard`
+URL fragment. The recipient opens the invitation and selects **Continue to
+OpenJury** to sign in and join, without typing an email or requesting a second
+email. This explicit action keeps email previews from consuming the token.
+Without a service-role key, the link pre-fills the invited recipient's email in
+the usual sign-in form instead. Email addresses also use a URL fragment, which
+is removed after pre-filling and is not sent in HTTP requests or referrers.
+An expired direct link offers the pre-filled form to request a fresh sign-in email.
 Missing email configuration fails before saving an invitation. If delivery fails
 after saving, the UI reports that failure, preserves the pending invitation, and
 offers **Resend invite**. Existing pending invitations can also be resent.
@@ -279,7 +287,7 @@ The `dev` environment supplies approval, variables, and secrets as configured.
 | `staging` / `production` variables | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_ADMIN_EMAIL`, `SMTP_SENDER_NAME` | Mail server for app-sent email (invitations, competition-start notices) and, on self-hosted Supabase, sign-in links; unset leaves app email disabled and sends sign-in links to the host's Mailpit |
 | `staging` / `production` secret | `SMTP_PASS` | SMTP password, e.g. a Google app password |
 | `staging` / `production` variable | `APP_URL` | Optional; public HTTPS origin used in email links, defaults to `https://<APP_HOST>` |
-| `staging` / `production` secret | `SUPABASE_SERVICE_ROLE_KEY` | Hosted Supabase only, for competition-start emails; self-hosted stacks supply their own |
+| `staging` / `production` secret | `SUPABASE_SERVICE_ROLE_KEY` | Hosted Supabase only, for direct sign-in invitation links and competition-start emails; self-hosted stacks supply their own |
 
 Allow Actions to publish/read this repository's GHCR package. The workflows use
 short-lived `GITHUB_TOKEN` credentials; no PAT is required. If the package already
