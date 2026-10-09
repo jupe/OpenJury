@@ -14,9 +14,10 @@ function placeName(rank: number, t: ReturnType<typeof useLocale>["t"]) {
   return t("Third place");
 }
 
-function printCertificates() {
+function printCertificates(type: "templates" | "winners") {
   document.body.classList.add("print-award-certificates");
-  const cleanup = () => document.body.classList.remove("print-award-certificates");
+  document.body.classList.add(`print-award-${type}`);
+  const cleanup = () => document.body.classList.remove("print-award-certificates", "print-award-templates", "print-award-winners");
   window.addEventListener("afterprint", cleanup, { once: true });
   try {
     window.print();
@@ -44,44 +45,63 @@ export default function WinnerCertificates({
     <>
       <Card title={t("Award certificates")}>
         <div className="flex flex-wrap gap-3">
-          <Button variant="secondary" onClick={() => printCertificates()}>
+          <Button variant="secondary" onClick={() => printCertificates("templates")}>
             {t("Print blank certificate templates")}
           </Button>
           {published && printableWinners.length > 0 && (
-            <Button onClick={() => printCertificates()}>
+            <Button onClick={() => printCertificates("winners")}>
               {t("Print published winner certificates")}
             </Button>
           )}
         </div>
         <p className="mt-3 text-sm text-slate-600">{t("Use your browser’s print dialog to print or save the certificates as PDF.")}</p>
       </Card>
-      <section className="certificate-print" aria-label={t("Award certificates")}>
-        {(printableWinners.length
-          ? printableWinners.map((winner) => ({ rank: winner.rank, name: winner.creator_name }))
-          : places.map((rank) => ({ rank, name: "" }))
-        ).map(({ rank, name }, index) => (
-          <article className="award-certificate" key={`${rank}:${index}`}>
+      <section className="certificate-print template-certificates" aria-label={t("Print blank certificate templates")}>
+        {places.map((rank) => (
+          <article className="award-certificate" key={rank}>
             <div className="award-certificate-frame">
               <p className="award-certificate-brand">OPENJURY</p>
               <p className="award-certificate-kicker">{t("Certificate of achievement")}</p>
               <h1>{t("Certificate of Honor")}</h1>
               <p className="award-certificate-intro">{t("This certificate is proudly presented to")}</p>
-              <p className={`award-certificate-recipient ${name ? "" : "award-certificate-blank"}`}>
-                {name || "\u00a0"}
-              </p>
+              <p className="award-certificate-recipient">&nbsp;</p>
               <p className="award-certificate-description">{t("In recognition of an outstanding achievement")}</p>
               <p className={`award-certificate-place award-certificate-place-${rank}`}>
                 {placeName(rank, t)}
               </p>
               <p className="award-certificate-competition">{competitionName}</p>
               <div className="award-certificate-signatures">
-                <p><span>{name ? t("Awarded on") : "\u00a0"}</span></p>
+                <p><span>&nbsp;</span></p>
                 <p><span>{t("Competition organizer")}</span></p>
               </div>
             </div>
           </article>
         ))}
       </section>
+      {printableWinners.length > 0 && (
+        <section className="certificate-print winner-certificates" aria-label={t("Print published winner certificates")}>
+          {printableWinners.map((winner, index) => (
+            <article className="award-certificate" key={`${winner.rank}:${index}`}>
+              <div className="award-certificate-frame">
+                <p className="award-certificate-brand">OPENJURY</p>
+                <p className="award-certificate-kicker">{t("Certificate of achievement")}</p>
+                <h1>{t("Certificate of Honor")}</h1>
+                <p className="award-certificate-intro">{t("This certificate is proudly presented to")}</p>
+                <p className="award-certificate-recipient">{winner.creator_name || t("Participant")}</p>
+                <p className="award-certificate-description">{t("In recognition of an outstanding achievement")}</p>
+                <p className={`award-certificate-place award-certificate-place-${winner.rank}`}>
+                  {placeName(winner.rank, t)}
+                </p>
+                <p className="award-certificate-competition">{competitionName}</p>
+                <div className="award-certificate-signatures">
+                  <p><span>{t("Awarded on")}</span></p>
+                  <p><span>{t("Competition organizer")}</span></p>
+                </div>
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
     </>
   );
 }

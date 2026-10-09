@@ -317,6 +317,157 @@ html[data-theme="dark"] .category-winner {
   overflow-wrap: anywhere;
 }
 
+.certificate-print {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 0;
+  }
+
+  body.print-award-certificates {
+    background: #fff;
+    color: #263449;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  body.print-award-certificates * {
+    visibility: hidden !important;
+  }
+
+  body.print-award-certificates .certificate-print,
+  body.print-award-certificates .certificate-print * {
+    visibility: visible !important;
+  }
+
+  body.print-award-certificates .certificate-print {
+    display: none;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+  }
+
+  body.print-award-templates .template-certificates,
+  body.print-award-winners .winner-certificates {
+    display: block;
+  }
+
+  .award-certificate {
+    box-sizing: border-box;
+    display: flex;
+    width: 297mm;
+    height: 210mm;
+    padding: 13mm;
+    page-break-after: always;
+    break-after: page;
+    background: #fff;
+    color: #263449;
+    font-family: Georgia, "Times New Roman", serif;
+  }
+
+  .award-certificate:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  .award-certificate-frame {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border: 3px double #b68a35;
+    outline: 1px solid #e8d6a8;
+    outline-offset: -8mm;
+    padding: 18mm;
+    text-align: center;
+  }
+
+  .award-certificate-brand {
+    margin: 0 0 4mm;
+    color: #52647b;
+    font-family: Arial, sans-serif;
+    font-size: 11pt;
+    font-weight: 700;
+    letter-spacing: 0.32em;
+  }
+
+  .award-certificate-kicker {
+    margin: 0;
+    color: #8a6a29;
+    font-family: Arial, sans-serif;
+    font-size: 11pt;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .award-certificate h1 {
+    margin: 3mm 0 5mm;
+    color: #263449;
+    font-size: 32pt;
+    font-weight: 500;
+  }
+
+  .award-certificate-intro,
+  .award-certificate-description {
+    margin: 1mm 0;
+    font-size: 14pt;
+  }
+
+  .award-certificate-recipient {
+    min-width: 115mm;
+    margin: 3mm 0;
+    border-bottom: 1px solid #b68a35;
+    padding: 0 8mm 2mm;
+    color: #263449;
+    font-size: 25pt;
+    font-weight: 700;
+  }
+
+  .award-certificate-place {
+    margin: 3mm 0 1mm;
+    color: #8a6a29;
+    font-size: 21pt;
+    font-weight: 700;
+  }
+
+  .award-certificate-place-2 {
+    color: #687486;
+  }
+
+  .award-certificate-place-3 {
+    color: #98603d;
+  }
+
+  .award-certificate-competition {
+    max-width: 240mm;
+    margin: 1mm 0 8mm;
+    color: #263449;
+    font-size: 19pt;
+    font-weight: 700;
+  }
+
+  .award-certificate-signatures {
+    display: flex;
+    width: 170mm;
+    justify-content: space-between;
+    gap: 20mm;
+    margin-top: 2mm;
+    font-family: Arial, sans-serif;
+    font-size: 9pt;
+  }
+
+  .award-certificate-signatures p {
+    width: 68mm;
+    margin: 0;
+    border-top: 1px solid #9ba4b0;
+    padding-top: 2mm;
+  }
+}
+
 .site-header {
   position: sticky;
   top: 0;

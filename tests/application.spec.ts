@@ -49,6 +49,8 @@ async function checkLandingNavigation(page: Page) {
   await demoExpect(page).toHaveURL(/\/competition\/[^/]+$/);
   await demoExpect(page.getByRole("heading", { level: 1 })).toHaveText("Competition");
   await demoExpect(page.getByRole("heading", { name: "Anonymous entries" })).toBeVisible();
+  await demoExpect(page.getByRole("button", { name: "Print blank certificate templates" })).toBeVisible();
+  await demoExpect(page.getByRole("button", { name: "Print published winner certificates" })).toHaveCount(0);
   await page.getByRole("link", { name: "Manage competition" }).click();
   await demoExpect(page).toHaveURL(/\/competition\/[^/]+\/admin$/);
   await demoExpect(page.getByRole("heading", { level: 1 })).toHaveText("Competition admin");
