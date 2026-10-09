@@ -765,7 +765,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                 <div className="flex items-center gap-1">
                   <IconButton icon="camera" aria-label={t("Take a photo")} onClick={() => captureInput.current?.click()} />
                   <IconButton icon="addImage" aria-label={t("Add images")} onClick={() => fileInput.current?.click()} />
-                  <p className="ml-2 text-xs text-slate-500">{t("JPEG, PNG, WebP, HEIC, or HEIF · up to {count} images, 10 MB each", { count: maxSubmissionImages })}</p>
+                  <p className="ml-2 text-xs text-slate-500">{t("JPEG, PNG, WebP, HEIC, or HEIF · up to {count} images, 10 MB each · maximum 2048 px", { count: maxSubmissionImages })}</p>
                 </div>
                 <input
                   ref={fileInput}

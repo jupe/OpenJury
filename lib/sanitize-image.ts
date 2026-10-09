@@ -4,6 +4,8 @@ const IMAGE_EXTENSIONS = new Map([
   ["image/webp", "webp"],
 ]);
 
+export const MAX_IMAGE_DIMENSION = 2048;
+
 const SANITIZATION_ERROR =
   "Unable to remove camera and location metadata from this image. Try saving it as JPEG, PNG, or WebP, then upload it again.";
 
@@ -45,12 +47,15 @@ export async function sanitizeImage(file: File): Promise<File> {
   }
 
   try {
+    const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(width, height));
+    const outputWidth = Math.max(1, Math.round(width * scale));
+    const outputHeight = Math.max(1, Math.round(height * scale));
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = outputWidth;
+    canvas.height = outputHeight;
     const context = canvas.getContext("2d");
     if (!context || width < 1 || height < 1) throw new Error(SANITIZATION_ERROR);
-    context.drawImage(image, 0, 0);
+    context.drawImage(image, 0, 0, outputWidth, outputHeight);
 
     const outputType = file.type === "image/heic" || file.type === "image/heif" ? "image/jpeg" : file.type;
     const blob = await new Promise<Blob>((resolve, reject) => {
