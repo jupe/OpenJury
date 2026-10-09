@@ -3,15 +3,16 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthBoundary";
 import Card from "@/components/Card";
+import Podium from "@/components/Podium";
 import { useLocale } from "@/lib/i18n";
 
 type Result = { rank: number; score: number | null; creator_id: string; creator_name: string; is_disqualified: boolean };
 type Winner = { id: string; name: string; gold: number; silver: number; bronze: number; points: number };
 
 const PLACES = [
-  { key: "gold", label: "1st place", medal: "bg-amber-400 text-amber-950", height: "h-28", weight: 3 },
-  { key: "silver", label: "2nd place", medal: "bg-slate-300 text-slate-900", height: "h-20", weight: 2 },
-  { key: "bronze", label: "3rd place", medal: "bg-orange-400 text-orange-950", height: "h-14", weight: 1 },
+  { key: "gold", weight: 3 },
+  { key: "silver", weight: 2 },
+  { key: "bronze", weight: 1 },
 ] as const;
 
 /** Ranks group members by podium finishes (top 3) across the group's published competitions. */
@@ -51,26 +52,14 @@ export default function GroupPodium({ groupId }: { groupId: string }) {
   }, [client, groupId]);
 
   if (!winners?.length) return null;
-  // Podium order: 2nd, 1st, 3rd.
-  const slots = [1, 0, 2].filter((index) => winners[index]);
   return (
     <Card title={t("Top 3 winners")}>
-      <ol aria-label={t("Top 3 winners")} className="flex items-end justify-center gap-3 pt-2">
-        {slots.map((index) => {
-          const winner = winners[index];
-          const place = PLACES[index];
-          return (
-            <li key={winner.id} className="flex w-full max-w-36 flex-col items-center gap-1 text-center">
-              <span aria-hidden className={`inline-flex size-10 items-center justify-center rounded-full text-lg font-bold shadow ${place.medal}`}>{index + 1}</span>
-              <span className="w-full break-words text-sm font-semibold text-slate-900">{winner.name}</span>
-              <span className="text-xs text-slate-500">
-                {t("{count} wins", { count: winner.gold })} · {t("{count} podiums", { count: winner.gold + winner.silver + winner.bronze })}
-              </span>
-              <div className={`flex w-full items-start justify-center rounded-t-lg pt-2 text-xs font-semibold ${place.medal} ${place.height}`}>{t(place.label)}</div>
-            </li>
-          );
-        })}
-      </ol>
+      <Podium label={t("Top 3 winners")} spots={winners.map((winner, index) => ({
+        key: winner.id,
+        place: (index + 1) as 1 | 2 | 3,
+        name: winner.name,
+        detail: `${t("{count} wins", { count: winner.gold })} · ${t("{count} podiums", { count: winner.gold + winner.silver + winner.bronze })}`,
+      }))} />
     </Card>
   );
 }

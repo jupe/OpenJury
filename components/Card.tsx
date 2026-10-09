@@ -11,7 +11,8 @@ export default function Card({
   title: ReactNode;
   /** Optional control shown next to the title, such as an add button. */
   action?: ReactNode;
-  children: ReactNode;
+  /** Omit for a title-only card. */
+  children?: ReactNode;
 }) {
   const heading = <h2 className="text-xl font-semibold tracking-tight">{title}</h2>;
   return (
@@ -19,7 +20,7 @@ export default function Card({
       {action ? (
         <div className="flex items-center justify-between gap-3">{heading}{action}</div>
       ) : heading}
-      <div className="space-y-4 text-slate-600">{children}</div>
+      {children != null && children !== false && <div className="space-y-4 text-slate-600">{children}</div>}
     </section>
   );
 }
