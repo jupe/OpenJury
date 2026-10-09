@@ -46,6 +46,15 @@ async function configure(page: Page, signedIn = false, passwordSignIn = false) {
         has_voted: false,
       }],
     });
+    if (path === "/rest/v1/rpc/get_admin_competition_participation_progress") return route.fulfill({
+      json: [{
+        joined_count: 1,
+        participant_count: 0,
+        submitted_count: 0,
+        complete_ballot_count: 0,
+        eligible_voter_count: 0,
+      }],
+    });
     if (path === "/rest/v1/rpc/get_my_pending_competition_start_emails") return route.fulfill({ json: false });
     return route.fulfill({ status: 400, json: { message: `Unexpected endpoint: ${path}` } });
   });
@@ -1872,6 +1881,18 @@ test("competition admins see all attendees, including non-submitters and former 
       ],
     });
   });
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_competition_participation_progress`, (route) => {
+    expect(route.request().postDataJSON()).toEqual({ p_competition_id: secondId });
+    return route.fulfill({
+      json: [{
+        joined_count: 2,
+        participant_count: 1,
+        submitted_count: 1,
+        complete_ballot_count: 2,
+        eligible_voter_count: 3,
+      }],
+    });
+  });
   await page.route(`${supabaseURL}/rest/v1/rpc/get_competition_participants`, (route) => route.fulfill({
     json: [
       { user_id: userId, email: "alex@example.com", role: "participant", has_entry: true },
@@ -1881,8 +1902,10 @@ test("competition admins see all attendees, including non-submitters and former 
   await page.goto(`/competition/${secondId}/admin`);
   await expect(page.getByRole("heading", { name: "Community bake-off" })).toBeVisible();
   const roster = page.getByRole("heading", { name: "Competition attendees" }).locator("..");
-  await expect(roster.locator("dt")).toHaveText(["Attendees", "Submitted", "Has voted"]);
-  await expect(roster.locator("dd")).toHaveText(["4", "2", "1"]);
+  await expect(roster.locator("dt")).toHaveText(["Joined", "Submitted", "Has voted"]);
+  await expect(roster.locator("dd")).toHaveText(["2", "2", "1"]);
+  await expect(roster.getByLabel("Submission completion: 1 of 1 participants")).toBeVisible();
+  await expect(roster.getByLabel("Complete ballots: 2 of 3 eligible voters")).toBeVisible();
   await expect(roster.getByRole("listitem")).toHaveCount(4);
   await expect(roster.getByRole("listitem").filter({ hasText: "Voter only" })).toContainText("Member · Audience · No submission · Has voted");
   await expect(roster.getByRole("listitem").filter({ hasText: "Not started" })).toContainText("Member · Not taking part · No submission · Has not voted");
