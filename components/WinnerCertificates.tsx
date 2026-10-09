@@ -71,7 +71,7 @@ export default function WinnerCertificates({
               </p>
               <p className="award-certificate-competition">{competitionName}</p>
               <div className="award-certificate-signatures">
-                <p><span>&nbsp;</span></p>
+                <p><span>{t("Awarded on")}</span></p>
                 <p><span>{t("Competition organizer")}</span></p>
               </div>
             </div>

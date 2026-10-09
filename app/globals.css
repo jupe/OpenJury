@@ -334,20 +334,21 @@ html[data-theme="dark"] .category-winner {
     -webkit-print-color-adjust: exact;
   }
 
-  body.print-award-certificates * {
-    visibility: hidden !important;
+  body.print-award-certificates *:not(.certificate-print):not(.certificate-print *):not(:has(.certificate-print)) {
+    display: none !important;
   }
 
-  body.print-award-certificates .certificate-print,
-  body.print-award-certificates .certificate-print * {
-    visibility: visible !important;
+  body.print-award-certificates .site-main {
+    width: 297mm;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
   }
 
   body.print-award-certificates .certificate-print {
     display: none;
-    position: absolute;
-    inset: 0;
-    width: 100%;
+    width: 297mm;
   }
 
   body.print-award-templates .template-certificates,
