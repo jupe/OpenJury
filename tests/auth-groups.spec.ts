@@ -702,9 +702,25 @@ test("Auth email template points to app confirmation rather than a consuming ver
   expect(template).not.toContain("/auth/v1/verify");
 });
 
+test("invitation email pre-fills the recipient without sending another email automatically @mobile", async ({ page }) => {
+  await configure(page);
+  const requests: unknown[] = [];
+  await page.route(`${supabaseURL}/auth/v1/otp**`, (route) => {
+    requests.push(route.request().postDataJSON());
+    return route.fulfill({ json: {} });
+  });
+  await page.goto("/dashboard#email=person%2Binvite%40example.com");
+  await expect(page.getByRole("textbox", { name: "Email address" })).toHaveValue("person+invite@example.com");
+  await expect(page).toHaveURL(/\/dashboard$/);
+  expect(requests).toEqual([]);
+  await page.getByRole("button", { name: "Send sign-in link" }).click();
+  await expect(page.getByRole("status")).toContainText("Check your email");
+  expect(requests).toMatchObject([{ email: "person+invite@example.com", create_user: true }]);
+});
+
 test("email previews and reopens do not consume sign-in links before confirmation @mobile", async ({ page, context }) => {
   const token = "preview-safe-test-token";
-  const link = `/dashboard#token_hash=${token}`;
+  const link = `/dashboard#email=member%40example.com&token_hash=${token}`;
   const verifications: unknown[] = [];
   const preview = await context.newPage();
   await configure(preview);
@@ -724,6 +740,11 @@ test("email previews and reopens do not consume sign-in links before confirmatio
     verifications.push(route.request().postDataJSON());
     await route.fulfill({ json: session() });
   });
+  const emails: unknown[] = [];
+  await page.route(`${supabaseURL}/auth/v1/otp**`, (route) => {
+    emails.push(route.request().postDataJSON());
+    return route.fulfill({ json: {} });
+  });
   await page.goto(link);
   await expect(page.getByRole("button", { name: "Continue to OpenJury" })).toBeVisible();
   expect(verifications).toEqual([]);
@@ -731,6 +752,7 @@ test("email previews and reopens do not consume sign-in links before confirmatio
   await page.getByRole("button", { name: "Continue to OpenJury" }).click();
   await expect(page.getByRole("button", { name: "Account (member@example.com)" })).toBeVisible();
   expect(verifications).toMatchObject([{ token_hash: token, type: "email" }]);
+  expect(emails).toEqual([]);
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole("link", { name: "Baking club" })).toBeVisible();
 });
@@ -740,12 +762,12 @@ test("expired confirmation links offer a fresh sign-in link without exposing the
   await page.route(`${supabaseURL}/auth/v1/verify`, (route) => route.fulfill({
     status: 403, json: { msg: "Token expired: private-test-token", error_code: "otp_expired" },
   }));
-  await page.goto("/dashboard#token_hash=private-test-token");
+  await page.goto("/dashboard#email=member%40example.com&token_hash=private-test-token");
   await page.getByRole("button", { name: "Continue to OpenJury" }).click();
   await expect(page.getByRole("main").getByRole("alert")).toContainText("Request a new link below.");
   await expect(page.getByRole("main")).not.toContainText("private-test-token");
   await expect(page).toHaveURL(/\/dashboard$/);
-  await page.getByRole("textbox", { name: "Email address" }).fill("member@example.com");
+  await expect(page.getByRole("textbox", { name: "Email address" })).toHaveValue("member@example.com");
   await page.getByRole("button", { name: "Send sign-in link" }).click();
   await expect(page.getByRole("status")).toContainText("Check your email");
 });
