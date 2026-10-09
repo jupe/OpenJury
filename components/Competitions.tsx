@@ -77,6 +77,12 @@ function latestDate(competition: Competition) {
   return date ? Date.parse(date) : Number.MIN_SAFE_INTEGER;
 }
 
+function statusOrder(status: string) {
+  if (status === "draft") return 0;
+  if (status === "results_published") return 2;
+  return 1;
+}
+
 type CategoryDraft = { name: string; max_score: number };
 type CompetitionDraft = {
   id: string | null;
@@ -207,7 +213,9 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         else if (result.error) setError({ message: "Unable to load competitions: {error}", error: result.error.message });
         else {
           setIsAdmin(membership.data?.role === "admin");
-          setCompetitions([...(result.data || [])].sort((a, b) => latestDate(b) - latestDate(a)));
+          setCompetitions([...(result.data || [])].sort((a, b) =>
+            statusOrder(a.status) - statusOrder(b.status) || latestDate(b) - latestDate(a),
+          ));
         }
       } catch {
         if (active) setError({ message: "Unable to load competitions. Please try again." });
