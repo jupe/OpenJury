@@ -14,10 +14,11 @@ function log(event: string, details: Record<string, unknown> = {}, level: "info"
 }
 
 function configuration(): { error: string } | {
-  url: string; anonKey: string; mail: MailConfig; origin: string;
+  url: string; anonKey: string; serviceKey?: string; mail: MailConfig; origin: string;
 } {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const appUrl = process.env.APP_URL;
   const missing = Object.entries({ SUPABASE_URL: url, SUPABASE_ANON_KEY: anonKey, APP_URL: appUrl })
     .filter(([, value]) => !value).map(([name]) => name);
@@ -27,6 +28,7 @@ function configuration(): { error: string } | {
   }
   if ("error" in mail) return mail;
   if (/\s/.test(anonKey)) return { error: "SUPABASE_ANON_KEY contains whitespace" };
+  if (serviceKey && /\s/.test(serviceKey)) return { error: "SUPABASE_SERVICE_ROLE_KEY contains whitespace" };
   try {
     const origin = new URL(appUrl);
     const backend = new URL(url);
@@ -38,7 +40,7 @@ function configuration(): { error: string } | {
     }
     if (!["https:", "http:"].includes(backend.protocol) || backend.username || backend.password
       || backend.search || backend.hash) return { error: "SUPABASE_URL is invalid" };
-    return { url, anonKey, mail, origin: origin.origin };
+    return { url, anonKey, serviceKey, mail, origin: origin.origin };
   } catch {
     return { error: "APP_URL or SUPABASE_URL is not a URL" };
   }
@@ -102,6 +104,25 @@ export async function POST(request: Request, { params }: { params: Promise<{ gro
     log("invite-saved", context);
     const { data: group, error: groupError } = await client.from("groups").select("name").eq("id", groupId).single();
     if (groupError || !group) throw new Error(`Group unavailable: ${groupError?.message ?? "not found"}`);
+    const link = new URL("/dashboard", config.origin);
+    const fragment = new URLSearchParams({ email });
+    if (config.serviceKey) {
+      // Generate only after the caller's RPC authorizes the invite; never expose the token to the caller.
+      const admin = createClient(config.url, config.serviceKey, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+        global: {
+          fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(10_000) }),
+        },
+      });
+      const { data, error: linkError } = await admin.auth.admin.generateLink({
+        type: "magiclink", email, options: { redirectTo: link.href },
+      });
+      if (linkError || !data.properties?.hashed_token) {
+        throw new Error("Unable to generate invitation sign-in link");
+      }
+      fragment.set("token_hash", data.properties.hashed_token);
+    }
+    link.hash = fragment.toString();
     const sendStarted = Date.now();
     const transport = mailer.createTransport(config.mail);
     try {
@@ -109,7 +130,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ gro
         from: config.mail.from,
         to: [email],
         subject: "You have been invited to an OpenJury group",
-        text: `You have been invited to "${group.name}" on OpenJury.\nSign in with ${email} to join the group:\n${config.origin}/dashboard`,
+        text: `You have been invited to "${group.name}" on OpenJury.\nSign in with ${email} to join the group:\n${link.href}`,
       });
       log("email-accepted", {
         ...context, smtpHost: config.mail.host, messageId: result.messageId,
