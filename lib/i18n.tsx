@@ -158,6 +158,8 @@ const finnish: Record<string, string> = {
   "Email address": "Sähköpostiosoite",
   "Send sign-in link": "Lähetä kirjautumislinkki",
   "Sending link…": "Lähetetään linkkiä…",
+  "Send a new link in {seconds} s": "Uusi linkki {seconds} s kuluttua",
+  "A sign-in link was sent recently. Check your email, including the spam folder, or wait before requesting a new one.": "Kirjautumislinkki lähetettiin juuri. Tarkista sähköpostisi ja roskapostikansio tai odota ennen kuin pyydät uuden.",
   "Sending your sign-in link…": "Lähetetään kirjautumislinkkiä…",
   "Check your email for a sign-in link. You can close this tab.": "Tarkista sähköpostistasi kirjautumislinkki. Voit sulkea tämän välilehden.",
   "Unable to send sign-in link. Please try again.": "Kirjautumislinkin lähettäminen epäonnistui. Yritä uudelleen.",

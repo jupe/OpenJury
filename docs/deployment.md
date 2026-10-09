@@ -100,8 +100,9 @@ recipient joins after signing in with the invited, confirmed email address.
 Missing email configuration fails before saving an invitation. If delivery fails
 after saving, the UI reports that failure, preserves the pending invitation, and
 offers **Resend invite**. Existing pending invitations can also be resent.
-Addresses already registered with OpenJury cannot receive email invitations;
-use an invite link for those people instead. The members screen confirms when
+Addresses with a confirmed OpenJury account cannot receive email invitations;
+use an invite link for those people instead. An address that requested a
+sign-in link but never confirmed it can still be invited by email. The members screen confirms when
 the SMTP server accepts an invitation email.
 Success means the SMTP server accepted the email, not guaranteed inbox delivery.
 Demo mode continues to save fictional invitations without sending email.

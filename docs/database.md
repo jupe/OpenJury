@@ -184,8 +184,10 @@ Migration `12_roles_and_invites.sql` adds the [roles](architecture.md#roles):
 - `group_invites` holds revocable link tokens; `accept_group_invite(token)` joins
   as a member. `group_email_invites` holds addresses that
   `claim_group_invites()` turns into memberships once that confirmed address
-  signs in. Email invitations are rejected for addresses that already have an
-  account; invite links can be used to invite those people instead. Repeating
+  signs in. Email invitations are rejected for addresses that already have a
+  confirmed account; invite links can be used to invite those people instead.
+  Unconfirmed accounts, created when someone requests a sign-in link and never
+  opens it, can still be invited by email. Repeating
   an invitation for a pending address is allowed so its email can be resent.
 - Group admins list members with `get_group_members()`, change roles with
   `set_group_member_role()`, and remove members with `remove_group_member()`.
