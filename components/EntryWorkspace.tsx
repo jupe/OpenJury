@@ -10,6 +10,7 @@ import Button, { ButtonLink } from "@/components/Button";
 import Card from "@/components/Card";
 import IconButton, { Icon, IconLink } from "@/components/IconButton";
 import ImageLightbox from "@/components/ImageLightbox";
+import WinnerCertificates from "@/components/WinnerCertificates";
 import Toast, { type ToastMessage } from "@/components/Toast";
 import { StatusBadge, nextTransition, previousTransition } from "@/components/CompetitionStatus";
 import { CompetitionRole, type CompetitionRoleName } from "@/components/Membership";
@@ -700,6 +701,12 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         </div>
         <CompetitionDetails competition={competition} />
       </Card>
+
+      <WinnerCertificates
+        competitionName={competition.name}
+        published={competition.status === "results_published"}
+        winners={publishedResults}
+      />
 
       {["draft", "submission", "voting"].includes(competition.status) && (
         <CompetitionRole
