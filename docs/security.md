@@ -108,6 +108,11 @@ participation flags, never scores or ballot contents. Trimmed metadata names
 fall back to email only in this admin projection, then to `Participant`, never
 to UUIDs. The published-results RPC appends metadata-only `creator_name` labels
 with a `Participant` fallback; no email fallback is exposed to members.
+Migration `30_admin_participation_progress.sql` adds an authenticated,
+admin-authorized projection of joined/submitted and complete-ballot totals only.
+It does not return individual ballot completion, voter identities, entries, or
+scores, and counts only currently joined, eligible voters who have entries and
+categories to score.
 Migration `11_review_enhancements.sql` adds admin-only category review projections,
 disqualification dispositions, audited reinstatement, and an admin-editable
 publication schedule. Content removal clears the entry's title and media references,

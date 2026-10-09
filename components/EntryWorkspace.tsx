@@ -123,6 +123,13 @@ type CompetitionAttendee = {
   has_submission: boolean;
   has_voted: boolean;
 };
+type ParticipationProgress = {
+  joined_count: number;
+  participant_count: number;
+  submitted_count: number;
+  complete_ballot_count: number;
+  eligible_voter_count: number;
+};
 type Category = { id: string; name: string; max_score: number };
 type SavedScore = { entry_number: number; category_id: string; score: number };
 type PublishedResult = {
@@ -964,6 +971,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
   const [attempt, setAttempt] = useState(0);
   const [entries, setEntries] = useState<AdminEntry[]>([]);
   const [attendees, setAttendees] = useState<CompetitionAttendee[]>([]);
+  const [participationProgress, setParticipationProgress] = useState<ParticipationProgress | null>(null);
   const [competitionRoles, setCompetitionRoles] = useState<Record<string, CompetitionRoleName>>({});
   const [reviewResults, setReviewResults] = useState<AdminReviewResult[] | null>(null);
   const [reviewCategories, setReviewCategories] = useState<AdminCategoryResult[]>([]);
@@ -993,6 +1001,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
     setError("");
     setEntries([]);
     setAttendees([]);
+    setParticipationProgress(null);
     setReviewResults(null);
     setCompetitionStatus("");
     setCompetition(null);
@@ -1003,12 +1012,13 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
     let active = true;
     void (async () => {
       try {
-        const [submissionResult, competitionResult, attendeeResult, roleResult, notificationResult] = await Promise.all([
+        const [submissionResult, competitionResult, attendeeResult, participationResult, roleResult, notificationResult] = await Promise.all([
           client.rpc("get_admin_submissions", { p_competition_id: competitionId }),
           client.from("competitions")
             .select("id,group_id,name,description,rules,max_submission_images,submission_type,allow_participant_voting,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
             .eq("id", competitionId).maybeSingle(),
           client.rpc("get_admin_competition_attendees", { p_competition_id: competitionId }),
+          client.rpc("get_admin_competition_participation_progress", { p_competition_id: competitionId }),
           client.rpc("get_competition_participants", { p_competition_id: competitionId }),
           client.rpc("get_my_pending_competition_start_emails", { p_competition_id: competitionId }),
         ]);
@@ -1031,8 +1041,19 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
           setError(localizedFailure("Unable to load competition attendees: {error}", attendeeResult.error));
           return;
         }
+        if (participationResult.error) {
+          setError(localizedFailure("Unable to load competition participation progress: {error}", participationResult.error));
+          return;
+        }
         setGroupId(competitionResult.data.group_id);
         setAttendees((attendeeResult.data || []) as CompetitionAttendee[]);
+        setParticipationProgress(((participationResult.data || []) as ParticipationProgress[])[0] ?? {
+          joined_count: 0,
+          participant_count: 0,
+          submitted_count: 0,
+          complete_ballot_count: 0,
+          eligible_voter_count: 0,
+        });
         // Roles only annotate the attendee list, so a failure leaves them out.
         setCompetitionRoles(Object.fromEntries(((roleResult.data || []) as Array<{ user_id: string; role: CompetitionRoleName }>)
           .map((row) => [row.user_id, row.role])));
@@ -1426,7 +1447,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       <Card title={t("Competition attendees")}>
         <dl className="grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-3">
           {[
-            { label: "Attendees", count: attendees.length },
+            { label: "Joined", count: participationProgress?.joined_count ?? 0 },
             { label: "Submitted", count: attendees.filter((attendee) => attendee.has_submission).length },
             { label: "Has voted", count: attendees.filter((attendee) => attendee.has_voted).length },
           ].map(({ label, count }) => (
@@ -1437,6 +1458,42 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
           ))}
         </dl>
         <p className="text-sm">{t("Group members and anyone who has submitted or voted, with how each takes part in this competition.")}</p>
+        <div className="grid gap-3 rounded-xl border border-slate-200 p-3 sm:grid-cols-2">
+          <div>
+            <p className="text-sm font-medium">
+              {t("Submission completion: {complete} of {expected} participants", {
+                complete: participationProgress?.submitted_count ?? 0,
+                expected: participationProgress?.participant_count ?? 0,
+              })}
+            </p>
+            <progress
+              aria-label={t("Submission completion: {complete} of {expected} participants", {
+                complete: participationProgress?.submitted_count ?? 0,
+                expected: participationProgress?.participant_count ?? 0,
+              })}
+              value={participationProgress?.submitted_count ?? 0}
+              max={Math.max(participationProgress?.participant_count ?? 0, 1)}
+              className="mt-1 h-2 w-full accent-indigo-600"
+            />
+          </div>
+          <div>
+            <p className="text-sm font-medium">
+              {t("Complete ballots: {complete} of {eligible} eligible voters", {
+                complete: participationProgress?.complete_ballot_count ?? 0,
+                eligible: participationProgress?.eligible_voter_count ?? 0,
+              })}
+            </p>
+            <progress
+              aria-label={t("Complete ballots: {complete} of {eligible} eligible voters", {
+                complete: participationProgress?.complete_ballot_count ?? 0,
+                eligible: participationProgress?.eligible_voter_count ?? 0,
+              })}
+              value={participationProgress?.complete_ballot_count ?? 0}
+              max={Math.max(participationProgress?.eligible_voter_count ?? 0, 1)}
+              className="mt-1 h-2 w-full accent-indigo-600"
+            />
+          </div>
+        </div>
         {attendees.length ? (
           <ul className="grid gap-3 sm:grid-cols-2">
             {attendees.map((attendee) => (
