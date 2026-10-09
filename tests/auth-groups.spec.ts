@@ -1036,6 +1036,79 @@ test("group admins create and edit draft competitions with scoring criteria", as
   });
 });
 
+test("admins can create a new competition from a past template without copying competition data", async ({ page }) => {
+  await configure(page, true);
+  const templateId = "88888888-8888-4888-8888-888888888888";
+  const createdId = "99999999-9999-4999-8999-999999999999";
+  const template = {
+    id: templateId,
+    name: "Past writing challenge",
+    description: "Write about the sea.",
+    rules: "No identifying details.",
+    max_submission_images: 8,
+    submission_type: "text",
+    allow_participant_voting: true,
+    event_type: "live",
+    status: "results_published",
+    submission_deadline: "2025-04-01T12:00:00Z",
+    voting_deadline: "2025-04-05T12:00:00Z",
+    results_publish_at: "2025-04-10T12:00:00Z",
+  };
+  const saves: Array<Record<string, unknown>> = [];
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) =>
+    route.fulfill({ json: [template] }));
+  await page.route(`${supabaseURL}/rest/v1/categories**`, (route) =>
+    route.fulfill({
+      json: route.request().url().includes(templateId)
+        ? [{ name: "Originality", max_score: 4 }, { name: "Clarity", max_score: 2 }]
+        : [],
+    }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/save_draft_competition`, (route) => {
+    saves.push(route.request().postDataJSON());
+    return route.fulfill({ json: createdId });
+  });
+
+  await page.goto(`/group/${groupId}`);
+  await page.getByRole("button", { name: "New competition" }).click();
+  await page.getByLabel("Use a past competition as a template").selectOption(templateId);
+  await expect(page.getByLabel("Competition name")).toHaveValue("");
+  await expect(page.getByLabel("Description (optional)", { exact: true })).toHaveValue("Write about the sea.");
+  await expect(page.getByLabel("Rules (optional)", { exact: true })).toHaveValue("No identifying details.");
+  await expect(page.getByLabel("Submission format")).toHaveValue("text");
+  await expect(page.getByLabel("Allow participants to vote", { exact: true })).toBeChecked();
+  await expect(page.getByLabel("Event type", { exact: true })).toHaveValue("live");
+  await expect(page.getByLabel("Submission deadline", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Voting deadline", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Results publication time (optional)")).toHaveValue("");
+  const categoryNames = page.getByRole("textbox", { name: "Category name" });
+  await expect(categoryNames).toHaveCount(2);
+  await expect(categoryNames.nth(0)).toHaveValue("Originality");
+  await expect(categoryNames.nth(1)).toHaveValue("Clarity");
+  await page.getByLabel("Competition name").fill("New writing challenge");
+  await page.getByRole("button", { name: "Create competition" }).click();
+
+  await expect(page.getByRole("dialog")).toBeHidden();
+  expect(saves).toHaveLength(1);
+  expect(saves[0]).toEqual({
+    p_competition_id: null,
+    p_group_id: groupId,
+    p_name: "New writing challenge",
+    p_description: "Write about the sea.",
+    p_rules: "No identifying details.",
+    p_allow_participant_voting: true,
+    p_event_type: "live",
+    p_submission_deadline: null,
+    p_voting_deadline: null,
+    p_results_publish_at: null,
+    p_max_submission_images: 8,
+    p_submission_type: "text",
+    p_categories: [
+      { name: "Originality", max_score: 4 },
+      { name: "Clarity", max_score: 2 },
+    ],
+  });
+});
+
 test("group admins can remove competitions after confirmation @mobile", async ({ page }) => {
   await configure(page, true);
   const competition = {
