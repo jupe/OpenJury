@@ -514,6 +514,51 @@ html[data-theme="dark"] .category-winner {
   background: rgb(45 49 66 / 45%);
 }
 
+input.vote-score-range {
+  --score-track: #cbd5e1;
+  appearance: none;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+  background-size: calc(100% - 24px) 8px;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.vote-score-range::-webkit-slider-runnable-track {
+  height: 8px;
+  background: transparent;
+}
+
+.vote-score-range::-moz-range-track {
+  height: 8px;
+  background: transparent;
+}
+
+.vote-score-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  margin-top: -8px;
+  border: 2px solid var(--color-charcoal);
+  border-radius: 50%;
+  background: var(--color-golden);
+}
+
+.vote-score-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--color-charcoal);
+  border-radius: 50%;
+  background: var(--color-golden);
+}
+
+html[data-theme="dark"] input.vote-score-range {
+  --score-track: #475569;
+  background-color: transparent;
+}
+
 .toast-region {
   position: fixed;
   z-index: 50;

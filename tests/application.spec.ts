@@ -138,7 +138,7 @@ test("demo personas vote on fictional data saved in the browser", async ({ page 
   await demoExpect(page.getByRole("button", { name: "Account (robin@demo.openjury.app)" })).toBeVisible();
   await page.getByRole("link", { name: "Northside Makers", exact: true }).click();
   await page.getByRole("link", { name: "Spring Bake-off", exact: true }).click();
-  // Robin's seeded ballots are already saved; moving a slider updates them.
+  // Robin's seeded ballots are already saved; choosing a score updates them.
   const ownEntry = page.getByRole("region", { name: "Your entry" });
   await demoExpect(ownEntry).toBeVisible();
   await demoExpect(ownEntry.getByText("You cannot vote on your own entry.")).toBeVisible();
@@ -146,17 +146,18 @@ test("demo personas vote on fictional data saved in the browser", async ({ page 
   await demoExpect(ownEntry.getByRole("img", { name: "Your submission image 1" })).toBeVisible();
   await demoExpect(page.getByText("Voted", { exact: true })).toHaveCount(2, { timeout: 30_000 });
   // The anonymous number assigned to Robin's own entry is hidden from the ballot.
-  const ballots = page.getByRole("list").filter({ has: page.getByRole("slider") });
+  const ballots = page.getByRole("list").filter({ has: page.getByRole("group", { name: /^Taste / }) });
   const firstEntry = ballots.getByRole("listitem").first();
   const entryNumber = (await firstEntry.getByRole("heading").innerText()).match(/^Entry (\d+)/)?.[1];
   expect(entryNumber).toBeDefined();
-  await firstEntry.getByRole("slider", { name: "Taste" }).fill("1");
+  await firstEntry.getByRole("group", { name: /^Taste / }).getByRole("button", { name: "1 of 5 points" }).click();
   await demoExpect(page.getByRole("status").filter({ hasText: `Vote recorded · Entry ${entryNumber}` })).toBeVisible();
   await page.reload();
   const savedEntry = ballots.getByRole("listitem").filter({
     has: page.getByRole("heading", { name: new RegExp(`^Entry ${entryNumber}\\b`) }),
   });
-  await demoExpect(savedEntry.getByRole("slider", { name: "Taste" })).toHaveValue("1", { timeout: 60_000 });
+  await demoExpect(savedEntry.getByRole("group", { name: /^Taste / }).getByRole("button", { name: "1 of 5 points" }))
+    .toHaveAttribute("aria-pressed", "true", { timeout: 60_000 });
 });
 
 test("database identifiers stay hidden but are preserved by navigation links", async ({ page }) => {
