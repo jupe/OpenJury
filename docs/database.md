@@ -149,8 +149,10 @@ status or writing a partial snapshot.
 ballot rule, stores the final rankings, and marks the competition `results_published` in
 one transaction. Only then can group members read final results, which include
 entry titles, internal creator IDs, and `creator_name` labels. Names use the first
-nonblank trimmed metadata `display_name`, `full_name`, or `name`, falling back to
-`Participant`; this member-facing projection never falls back to an email or UUID.
+nonblank trimmed metadata `display_name`, `full_name`, or `name`, then a trimmed
+email, and finally `Participant`; UUIDs are never used as fallback labels. The
+same labels appear on category results. These results are available only to
+authenticated group members.
 Users set or clear their own `display_name` through the account menu and
 Supabase Auth's `updateUser` API. Migration `20_member_display_names.sql` adds
 the same metadata-name priority to the admin-only `get_group_members` list,
@@ -218,9 +220,9 @@ Each row contains `user_id` as an internal key, `display_name`, `role`,
 submissions and any recorded vote, including partial ballots, without exposing
 scores or ballot contents. Labels use trimmed metadata `display_name`, then
 `full_name`, then `name`, then email, and finally `Participant`; UUIDs are never
-used as fallback labels. Email fallback is admin-only. The same migration appends
-the metadata-only `creator_name` to published results without changing their
-completion/membership checks, rankings, or ordering.
+used as fallback labels. The admin attendee projection and published creator
+labels can both fall back to email; publication keeps its membership checks,
+rankings, and ordering unchanged.
 
 Migration `30_admin_participation_progress.sql` adds the admin-only
 `get_admin_competition_participation_progress(p_competition_id uuid)` projection.

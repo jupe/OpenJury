@@ -153,7 +153,9 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/30_admin_participation_progress.sql`, and
 `supabase/migrations/31_platform_group_summary.sql`, and
 `supabase/migrations/31_web_push.sql`, and
-`supabase/migrations/32_android_web_push.sql`, once each, in that order.
+`supabase/migrations/32_android_web_push.sql`, and
+`supabase/migrations/33_published_creator_email_fallback.sql`, once each, in
+that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
