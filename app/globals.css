@@ -317,6 +317,303 @@ html[data-theme="dark"] .category-winner {
   overflow-wrap: anywhere;
 }
 
+.certificate-print {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  body.print-award-certificates {
+    background: #fff;
+    color: #263449;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  body.print-award-certificates *:not(.certificate-print):not(.certificate-print *):not(:has(.certificate-print)) {
+    display: none !important;
+  }
+
+  body.print-award-certificates .site-main {
+    width: 210mm;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+  }
+
+  body.print-award-certificates .certificate-print {
+    display: none;
+    width: 210mm;
+  }
+
+  body.print-award-templates .template-certificates,
+  body.print-award-winners .winner-certificates {
+    display: block;
+  }
+}
+
+body.download-award-templates .template-certificates,
+body.download-award-winners .winner-certificates {
+  display: block;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.award-certificate {
+  box-sizing: border-box;
+  display: flex;
+  width: 210mm;
+  height: 297mm;
+  padding: 8mm;
+  background: #f8f1df;
+  color: #352d35;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.award-certificate-frame {
+    position: relative;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    overflow: hidden;
+    border: 3px double #762b37;
+    outline: 1px solid #a45858;
+    outline-offset: -5mm;
+    padding: 23mm 17mm 17mm;
+    background:
+      radial-gradient(circle at 9mm 9mm, #a45858 0 1mm, transparent 1.2mm),
+      radial-gradient(circle at calc(100% - 9mm) 9mm, #a45858 0 1mm, transparent 1.2mm),
+      radial-gradient(circle at 9mm calc(100% - 9mm), #a45858 0 1mm, transparent 1.2mm),
+      radial-gradient(circle at calc(100% - 9mm) calc(100% - 9mm), #a45858 0 1mm, transparent 1.2mm),
+      linear-gradient(#f8f1df, #f8f1df);
+    text-align: center;
+}
+
+.award-certificate-corner {
+    position: absolute;
+    z-index: 1;
+    color: #762b37;
+    font-size: 42pt;
+    line-height: 1;
+}
+
+.award-certificate-corner-top-left {
+    top: 4mm;
+    left: 4mm;
+}
+
+.award-certificate-corner-top-right {
+    top: 4mm;
+    right: 4mm;
+    transform: rotate(90deg);
+}
+
+.award-certificate-corner-bottom-left {
+    bottom: 4mm;
+    left: 4mm;
+    transform: rotate(-90deg);
+}
+
+.award-certificate-corner-bottom-right {
+    right: 4mm;
+    bottom: 4mm;
+    transform: rotate(180deg);
+}
+
+.award-certificate-brand {
+    margin: 0 0 18mm;
+    color: #762b37;
+    font-family: Arial, sans-serif;
+    font-size: 10pt;
+    font-weight: 700;
+    letter-spacing: 0.38em;
+}
+
+.award-certificate-kicker {
+    margin: 0 0 2mm;
+    color: #762b37;
+    font-family: Arial, sans-serif;
+    font-size: 12pt;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+}
+
+.award-certificate h1 {
+    max-width: 150mm;
+    margin: 2mm 0 15mm;
+    color: #352d35;
+    font-size: 36pt;
+    font-weight: 600;
+    letter-spacing: 0.035em;
+    line-height: 1.12;
+    text-transform: uppercase;
+}
+
+.award-certificate-intro {
+    margin: 0 0 4mm;
+    color: #51464b;
+    font-size: 13pt;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.award-certificate-recipient {
+    width: 145mm;
+    max-width: 100%;
+    margin: 0 0 10mm;
+    border-bottom: 1px solid #a45858;
+    padding: 0 5mm 4mm;
+    color: #3d3040;
+    font-size: 30pt;
+    font-style: italic;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.award-certificate-description {
+    max-width: 135mm;
+    margin: 0 0 8mm;
+    color: #51464b;
+    font-size: 15pt;
+    line-height: 1.6;
+}
+
+.award-certificate-place {
+    margin: 0 0 5mm;
+    color: #762b37;
+    font-size: 22pt;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.award-certificate-place-2 {
+    color: #596374;
+}
+
+.award-certificate-place-3 {
+    color: #98603d;
+}
+
+.award-certificate-competition {
+    max-width: 145mm;
+    margin: 0;
+    color: #352d35;
+    font-family: "Segoe Script", "Brush Script MT", "URW Chancery L", cursive;
+    font-size: 24pt;
+    font-style: italic;
+    font-weight: 700;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.award-certificate-signatures {
+    display: flex;
+    width: 100%;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 10mm;
+    margin-top: auto;
+    font-family: Arial, sans-serif;
+    font-size: 9pt;
+}
+
+.award-certificate-signature,
+.award-certificate-date {
+    position: relative;
+    width: 62mm;
+    min-height: 32mm;
+    color: #51464b;
+    text-align: center;
+}
+
+.award-certificate-signature p {
+    min-height: 19mm;
+    margin: 0;
+    border-bottom: 1px solid #762b37;
+}
+
+.award-certificate-signature .award-certificate-organizer-names {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: end;
+    align-items: end;
+    justify-content: center;
+    gap: 0 3mm;
+    padding: 0 1mm 1mm;
+    color: #352d35;
+    font-family: "Segoe Script", "Brush Script MT", "URW Chancery L", cursive;
+    font-size: 21pt;
+    font-style: italic;
+    line-height: 1.1;
+    overflow-wrap: anywhere;
+}
+
+.award-certificate-signature .award-certificate-organizer-names span {
+    display: inline;
+    margin: 0;
+    color: inherit;
+    font-size: inherit;
+    letter-spacing: 0;
+    white-space: nowrap;
+}
+
+.award-certificate-signature span,
+.award-certificate-date p {
+    display: block;
+    margin: 2mm 0 0;
+    color: #51464b;
+    font-size: 9pt;
+    letter-spacing: 0.04em;
+}
+
+.award-certificate-date p {
+    text-align: left;
+}
+
+.award-certificate-seal {
+    display: block;
+    width: 31mm;
+    height: 31mm;
+    margin: 0 auto 3mm;
+    padding: 2mm;
+    border-radius: 50%;
+    background: #762b37;
+    color: #f8f1df;
+    filter: drop-shadow(0 1mm 1mm rgb(53 45 53 / 20%));
+}
+
+.award-certificate-place-1 ~ .award-certificate-signatures .award-certificate-seal {
+    background: #762b37;
+}
+
+.award-certificate-place-2 ~ .award-certificate-signatures .award-certificate-seal {
+    background: #596374;
+}
+
+.award-certificate-place-3 ~ .award-certificate-signatures .award-certificate-seal {
+    background: #98603d;
+}
+
+@media print {
+  .award-certificate {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .award-certificate + .award-certificate {
+    page-break-before: always;
+    break-before: page;
+  }
+}
+
 .site-header {
   position: sticky;
   top: 0;

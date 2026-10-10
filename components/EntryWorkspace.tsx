@@ -11,6 +11,7 @@ import Card from "@/components/Card";
 import Podium, { type PodiumPlace } from "@/components/Podium";
 import IconButton, { Icon, IconLink } from "@/components/IconButton";
 import ImageLightbox from "@/components/ImageLightbox";
+import WinnerCertificates from "@/components/WinnerCertificates";
 import Toast, { type ToastMessage } from "@/components/Toast";
 import { StatusBadge, nextTransition, previousTransition } from "@/components/CompetitionStatus";
 import { CompetitionRole, type CompetitionRoleName } from "@/components/Membership";
@@ -338,6 +339,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [organizerFirstNames, setOrganizerFirstNames] = useState<string[]>([]);
   const [role, setRole] = useState<CompetitionRoleName | null>(null);
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [blindEntries, setBlindEntries] = useState<BlindEntry[]>([]);
@@ -371,6 +373,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     setError("");
     setCompetition(null);
     setIsAdmin(false);
+    setOrganizerFirstNames([]);
     setSubmission(null);
     setBlindEntries([]);
     setCategories([]);
@@ -403,9 +406,10 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       setRole(myRole);
       const isBallotOpen = isVotingOpen && (myRole === "audience"
         || (myRole === "participant" && result.data.allow_participant_voting));
-      const [membership, mine, blind, categoryResult, savedBallot, finalResults, finalCategories] = await Promise.all([
+      const [membership, organizers, mine, blind, categoryResult, savedBallot, finalResults, finalCategories] = await Promise.all([
         client.from("group_members").select("role")
           .eq("group_id", result.data.group_id).eq("user_id", session.user.id).maybeSingle(),
+        client.rpc("get_competition_organizer_first_names", { p_competition_id: competitionId }),
         client.rpc("get_my_submission", { p_competition_id: competitionId }),
         isBallotOpen
           ? client.rpc("get_blind_voting_entries", { p_competition_id: competitionId })
@@ -426,6 +430,8 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       ]);
       // Only decides whether to offer the admin page; the server enforces access.
       setIsAdmin(membership.data?.role === "admin");
+      setOrganizerFirstNames(((organizers.data || []) as { first_name: string }[])
+        .map((organizer) => organizer.first_name).filter(Boolean));
       if (mine.error) {
         setError(localizedFailure("Unable to load your submission: {error}", mine.error));
         return;
@@ -977,6 +983,15 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           )}
         </Card>
       )}
+      <WinnerCertificates
+        competitionName={competition.name}
+        competitionStatus={competition.status}
+        published={competition.status === "results_published"}
+        isAdmin={isAdmin}
+        userId={session.user.id}
+        organizerFirstNames={organizerFirstNames}
+        winners={publishedResults}
+      />
       {error && !editable && <p role="alert"><ErrorText error={error} /></p>}
     </div>
   );
