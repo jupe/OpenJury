@@ -229,9 +229,9 @@ and removed admin access may leave notifications pending indefinitely. Deleting
 the starting Auth user clears the retry-owner reference without blocking account
 deletion; remaining recipients cannot be retried through the admin endpoint.
 
-### Optional iOS Home Screen web push
+### Optional iOS and Android web push
 
-Apply `31_web_push.sql` (also discovered automatically by the demo migration
+Apply `31_web_push.sql` and `32_android_web_push.sql` (also discovered automatically by the demo migration
 loader). Generate a stable VAPID pair with `npx web-push generate-vapid-keys` and
 provide `WEB_PUSH_PUBLIC_KEY`, `WEB_PUSH_PRIVATE_KEY`, `WEB_PUSH_SUBJECT` (a
 `mailto:` or HTTPS contact URI), Supabase public URL/anon key, and the server-only
@@ -240,11 +240,16 @@ characters (for example, generate with `openssl rand -hex 32`).
 Never expose the dispatcher secret, private key or service key to the
 browser. Rotating VAPID keys requires browsers to resubscribe.
 
-This uses standard Web Push for iOS/iPadOS 16.4+ installed Home Screen web apps,
+This uses standard Web Push for iOS/iPadOS 16.4+ installed Home Screen web apps
+and Android Chrome (including installed apps),
 with permission requested from a user gesture and a visible notification for
-every delivered push. Android-specific enablement is deferred: only HTTPS Apple
-push endpoints are accepted. Apple's documentation could not be verified live
-during implementation; verify current platform requirements before deployment.
+every delivered push. Only HTTPS Apple push endpoints and the exact
+`fcm.googleapis.com` host with `/fcm/send/` or `/wp/` subscription paths are
+accepted; arbitrary URLs remain blocked. Android uses the same VAPID keys and
+dispatcher, with no Firebase project or extra credentials required.
+The welcome page includes installation steps for Safari on iPhone/iPad and
+Chrome on Android. After installation, open the app, sign in, and enable
+notifications in Profile. Android can also opt in from a supported browser tab.
 Serve the installed app over HTTPS; do not cache push API requests in a service
 worker. This backend does not change email delivery.
 

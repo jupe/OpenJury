@@ -27,7 +27,9 @@ export function validEndpoint(value: unknown): value is string {
     const url = new URL(value);
     return url.protocol === "https:" && !url.username && !url.password && !url.port
       && !url.hash && !value.includes("#") && url.href === value
-      && (url.hostname === "web.push.apple.com" || url.hostname.endsWith(".push.apple.com"))
+      && (url.hostname === "web.push.apple.com" || url.hostname.endsWith(".push.apple.com")
+        || (url.hostname === "fcm.googleapis.com" && !url.search && !value.includes("?")
+          && /^\/(?:fcm\/send|wp)\/.+$/.test(url.pathname)))
       && url.pathname.length > 1;
   } catch {
     return false;

@@ -7,7 +7,7 @@ import Card from "@/components/Card";
 import { useLocale } from "@/lib/i18n";
 import { isHomeScreen, isIOS, PUSH_OWNER_KEY, removeDevicePush } from "@/lib/push-client";
 
-type Availability = "loading" | "demo" | "ios-only" | "install" | "unsupported" | "unconfigured" | "ready";
+type Availability = "loading" | "demo" | "install" | "unsupported" | "unconfigured" | "ready";
 
 export default function PushNotifications() {
   const { client, session } = useAuth();
@@ -24,8 +24,8 @@ export default function PushNotifications() {
     void (async () => {
       let state: Availability = "ready";
       if (session.access_token.startsWith("demo-")) state = "demo";
-      else if (!isIOS()) state = "ios-only";
-      else if (!isHomeScreen()) state = "install";
+      else if (isIOS() && !isHomeScreen()) state = "install";
+      else if (!isIOS() && !/Android/i.test(navigator.userAgent)) state = "unsupported";
       else if (!window.isSecureContext || !("serviceWorker" in navigator)
         || !("PushManager" in window) || !("Notification" in window)) state = "unsupported";
       if (state !== "ready") {
@@ -68,7 +68,7 @@ export default function PushNotifications() {
     let subscription: PushSubscription | null = null;
     try {
       if (await permission !== "granted") {
-        setMessage("Notifications were not allowed. Check notification settings for this Home Screen app.");
+        setMessage("Notifications were not allowed. Check notification settings for this app or browser.");
         return;
       }
       const key = Uint8Array.from(atob(publicKey.replace(/-/g, "+").replace(/_/g, "/")), (char) => char.charCodeAt(0));
@@ -113,14 +113,13 @@ export default function PushNotifications() {
   const hints: Record<Availability, string> = {
     loading: "Loading notification settings…",
     demo: "Push notifications are unavailable in the demo.",
-    "ios-only": "Push notifications are available for iPhone and iPad Home Screen apps. Android support is planned for a later phase.",
     install: "On iOS 16.4 or later, use Share → Add to Home Screen, then open OpenJury from your Home Screen to enable notifications.",
-    unsupported: "Notifications require iOS 16.4 or later and a secure Home Screen app.",
+    unsupported: "Notifications require HTTPS and a supported browser: Chrome on Android, or a Home Screen app on iOS 16.4 or later.",
     unconfigured: "Push notifications are not configured or could not be loaded.",
     ready: enabled ? "Notifications are enabled on this device." : "Receive notifications when submissions open, voting opens, or results are published.",
   };
   return (
-    <Card title={t("iOS notifications")}>
+    <Card title={t("Notifications")}>
       <p role="status">{t(hints[availability])}</p>
       {availability === "ready" && (
         <Button disabled={busy} onClick={() => void (enabled ? disable() : enable())}>

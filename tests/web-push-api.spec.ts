@@ -153,6 +153,11 @@ test("rejects SSRF destinations, URL tricks, and invalid or noncanonical keys", 
     "https://web.push.apple.com/x#", "https://web.push.apple.com/x#fragment",
     "https://web.push.apple.com\\@evil.test/x", "https://web.push.apple.com/",
     "https://web.push.apple.com/" + "x".repeat(2048),
+    "https://fcm.googleapis.com.evil.test/fcm/send/x", "https://evil.fcm.googleapis.com/fcm/send/x",
+    "https://user@fcm.googleapis.com/fcm/send/x", "https://fcm.googleapis.com:8443/fcm/send/x",
+    "http://fcm.googleapis.com/fcm/send/x", "https://fcm.googleapis.com/fcm/send/",
+    "https://fcm.googleapis.com/other/x", "https://fcm.googleapis.com/wp/x#fragment",
+    "https://fcm.googleapis.com/fcm/send/x?url=http://127.0.0.1",
   ]) expect(validEndpoint(endpoint), endpoint).toBe(false);
   expect(validEndpoint("https://eu.push.apple.com/device?token=abc")).toBe(true);
   expect(validSubscription(subscription)).toBe(true);
@@ -163,6 +168,24 @@ test("rejects SSRF destinations, URL tricks, and invalid or noncanonical keys", 
     expect(validSubscription({ ...subscription, keys: { ...subscription.keys, auth } })).toBe(false);
   }
 });
+
+for (const path of ["fcm/send", "wp"]) {
+  test(`Android ${path} subscriptions register, deliver and disable using the same VAPID configuration`, async () => {
+    const originalEndpoint = subscription.endpoint;
+    subscription.endpoint = `https://fcm.googleapis.com/${path}/private-device-token`;
+    try {
+      expect(validSubscription(subscription)).toBe(true);
+      expect((await subscribe(request({ subscription, locale: "fi" }))).status).toBe(200);
+      expect(calls.find((call) => call.path.endsWith("/save_my_push_subscription"))?.body.p_endpoint).toBe(subscription.endpoint);
+      expect((await send()).status).toBe(200);
+      expect(deliveries).toBe(1);
+      expect(payload.url).toBe(`/competition/${competitionId}`);
+      expect((await DELETE(request({ endpoint: subscription.endpoint }))).status).toBe(200);
+    } finally {
+      subscription.endpoint = originalEndpoint;
+    }
+  });
+}
 
 test("subscription mutations authenticate and use caller-scoped RPCs without service reads", async () => {
   expect(await (await subscribe(request({ subscription, locale: "fi" }))).json()).toEqual({ subscribed: true });

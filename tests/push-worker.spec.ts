@@ -67,8 +67,9 @@ test("push worker always displays a visible notification and rejects off-origin 
 test("web-app manifest and icons support Home Screen installation @mobile", async ({ request }) => {
   const response = await request.get("/manifest.webmanifest");
   expect(response.ok()).toBe(true);
-  expect(await response.json()).toMatchObject({ id: "/", display: "standalone", start_url: "/", scope: "/" });
-  for (const path of ["/icon", "/apple-icon"]) {
+  expect(await response.json()).toMatchObject({ id: "/", display: "standalone", start_url: "/", scope: "/",
+    icons: [{ src: "/icon-192", sizes: "192x192" }, { src: "/icon", sizes: "512x512" }] });
+  for (const path of ["/icon-192", "/icon", "/apple-icon"]) {
     const icon = await request.get(path);
     expect(icon.ok()).toBe(true);
     expect(icon.headers()["content-type"]).toContain("image/png");
