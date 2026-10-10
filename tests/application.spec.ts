@@ -56,6 +56,12 @@ async function checkLandingNavigation(page: Page) {
   await page.evaluate(() => document.body.classList.add("print-award-certificates", "print-award-templates"));
   await expect(page.locator(".template-certificates")).toHaveCSS("display", "block");
   await expect(page.locator(".site-header")).toHaveCSS("display", "none");
+  const pageSize = await page.locator(".template-certificates .award-certificate").first().evaluate((element) => {
+    const { width, height } = element.getBoundingClientRect();
+    return { width, height };
+  });
+  expect(pageSize.height).toBeGreaterThan(pageSize.width);
+  expect(pageSize.width / pageSize.height).toBeCloseTo(210 / 297, 2);
   await page.evaluate(() => document.body.classList.remove("print-award-certificates", "print-award-templates"));
   await page.emulateMedia({ media: "screen" });
   await page.getByRole("link", { name: "Manage competition" }).click();

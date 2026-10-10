@@ -231,6 +231,7 @@ const finnish: Record<string, string> = {
   "Use your browser’s print dialog to print or save the certificates as PDF.": "Tulosta kunniakirjat tai tallenna ne PDF-tiedostoina selaimen tulostusvalikosta.",
   "Certificate of achievement": "Saavutustodistus",
   "Certificate of Honor": "Kunniakirja",
+  "Award Certificate": "PALKINTOTODISTUS",
   "This certificate is proudly presented to": "Tämä kunniakirja myönnetään ylpeänä henkilölle",
   "In recognition of an outstanding achievement": "Tunnustuksena erinomaisesta saavutuksesta",
   "First place": "1. sija",

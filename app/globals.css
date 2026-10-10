@@ -323,7 +323,7 @@ html[data-theme="dark"] .category-winner {
 
 @media print {
   @page {
-    size: A4 landscape;
+    size: A4 portrait;
     margin: 0;
   }
 
@@ -339,7 +339,7 @@ html[data-theme="dark"] .category-winner {
   }
 
   body.print-award-certificates .site-main {
-    width: 297mm;
+    width: 210mm;
     max-width: none;
     margin: 0;
     padding: 0;
@@ -348,7 +348,7 @@ html[data-theme="dark"] .category-winner {
 
   body.print-award-certificates .certificate-print {
     display: none;
-    width: 297mm;
+    width: 210mm;
   }
 
   body.print-award-templates .template-certificates,
@@ -359,13 +359,13 @@ html[data-theme="dark"] .category-winner {
   .award-certificate {
     box-sizing: border-box;
     display: flex;
-    width: 297mm;
-    height: 210mm;
-    padding: 13mm;
+    width: 210mm;
+    height: 297mm;
+    padding: 8mm;
     page-break-after: always;
     break-after: page;
-    background: #fff;
-    color: #263449;
+    background: #f8f1df;
+    color: #352d35;
     font-family: Georgia, "Times New Roman", serif;
   }
 
@@ -375,68 +375,126 @@ html[data-theme="dark"] .category-winner {
   }
 
   .award-certificate-frame {
+    position: relative;
     display: flex;
     flex: 1;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    border: 3px double #b68a35;
-    outline: 1px solid #e8d6a8;
-    outline-offset: -8mm;
-    padding: 18mm;
+    justify-content: flex-start;
+    overflow: hidden;
+    border: 3px double #762b37;
+    outline: 1px solid #a45858;
+    outline-offset: -5mm;
+    padding: 23mm 17mm 17mm;
+    background:
+      radial-gradient(circle at 9mm 9mm, #a45858 0 1mm, transparent 1.2mm),
+      radial-gradient(circle at calc(100% - 9mm) 9mm, #a45858 0 1mm, transparent 1.2mm),
+      radial-gradient(circle at 9mm calc(100% - 9mm), #a45858 0 1mm, transparent 1.2mm),
+      radial-gradient(circle at calc(100% - 9mm) calc(100% - 9mm), #a45858 0 1mm, transparent 1.2mm),
+      linear-gradient(#f8f1df, #f8f1df);
     text-align: center;
   }
 
+  .award-certificate-corner {
+    position: absolute;
+    z-index: 1;
+    color: #762b37;
+    font-size: 25pt;
+    line-height: 1;
+  }
+
+  .award-certificate-corner-top-left {
+    top: 4mm;
+    left: 4mm;
+  }
+
+  .award-certificate-corner-top-right {
+    top: 4mm;
+    right: 4mm;
+    transform: rotate(90deg);
+  }
+
+  .award-certificate-corner-bottom-left {
+    bottom: 4mm;
+    left: 4mm;
+    transform: rotate(-90deg);
+  }
+
+  .award-certificate-corner-bottom-right {
+    right: 4mm;
+    bottom: 4mm;
+    transform: rotate(180deg);
+  }
+
   .award-certificate-brand {
-    margin: 0 0 4mm;
-    color: #52647b;
+    margin: 0 0 18mm;
+    color: #762b37;
     font-family: Arial, sans-serif;
-    font-size: 11pt;
+    font-size: 10pt;
     font-weight: 700;
-    letter-spacing: 0.32em;
+    letter-spacing: 0.38em;
   }
 
   .award-certificate-kicker {
-    margin: 0;
-    color: #8a6a29;
+    margin: 0 0 2mm;
+    color: #762b37;
     font-family: Arial, sans-serif;
-    font-size: 11pt;
-    letter-spacing: 0.16em;
+    font-size: 12pt;
+    letter-spacing: 0.22em;
     text-transform: uppercase;
   }
 
   .award-certificate h1 {
-    margin: 3mm 0 5mm;
-    color: #263449;
-    font-size: 32pt;
-    font-weight: 500;
+    max-width: 150mm;
+    margin: 2mm 0 15mm;
+    color: #352d35;
+    font-size: 36pt;
+    font-weight: 600;
+    letter-spacing: 0.035em;
+    line-height: 1.12;
+    text-transform: uppercase;
   }
 
-  .award-certificate-intro,
-  .award-certificate-description {
-    margin: 1mm 0;
-    font-size: 14pt;
+  .award-certificate-intro {
+    margin: 0 0 4mm;
+    color: #51464b;
+    font-size: 13pt;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
 
   .award-certificate-recipient {
-    min-width: 115mm;
-    margin: 3mm 0;
-    border-bottom: 1px solid #b68a35;
-    padding: 0 8mm 2mm;
-    color: #263449;
-    font-size: 25pt;
-    font-weight: 700;
+    width: 145mm;
+    max-width: 100%;
+    margin: 0 0 10mm;
+    border-bottom: 1px solid #a45858;
+    padding: 0 5mm 4mm;
+    color: #3d3040;
+    font-size: 30pt;
+    font-style: italic;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
+  .award-certificate-description {
+    max-width: 135mm;
+    margin: 0 0 8mm;
+    color: #51464b;
+    font-size: 15pt;
+    line-height: 1.6;
   }
 
   .award-certificate-place {
-    margin: 3mm 0 1mm;
-    color: #8a6a29;
-    font-size: 21pt;
+    margin: 0 0 5mm;
+    color: #762b37;
+    font-size: 22pt;
     font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
 
   .award-certificate-place-2 {
-    color: #687486;
+    color: #596374;
   }
 
   .award-certificate-place-3 {
@@ -444,28 +502,76 @@ html[data-theme="dark"] .category-winner {
   }
 
   .award-certificate-competition {
-    max-width: 240mm;
-    margin: 1mm 0 8mm;
-    color: #263449;
-    font-size: 19pt;
+    max-width: 145mm;
+    margin: 0;
+    color: #352d35;
+    font-size: 21pt;
     font-weight: 700;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
   }
 
   .award-certificate-signatures {
     display: flex;
-    width: 170mm;
+    width: 100%;
+    align-items: flex-end;
     justify-content: space-between;
-    gap: 20mm;
-    margin-top: 2mm;
+    gap: 10mm;
+    margin-top: auto;
     font-family: Arial, sans-serif;
     font-size: 9pt;
   }
 
-  .award-certificate-signatures p {
-    width: 68mm;
+  .award-certificate-signature,
+  .award-certificate-date {
+    position: relative;
+    width: 62mm;
+    min-height: 32mm;
+    color: #51464b;
+    text-align: center;
+  }
+
+  .award-certificate-signature p {
+    height: 19mm;
     margin: 0;
-    border-top: 1px solid #9ba4b0;
-    padding-top: 2mm;
+    border-bottom: 1px solid #762b37;
+  }
+
+  .award-certificate-signature span,
+  .award-certificate-date p {
+    display: block;
+    margin: 2mm 0 0;
+    color: #51464b;
+    font-size: 9pt;
+    letter-spacing: 0.04em;
+  }
+
+  .award-certificate-date p {
+    text-align: left;
+  }
+
+  .award-certificate-seal {
+    display: block;
+    width: 31mm;
+    height: 31mm;
+    margin: 0 auto 3mm;
+    padding: 2mm;
+    border-radius: 50%;
+    background: #762b37;
+    color: #f8f1df;
+    filter: drop-shadow(0 1mm 1mm rgb(53 45 53 / 20%));
+  }
+
+  .award-certificate-place-1 ~ .award-certificate-signatures .award-certificate-seal {
+    background: #762b37;
+  }
+
+  .award-certificate-place-2 ~ .award-certificate-signatures .award-certificate-seal {
+    background: #596374;
+  }
+
+  .award-certificate-place-3 ~ .award-certificate-signatures .award-certificate-seal {
+    background: #98603d;
   }
 }
 

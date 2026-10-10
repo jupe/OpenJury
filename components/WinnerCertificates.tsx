@@ -14,6 +14,19 @@ function placeName(rank: number, t: ReturnType<typeof useLocale>["t"]) {
   return t("Third place");
 }
 
+function AwardSeal() {
+  return (
+    <svg className="award-certificate-seal" viewBox="0 0 100 100" aria-hidden="true">
+      <circle cx="50" cy="50" r="46" fill="none" stroke="currentColor" strokeWidth="2" />
+      <circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" strokeWidth="1" />
+      <path d="M29 67c-13-14-8-34 5-42-2 12 2 21 10 28M71 67c13-14 8-34-5-42 2 12-2 21-10 28M35 72c11 5 19 5 30 0" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+      <path d="m50 29 3.8 8 8.8 1.3-6.3 6.2 1.5 8.8-7.8-4.1-7.8 4.1 1.5-8.8-6.3-6.2 8.8-1.3z" fill="currentColor" />
+      <circle cx="27" cy="31" r="2" fill="currentColor" />
+      <circle cx="73" cy="31" r="2" fill="currentColor" />
+    </svg>
+  );
+}
+
 function printCertificates(type: "templates" | "winners") {
   document.body.classList.add("print-award-certificates");
   document.body.classList.add(`print-award-${type}`);
@@ -71,9 +84,13 @@ export default function WinnerCertificates({
           {places.map((rank) => (
             <article className="award-certificate" key={rank}>
               <div className="award-certificate-frame">
+                <span className="award-certificate-corner award-certificate-corner-top-left" aria-hidden="true">❦</span>
+                <span className="award-certificate-corner award-certificate-corner-top-right" aria-hidden="true">❦</span>
+                <span className="award-certificate-corner award-certificate-corner-bottom-left" aria-hidden="true">❦</span>
+                <span className="award-certificate-corner award-certificate-corner-bottom-right" aria-hidden="true">❦</span>
                 <p className="award-certificate-brand">OPENJURY</p>
                 <p className="award-certificate-kicker">{t("Certificate of achievement")}</p>
-                <h1>{t("Certificate of Honor")}</h1>
+                <h1>{t("Award Certificate")}</h1>
                 <p className="award-certificate-intro">{t("This certificate is proudly presented to")}</p>
                 <p className="award-certificate-recipient">&nbsp;</p>
                 <p className="award-certificate-description">{t("In recognition of an outstanding achievement")}</p>
@@ -82,8 +99,8 @@ export default function WinnerCertificates({
                 </p>
                 <p className="award-certificate-competition">{competitionName}</p>
                 <div className="award-certificate-signatures">
-                  <p><span>{t("Awarded on")}</span></p>
-                  <p><span>{t("Competition organizer")}</span></p>
+                  <div className="award-certificate-signature"><p>&nbsp;</p><span>{t("Competition organizer")}</span></div>
+                  <div className="award-certificate-date"><AwardSeal /><p>{t("Awarded on")}</p></div>
                 </div>
               </div>
             </article>
@@ -95,9 +112,13 @@ export default function WinnerCertificates({
           {printableWinners.map((winner, index) => (
             <article className="award-certificate" key={`${winner.rank}:${index}`}>
               <div className="award-certificate-frame">
+                <span className="award-certificate-corner award-certificate-corner-top-left" aria-hidden="true">❦</span>
+                <span className="award-certificate-corner award-certificate-corner-top-right" aria-hidden="true">❦</span>
+                <span className="award-certificate-corner award-certificate-corner-bottom-left" aria-hidden="true">❦</span>
+                <span className="award-certificate-corner award-certificate-corner-bottom-right" aria-hidden="true">❦</span>
                 <p className="award-certificate-brand">OPENJURY</p>
                 <p className="award-certificate-kicker">{t("Certificate of achievement")}</p>
-                <h1>{t("Certificate of Honor")}</h1>
+                <h1>{t("Award Certificate")}</h1>
                 <p className="award-certificate-intro">{t("This certificate is proudly presented to")}</p>
                 <p className="award-certificate-recipient">{winner.creator_name || t("Participant")}</p>
                 <p className="award-certificate-description">{t("In recognition of an outstanding achievement")}</p>
@@ -106,8 +127,8 @@ export default function WinnerCertificates({
                 </p>
                 <p className="award-certificate-competition">{competitionName}</p>
                 <div className="award-certificate-signatures">
-                  <p><span>{t("Awarded on")}</span></p>
-                  <p><span>{t("Competition organizer")}</span></p>
+                  <div className="award-certificate-signature"><p>&nbsp;</p><span>{t("Competition organizer")}</span></div>
+                  <div className="award-certificate-date"><AwardSeal /><p>{t("Awarded on")}</p></div>
                 </div>
               </div>
             </article>
