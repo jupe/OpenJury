@@ -8,6 +8,7 @@ import Button from "@/components/Button";
 import Card from "@/components/Card";
 import AccountMenu from "@/components/AccountMenu";
 import DemoToolbar from "@/components/DemoToolbar";
+import SocialProviderIcon from "@/components/SocialProviderIcon";
 import { useLocale } from "@/lib/i18n";
 
 // Supabase Auth refuses a new sign-in email to the same address for 60 seconds
@@ -341,11 +342,12 @@ export default function AuthBoundary({ children, signedOut }: {
           {!appMode && <p>{t("Sign in with your email to view your groups. New accounts are welcome.")}</p>}
           {demo && <p>{t("In the demo, any email signs in instantly as a new account, or pick a demo person in the toolbar below.")}</p>}
           {!demo && getEnabledSocialProviders().length > 0 && (
-            <div className="space-y-3">
-              <div className="flex flex-wrap gap-2">
+            <div className="space-y-3 border-b border-slate-200 pb-4">
+              <div className="grid gap-3">
                 {getEnabledSocialProviders().map((provider) => (
-                  <Button key={provider.id} disabled={pending} onClick={() => signInWithProvider(provider)}>
-                    {t("Sign in with {provider}", { provider: provider.name })}
+                  <Button key={provider.id} variant="secondary" className="relative w-full px-12" disabled={pending} onClick={() => signInWithProvider(provider)}>
+                    <span className="absolute left-4"><SocialProviderIcon provider={provider.id} /></span>
+                    <span>{t("Sign in with {provider}", { provider: provider.name })}</span>
                   </Button>
                 ))}
               </div>
