@@ -359,10 +359,6 @@ html[data-theme="dark"] .category-winner {
 
 body.download-award-templates .template-certificates,
 body.download-award-winners .winner-certificates {
-  position: fixed;
-  z-index: -1;
-  top: 0;
-  left: 0;
   display: block;
   opacity: 0;
   pointer-events: none;
@@ -377,11 +373,6 @@ body.download-award-winners .winner-certificates {
   background: #f8f1df;
   color: #352d35;
   font-family: Georgia, "Times New Roman", serif;
-}
-
-.award-certificate + .award-certificate {
-  page-break-before: always;
-  break-before: page;
 }
 
 .award-certificate-frame {
@@ -615,6 +606,11 @@ body.download-award-winners .winner-certificates {
   .award-certificate {
     page-break-inside: avoid;
     break-inside: avoid;
+  }
+
+  .award-certificate + .award-certificate {
+    page-break-before: always;
+    break-before: page;
   }
 }
 

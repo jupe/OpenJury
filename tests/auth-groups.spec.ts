@@ -2005,6 +2005,11 @@ test("certificate printing is admin-only except for each member's own published 
   await expect(page.locator(".winner-certificates .award-certificate")).toHaveCount(1);
   await expect(page.locator(".winner-certificates")).toContainText("Alex Baker");
   await expect(page.locator(".winner-certificates")).not.toContainText("Jordan Baker");
+  const memberDownloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download my winner certificate" }).click();
+  const downloadedMemberPdf = await memberDownloadPromise;
+  const memberPdf = await readFile(await downloadedMemberPdf.path());
+  expect(memberPdf.toString("latin1").match(/\/Type\s*\/Page\b/g)).toHaveLength(1);
 
   publishedWinners = [publishedWinners[0]];
   await page.reload();

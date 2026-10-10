@@ -57,7 +57,8 @@ async function downloadCertificates(type: "templates" | "winners", competitionNa
         useCORS: true,
         backgroundColor: "#ffffff",
         onclone: (clonedDocument: Document) => {
-          const clonedSection = clonedDocument.querySelector<HTMLElement>(
+          const clonedContainer = clonedDocument.querySelector<HTMLElement>(".html2pdf__container");
+          const clonedSection = clonedContainer?.querySelector<HTMLElement>(
             `.${type === "templates" ? "template-certificates" : "winner-certificates"}`,
           );
           if (clonedSection) {
@@ -65,6 +66,9 @@ async function downloadCertificates(type: "templates" | "winners", competitionNa
             clonedSection.style.position = "static";
             clonedSection.style.opacity = "1";
             clonedSection.style.width = "210mm";
+            clonedContainer?.style.setProperty("background-color", "#f8f1df");
+            clonedSection.querySelectorAll<HTMLElement>(".award-certificate")
+              .forEach((certificate) => certificate.style.height = "calc(297mm - 1px)");
           }
         },
       },
