@@ -2633,6 +2633,8 @@ test("admins move a competition through its lifecycle after confirming", async (
 
   await page.goto(`/competition/${competitionId}/admin`);
   await expect(page.getByText("Status: Draft")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Edit full draft competition" }))
+    .toHaveAttribute("href", `/group/${groupId}#competitions`);
   await expect(page.getByRole("checkbox", { name: "Email existing group members when submissions open" })).not.toBeChecked();
   await expectPhoneLayout(page);
 
