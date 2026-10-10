@@ -59,7 +59,11 @@ services:
     mem_limit: 128m
     cpus: 0.1
     healthcheck:
-      disable: true
+      test: [CMD, node, -e, "fetch(new URL('/api/health', process.env.WEB_PUSH_DISPATCH_URL), { signal: AbortSignal.timeout(4000) }).then(r => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      start_period: 10s
+      retries: 20
     environment:
       WEB_PUSH_DISPATCH_SECRET: ${WEB_PUSH_DISPATCH_SECRET:-}
       WEB_PUSH_DISPATCH_URL: http://${COMPOSE_PROJECT_NAME}-web:3000/api/push/dispatch
