@@ -1949,6 +1949,8 @@ test("certificate printing is admin-only except for each member's own published 
     }],
   }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_competition_organizer_first_names`, (route) =>
+    route.fulfill({ json: [{ first_name: "Olivia" }, { first_name: "Morgan" }] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_published_competition_results`, (route) =>
     route.fulfill({ json: publishedWinners }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_published_competition_category_results`, (route) =>
@@ -1957,6 +1959,8 @@ test("certificate printing is admin-only except for each member's own published 
   await page.goto(`/competition/${competitionId}`);
   await expect(page.getByRole("button", { name: "Print blank certificate templates" })).toBeVisible();
   await expect(page.locator(".template-certificates .award-certificate")).toHaveCount(3);
+  await expect(page.locator(".template-certificates .award-certificate-organizer-names")).toContainText("Olivia");
+  await expect(page.locator(".template-certificates .award-certificate-organizer-names")).toContainText("Morgan");
   await expect(page.getByRole("button", { name: "Print published winner certificates" })).toHaveCount(0);
 
   groupRole = "member";
@@ -1972,6 +1976,7 @@ test("certificate printing is admin-only except for each member's own published 
   await expect(page.getByRole("button", { name: "Print published winner certificates" })).toBeVisible();
   await expect(page.locator(".winner-certificates .award-certificate")).toHaveCount(2);
   await expect(page.locator(".winner-certificates")).toContainText("Jordan Baker");
+  await expect(page.locator(".winner-certificates .award-certificate-organizer-names").first()).toContainText("Olivia");
 
   groupRole = "member";
   await page.reload();

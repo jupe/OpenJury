@@ -45,12 +45,14 @@ export default function WinnerCertificates({
   published,
   isAdmin,
   userId,
+  organizerFirstNames,
   winners,
 }: {
   competitionName: string;
   published: boolean;
   isAdmin: boolean;
   userId: string;
+  organizerFirstNames: string[];
   winners: Winner[];
 }) {
   const { t } = useLocale();
@@ -99,7 +101,12 @@ export default function WinnerCertificates({
                 </p>
                 <p className="award-certificate-competition">{competitionName}</p>
                 <div className="award-certificate-signatures">
-                  <div className="award-certificate-signature"><p>&nbsp;</p><span>{t("Competition organizer")}</span></div>
+                  <div className="award-certificate-signature">
+                    <p className="award-certificate-organizer-names">
+                      {organizerFirstNames.map((name, index) => <span key={`${name}:${index}`}>{name}</span>)}
+                    </p>
+                    <span>{t("Competition organizers")}</span>
+                  </div>
                   <div className="award-certificate-date"><AwardSeal /><p>{t("Awarded on")}</p></div>
                 </div>
               </div>
@@ -127,7 +134,12 @@ export default function WinnerCertificates({
                 </p>
                 <p className="award-certificate-competition">{competitionName}</p>
                 <div className="award-certificate-signatures">
-                  <div className="award-certificate-signature"><p>&nbsp;</p><span>{t("Competition organizer")}</span></div>
+                  <div className="award-certificate-signature">
+                    <p className="award-certificate-organizer-names">
+                      {organizerFirstNames.map((name, index) => <span key={`${name}:${index}`}>{name}</span>)}
+                    </p>
+                    <span>{t("Competition organizers")}</span>
+                  </div>
                   <div className="award-certificate-date"><AwardSeal /><p>{t("Awarded on")}</p></div>
                 </div>
               </div>

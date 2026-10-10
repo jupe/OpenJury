@@ -362,16 +362,14 @@ html[data-theme="dark"] .category-winner {
     width: 210mm;
     height: 297mm;
     padding: 8mm;
-    page-break-after: always;
-    break-after: page;
     background: #f8f1df;
     color: #352d35;
     font-family: Georgia, "Times New Roman", serif;
   }
 
-  .award-certificate:last-child {
-    page-break-after: auto;
-    break-after: auto;
+  .award-certificate + .award-certificate {
+    page-break-before: always;
+    break-before: page;
   }
 
   .award-certificate-frame {
@@ -399,7 +397,7 @@ html[data-theme="dark"] .category-winner {
     position: absolute;
     z-index: 1;
     color: #762b37;
-    font-size: 25pt;
+    font-size: 42pt;
     line-height: 1;
   }
 
@@ -505,7 +503,9 @@ html[data-theme="dark"] .category-winner {
     max-width: 145mm;
     margin: 0;
     color: #352d35;
-    font-size: 21pt;
+    font-family: "Segoe Script", "Brush Script MT", "URW Chancery L", cursive;
+    font-size: 24pt;
+    font-style: italic;
     font-weight: 700;
     line-height: 1.35;
     overflow-wrap: anywhere;
@@ -532,9 +532,34 @@ html[data-theme="dark"] .category-winner {
   }
 
   .award-certificate-signature p {
-    height: 19mm;
+    min-height: 19mm;
     margin: 0;
     border-bottom: 1px solid #762b37;
+  }
+
+  .award-certificate-signature .award-certificate-organizer-names {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: end;
+    align-items: end;
+    justify-content: center;
+    gap: 0 3mm;
+    padding: 0 1mm 1mm;
+    color: #352d35;
+    font-family: "Segoe Script", "Brush Script MT", "URW Chancery L", cursive;
+    font-size: 21pt;
+    font-style: italic;
+    line-height: 1.1;
+    overflow-wrap: anywhere;
+  }
+
+  .award-certificate-signature .award-certificate-organizer-names span {
+    display: inline;
+    margin: 0;
+    color: inherit;
+    font-size: inherit;
+    letter-spacing: 0;
+    white-space: nowrap;
   }
 
   .award-certificate-signature span,

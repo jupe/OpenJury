@@ -130,6 +130,12 @@ begin
   ) then
     raise exception 'An empty draft must include every current member, without other-event activity';
   end if;
+  if (select array_agg(first_name order by first_name)
+      from public.get_competition_organizer_first_names(
+        '00000000-0000-0000-0000-000000000221'
+      )) is distinct from array['Admin', 'Dual'] then
+    raise exception 'Organizer projection must return only the first names of current admins';
+  end if;
   if (select row(joined_count, participant_count, submitted_count, complete_ballot_count, eligible_voter_count)
       from public.get_admin_competition_participation_progress('00000000-0000-0000-0000-000000000225'))
       is distinct from row(3, 2, 2, 2, 3) then
@@ -187,6 +193,12 @@ begin
     raise exception 'Member accessed participation progress';
   exception when insufficient_privilege then null;
   end;
+  if (select array_agg(first_name order by first_name)
+      from public.get_competition_organizer_first_names(
+        '00000000-0000-0000-0000-000000000221'
+      )) is distinct from array['Admin', 'Dual'] then
+    raise exception 'Any group member must be able to print organizer names';
+  end if;
   if exists (
     with expected(rank, score, vote_count, title, creator_id, creator_name) as (values
       (1, 80::numeric, 1, 'Full name entry', '00000000-0000-0000-0000-000000000202'::uuid, 'Full Name'),
@@ -230,6 +242,11 @@ begin
     raise exception 'Other tenant admin accessed published results';
   exception when insufficient_privilege then null;
   end;
+  begin
+    perform public.get_competition_organizer_first_names('00000000-0000-0000-0000-000000000221');
+    raise exception 'Other tenant admin accessed organizer names';
+  exception when insufficient_privilege then null;
+  end;
 end;
 $$;
 
@@ -249,6 +266,11 @@ begin
   begin
     perform public.get_published_competition_results('00000000-0000-0000-0000-000000000221');
     raise exception 'Missing auth identity accessed published results';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.get_competition_organizer_first_names('00000000-0000-0000-0000-000000000221');
+    raise exception 'Missing auth identity accessed organizer names';
   exception when insufficient_privilege then null;
   end;
 end;
@@ -272,6 +294,11 @@ begin
     raise exception 'Anonymous client accessed published results';
   exception when insufficient_privilege then null;
   end;
+  begin
+    perform public.get_competition_organizer_first_names('00000000-0000-0000-0000-000000000221');
+    raise exception 'Anonymous client accessed organizer names';
+  exception when insufficient_privilege then null;
+  end;
 end;
 $$;
 
@@ -283,7 +310,8 @@ begin
   foreach rpc in array array[
     'public.get_admin_competition_attendees(uuid)'::regprocedure,
     'public.get_admin_competition_participation_progress(uuid)'::regprocedure,
-    'public.get_published_competition_results(uuid)'::regprocedure
+    'public.get_published_competition_results(uuid)'::regprocedure,
+    'public.get_competition_organizer_first_names(uuid)'::regprocedure
   ] loop
     if has_function_privilege('anon', rpc, 'execute')
        or has_function_privilege('service_role', rpc, 'execute')

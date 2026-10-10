@@ -239,6 +239,7 @@ const finnish: Record<string, string> = {
   "Third place": "3. sija",
   "Awarded on": "Myöntämispäivä",
   "Competition organizer": "Kilpailun järjestäjä",
+  "Competition organizers": "Kilpailun järjestäjät",
   "Preliminary category winners": "Alustavat kategorioiden voittajat",
   "Preliminary rankings (admins only)": "Alustavat sijoitukset (vain ylläpitäjille)",
   "Winner:": "Voittaja:",

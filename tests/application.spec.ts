@@ -62,6 +62,12 @@ async function checkLandingNavigation(page: Page) {
   });
   expect(pageSize.height).toBeGreaterThan(pageSize.width);
   expect(pageSize.width / pageSize.height).toBeCloseTo(210 / 297, 2);
+  await expect(page.locator(".template-certificates .award-certificate").first()).toHaveCSS("break-before", "auto");
+  await expect(page.locator(".template-certificates .award-certificate").nth(1)).toHaveCSS("break-before", "page");
+  await expect(page.locator(".template-certificates .award-certificate").last()).toHaveCSS("break-after", "auto");
+  await expect(page.locator(".template-certificates .award-certificate-competition").first()).toHaveCSS("font-style", "italic");
+  const certificatePdf = await page.pdf({ format: "A4", printBackground: true, preferCSSPageSize: true });
+  expect(Buffer.from(certificatePdf).toString("latin1").match(/\/Type\s*\/Page\b/g)).toHaveLength(3);
   await page.evaluate(() => document.body.classList.remove("print-award-certificates", "print-award-templates"));
   await page.emulateMedia({ media: "screen" });
   await page.getByRole("link", { name: "Manage competition" }).click();
