@@ -9,7 +9,7 @@ import { failureMessage } from "@/lib/errors";
 import { useLocale } from "@/lib/i18n";
 import Button, { ButtonLink } from "@/components/Button";
 import Card from "@/components/Card";
-import IconButton, { Icon } from "@/components/IconButton";
+import IconButton, { Icon, IconLink } from "@/components/IconButton";
 
 // Sign-in links always return to /dashboard, so an invite opened while signed
 // out is remembered here and resumed from the dashboard.
@@ -135,6 +135,8 @@ export function GroupMembers({ groupId }: { groupId: string }) {
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
   const [inviteMessage, setInviteMessage] = useState("");
+  // Feedback for the invite form appears beside it; everything else below the card.
+  const [feedbackAtForm, setFeedbackAtForm] = useState(false);
   const [working, setWorking] = useState("");
   const [email, setEmail] = useState("");
   const [copied, setCopied] = useState("");
@@ -176,6 +178,7 @@ export function GroupMembers({ groupId }: { groupId: string }) {
     setWorking(key);
     setActionError("");
     setInviteMessage("");
+    setFeedbackAtForm(key === "invite");
     try {
       const { error: rpcError } = await run();
       if (rpcError) throw rpcError;
@@ -209,8 +212,8 @@ export function GroupMembers({ groupId }: { groupId: string }) {
       ? null : new Error(t(result.error || "Unable to invite member")) };
   }
 
-  async function sendAndReportInvitation(address: string) {
-    const sent = await act("invite", "invite member", () => sendInvitation(address));
+  async function sendAndReportInvitation(key: string, address: string) {
+    const sent = await act(key, "invite member", () => sendInvitation(address));
     if (sent) {
       setInviteMessage(session.access_token.startsWith("demo-")
         ? t("Invite saved for {email}. They can join when they sign in with this address.", { email: address })
@@ -223,7 +226,7 @@ export function GroupMembers({ groupId }: { groupId: string }) {
     event.preventDefault();
     const address = email.trim();
     if (!address) return;
-    if (await sendAndReportInvitation(address)) setEmail("");
+    if (await sendAndReportInvitation("invite", address)) setEmail("");
   }
 
   async function copy(link: InviteLink) {
@@ -231,12 +234,18 @@ export function GroupMembers({ groupId }: { groupId: string }) {
       await navigator.clipboard.writeText(inviteUrl(link.token));
       setCopied(link.id);
     } catch {
+      setFeedbackAtForm(false);
       setActionError(t("Unable to copy automatically. Select the link and copy it instead."));
     }
   }
 
   const adminCount = members.filter((member) => member.role === "admin").length;
   const inviteUrl = (token: string) => `${window.location.origin}/invite/${token}`;
+
+  const feedback = <>
+    {actionError && <p role="alert">{actionError}</p>}
+    {inviteMessage && <p role="status">{inviteMessage}</p>}
+  </>;
 
   if (loading) return <p role="status">{t("Loading members…")}</p>;
   if (error) return <Card title={t("Members")}><p role="alert">{error}</p><Button onClick={refresh}>{t("Retry members")}</Button></Card>;
@@ -301,7 +310,7 @@ export function GroupMembers({ groupId }: { groupId: string }) {
               <td className="break-all py-1 pr-2 text-slate-500">{pending.email} · {t("waiting to sign in")}</td>
               <td className="py-1">
                 <div className="flex justify-end">
-                  {!session.access_token.startsWith("demo-") && <IconButton icon="retry" disabled={!!working} aria-label={t("Resend invite to {email}", { email: pending.email })} onClick={() => void sendAndReportInvitation(pending.email)} />}
+                  {!session.access_token.startsWith("demo-") && <IconButton icon="retry" disabled={!!working} aria-label={t("Resend invite to {email}", { email: pending.email })} onClick={() => void sendAndReportInvitation(pending.email, pending.email)} />}
                   <IconButton icon="cancel" tone="danger" disabled={!!working} aria-label={t("Cancel invite for {email}", { email: pending.email })} onClick={() => void act(pending.email, "cancel invite", () =>
                     client.rpc("revoke_group_email_invite", { p_group_id: groupId, p_email: pending.email }))} />
                 </div>
@@ -327,6 +336,7 @@ export function GroupMembers({ groupId }: { groupId: string }) {
             <p id="invite-email-hint" className="mt-1 text-xs text-slate-500">{t(session.access_token.startsWith("demo-")
               ? "No email is sent. They join when they next sign in with this address."
               : "An invitation email is sent. They join when they sign in with this address.")}</p>
+            {feedbackAtForm && <div className="mt-2">{feedback}</div>}
           </form>
 
           <div className="space-y-2 border-t border-slate-100 pt-4">
@@ -358,8 +368,7 @@ export function GroupMembers({ groupId }: { groupId: string }) {
           </div>
         </div>
       </details>
-      {actionError && <p role="alert">{actionError}</p>}
-      {inviteMessage && <p role="status">{inviteMessage}</p>}
+      {!feedbackAtForm && feedback}
     </Card>
   );
 }
@@ -415,7 +424,7 @@ export function PlatformGroups() {
           <thead className="text-sm text-slate-500">
             <tr className="border-b border-slate-200">
               <th scope="col" className="pb-2 font-medium">{t("Group name")}</th>
-              <th scope="col" className="w-36 pb-2 text-right font-medium"><span className="sr-only">{t("Actions")}</span></th>
+              <th scope="col" className="w-12 pb-2 text-right font-medium"><span className="sr-only">{t("Actions")}</span></th>
             </tr>
           </thead>
           <tbody>
@@ -427,11 +436,9 @@ export function PlatformGroups() {
                 </td>
                 <td className="py-1 text-right">
                   {group.my_role === "admin" ? (
-                    <ButtonLink href={`/group/${encodeURIComponent(group.id)}`} aria-label={t("Open {group}", { group: group.name })}>{t("Open")}</ButtonLink>
+                    <IconLink icon="chevronRight" href={`/group/${encodeURIComponent(group.id)}`} aria-label={t("Open {group}", { group: group.name })} />
                   ) : (
-                    <Button disabled={!!working} aria-label={t("Manage {group} as admin", { group: group.name })} onClick={() => void manage(group)}>
-                      {t(working === group.id ? "Joining…" : "Manage as admin")}
-                    </Button>
+                    <IconButton icon="manage" disabled={!!working} aria-label={t("Manage {group} as admin", { group: group.name })} title={working === group.id ? t("Joining…") : undefined} onClick={() => void manage(group)} />
                   )}
                 </td>
               </tr>
@@ -496,7 +503,7 @@ export function CompetitionRole({
   const fixedReason = role && !available.length
     ? (!beforeVoting ? "Roles are fixed once voting starts." : hasEntry ? "You have submitted an entry, so you stay a participant." : null)
     : null;
-  const roleStyle = (name: CompetitionRoleName) => name === "participant" ? "bg-violet-50 text-violet-700" : "bg-amber-50 text-amber-700";
+  const roleStyle = (name: CompetitionRoleName) => name === "participant" ? "bg-indigo-50 text-indigo-700" : "bg-amber-50 text-amber-700";
 
   return (
     <Card title={t(role ? "How you take part" : "Take part")}>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useAuth } from "@/components/AuthBoundary";
 import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
 import AddButton from "@/components/AddButton";
@@ -20,6 +20,7 @@ type Competition = {
   description: string | null;
   rules: string | null;
   max_submission_images?: number;
+  submission_type?: "photo" | "text";
   allow_participant_voting: boolean;
   event_type: "live" | "remote";
   status: string;
@@ -33,7 +34,7 @@ type Competition = {
 const roleBadges: Record<CompetitionRoleName, { tip: string; className: string; icon: string }> = {
   participant: {
     tip: "You are a participant: you submit an entry",
-    className: "border-violet-200 bg-violet-50 text-violet-700",
+    className: "border-indigo-200 bg-indigo-50 text-indigo-700",
     icon: "M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4ZM13.5 6.5l4 4",
   },
   audience: {
@@ -76,6 +77,12 @@ function latestDate(competition: Competition) {
   return date ? Date.parse(date) : Number.MIN_SAFE_INTEGER;
 }
 
+function statusOrder(status: string) {
+  if (status === "draft") return 0;
+  if (status === "results_published") return 2;
+  return 1;
+}
+
 type CategoryDraft = { name: string; max_score: number };
 type CompetitionDraft = {
   id: string | null;
@@ -86,7 +93,9 @@ type CompetitionDraft = {
   eventType: "live" | "remote";
   submissionDeadline: string;
   votingDeadline: string;
+  resultsPublishAt: string;
   maxSubmissionImages: number;
+  submissionType: "photo" | "text";
   categories: CategoryDraft[];
 };
 
@@ -100,7 +109,9 @@ function emptyDraft(): CompetitionDraft {
     eventType: "remote",
     submissionDeadline: "",
     votingDeadline: "",
+    resultsPublishAt: "",
     maxSubmissionImages: 5,
+    submissionType: "photo",
     categories: [{ name: "", max_score: 5 }],
   };
 }
@@ -115,6 +126,39 @@ function toLocalInput(value: string | null) {
 
 function toTimestamp(value: string) {
   return value ? new Date(value).toISOString() : null;
+}
+
+function SetupLabel({ label, htmlFor, help, children, action }: {
+  label: string;
+  htmlFor?: string;
+  help: string;
+  children?: ReactNode;
+  action?: ReactNode;
+}) {
+  const { t } = useLocale();
+  const helpId = useId();
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <>
+      <div className="flex items-center gap-1">
+        {htmlFor ? (
+          <label htmlFor={htmlFor} className="flex min-w-0 items-center gap-3">{children}{t(label)}</label>
+        ) : <span className="font-semibold">{t(label)}</span>}
+        <button
+          type="button"
+          aria-label={t("Help: {field}", { field: t(label) })}
+          aria-expanded={expanded}
+          aria-controls={helpId}
+          onClick={() => setExpanded((value) => !value)}
+          className="inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+        >
+          <span aria-hidden className="flex h-5 w-5 items-center justify-center rounded-full border border-current text-xs font-semibold">?</span>
+        </button>
+        {action && <span className="ml-auto">{action}</span>}
+      </div>
+      <p id={helpId} hidden={!expanded} className="mb-2 rounded-xl bg-slate-100 p-3 text-sm text-slate-600">{t(help)}</p>
+    </>
+  );
 }
 
 export function CompetitionManager({ groupId }: { groupId: string }) {
@@ -132,10 +176,14 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
   const [editing, setEditing] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
   const [editError, setEditError] = useState<CompetitionError | null>(null);
+  const [templateError, setTemplateError] = useState<CompetitionError | null>(null);
+  const [templateId, setTemplateId] = useState("");
+  const [loadingTemplate, setLoadingTemplate] = useState(false);
   const [draft, setDraft] = useState<CompetitionDraft>(emptyDraft);
   const [attempt, setAttempt] = useState(0);
   const formDialog = useRef<HTMLDialogElement>(null);
   const removeDialog = useRef<HTMLDialogElement>(null);
+  const templateRequest = useRef(0);
   const refresh = useCallback(() => {
     setLoading(true);
     setError(null);
@@ -159,7 +207,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
             .abortSignal(controller.signal)
             .maybeSingle(),
           client.from("competitions")
-            .select("id,name,description,rules,max_submission_images,allow_participant_voting,event_type,status,submission_deadline,voting_deadline,results_publish_at,competition_participants(role)")
+            .select("id,name,description,rules,max_submission_images,submission_type,allow_participant_voting,event_type,status,submission_deadline,voting_deadline,results_publish_at,competition_participants(role)")
             .eq("group_id", groupId)
             .order("name")
             .abortSignal(controller.signal),
@@ -169,7 +217,9 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         else if (result.error) setError({ message: "Unable to load competitions: {error}", error: result.error.message });
         else {
           setIsAdmin(membership.data?.role === "admin");
-          setCompetitions([...(result.data || [])].sort((a, b) => latestDate(b) - latestDate(a)));
+          setCompetitions([...(result.data || [])].sort((a, b) =>
+            statusOrder(a.status) - statusOrder(b.status) || latestDate(b) - latestDate(a),
+          ));
         }
       } catch {
         if (active) setError({ message: "Unable to load competitions. Please try again." });
@@ -188,15 +238,74 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
   }, [loading]);
 
   function newCompetition() {
+    templateRequest.current += 1;
     setEditError(null);
+    setTemplateError(null);
+    setTemplateId("");
+    setLoadingTemplate(false);
     setDraft(emptyDraft());
     setEditing(false);
     setSaveError(null);
     formDialog.current?.showModal();
   }
 
+  async function selectTemplate(id: string) {
+    const request = ++templateRequest.current;
+    setTemplateId(id);
+    setTemplateError(null);
+    if (!id) {
+      setDraft(emptyDraft());
+      return;
+    }
+
+    const template = competitions.find((competition) =>
+      competition.id === id && competition.status === "results_published",
+    );
+    if (!template) return;
+
+    setLoadingTemplate(true);
+    try {
+      const { data, error: queryError } = await client.from("categories")
+        .select("name,max_score")
+        .eq("competition_id", template.id)
+        .order("name");
+      if (request !== templateRequest.current) return;
+      if (queryError) {
+        setTemplateError({ message: "Unable to load competition template: {error}", error: queryError.message });
+        setTemplateId("");
+        return;
+      }
+      setDraft({
+        ...emptyDraft(),
+        description: template.description ?? "",
+        rules: template.rules ?? "",
+        allowParticipantVoting: template.allow_participant_voting ?? false,
+        eventType: template.event_type,
+        maxSubmissionImages: template.max_submission_images ?? 5,
+        submissionType: template.submission_type ?? "photo",
+        categories: (data || []).length
+          ? (data || []).map((category) => ({
+              name: category.name,
+              max_score: category.max_score,
+            }))
+          : [{ name: "", max_score: 5 }],
+      });
+    } catch {
+      if (request === templateRequest.current) {
+        setTemplateError({ message: "Unable to load competition template. Please try again." });
+        setTemplateId("");
+      }
+    } finally {
+      if (request === templateRequest.current) setLoadingTemplate(false);
+    }
+  }
+
   // Closing by Cancel, Escape, or a successful save discards the unsaved form.
   function resetForm() {
+    templateRequest.current += 1;
+    setTemplateId("");
+    setTemplateError(null);
+    setLoadingTemplate(false);
     setDraft(emptyDraft());
     setEditing(false);
     setSaveError(null);
@@ -224,7 +333,9 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         eventType: competition.event_type,
         submissionDeadline: toLocalInput(competition.submission_deadline),
         votingDeadline: toLocalInput(competition.voting_deadline),
+        resultsPublishAt: toLocalInput(competition.results_publish_at),
         maxSubmissionImages: competition.max_submission_images ?? 5,
+        submissionType: competition.submission_type ?? "photo",
         categories: (data || []).map((category) => ({
           name: category.name,
           max_score: category.max_score,
@@ -264,7 +375,9 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
         p_event_type: draft.eventType,
         p_submission_deadline: toTimestamp(draft.submissionDeadline),
         p_voting_deadline: toTimestamp(draft.votingDeadline),
+        p_results_publish_at: toTimestamp(draft.resultsPublishAt),
         p_max_submission_images: draft.maxSubmissionImages,
+        p_submission_type: draft.submissionType,
         p_categories: draft.categories.map((category) => ({
           name: category.name.trim(),
           max_score: category.max_score,
@@ -338,6 +451,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
                     {competition.competition_participants?.[0] && <RoleBadge role={competition.competition_participants[0].role} />}
                     <StatusBadge status={competition.status} />
                     {t(competition.event_type === "live" ? "Live" : "Remote")}
+                    {t(competition.submission_type === "text" ? "Text submissions" : "Photo submissions")}
                   </p>
                 </div>
                 <div className="flex items-center justify-between gap-3">
@@ -407,46 +521,84 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
               <h2 id="competition-form-title" className="text-lg font-semibold">{t(editing ? "Edit draft competition" : "Create a draft competition")}</h2>
               <IconButton icon="cancel" aria-label={t("Close")} disabled={saving} onClick={() => formDialog.current?.close()} />
             </div>
+            {!editing && (
+              <div>
+                <label htmlFor="competition-template" className="block">{t("Use a past competition as a template")}</label>
+                <select
+                  id="competition-template"
+                  value={templateId}
+                  disabled={loadingTemplate}
+                  onChange={(event) => void selectTemplate(event.target.value)}
+                  className="mt-1 block w-full rounded border border-slate-300 p-2"
+                >
+                  <option value="">{t("Start from scratch")}</option>
+                  {competitions.filter((competition) => competition.status === "results_published").map((competition) => (
+                    <option key={competition.id} value={competition.id}>{competition.name}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-sm text-slate-600">{t("Copies rules, categories, and settings. Dates, entrants, submissions, and ballots are not copied.")}</p>
+                {loadingTemplate && <p role="status">{t("Loading template…")}</p>}
+                {templateError && <p role="alert">{t(templateError.message, { error: t(templateError.error ?? "") })}</p>}
+              </div>
+            )}
             <label className="block">{t("Competition name")}
               <input required maxLength={100} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
-            <label className="block">{t("Description (optional)")}
-              <textarea maxLength={10000} rows={3} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+            <div>
+              <SetupLabel label="Description (optional)" htmlFor="competition-description" help="Tell members what the competition is about, such as the theme, location, or what to submit. You can update the description and rules later." />
+              <textarea id="competition-description" maxLength={10000} rows={3} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+            </div>
+            <div>
+              <SetupLabel label="Rules (optional)" htmlFor="competition-rules" help="Explain who can enter, what is allowed, and how entries will be judged. Ask members to avoid names or identifying marks so voting stays blind." />
+              <textarea id="competition-rules" maxLength={10000} rows={4} value={draft.rules} onChange={(event) => setDraft({ ...draft, rules: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+            </div>
+            <label className="block">{t("Submission format")}
+              <select value={draft.submissionType} onChange={(event) => setDraft({ ...draft, submissionType: event.target.value as "photo" | "text" })} className="mt-1 block w-full rounded border border-slate-300 p-2">
+                <option value="photo">{t("Photos")}</option>
+                <option value="text">{t("Text")}</option>
+              </select>
             </label>
-            <label className="block">{t("Rules (optional)")}
-              <textarea maxLength={10000} rows={4} value={draft.rules} onChange={(event) => setDraft({ ...draft, rules: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
-            </label>
-            <label className="block">{t("Maximum photos per entry")}
-              <input type="number" inputMode="numeric" required min={1} max={20} value={draft.maxSubmissionImages} onChange={(event) => setDraft({ ...draft, maxSubmissionImages: Number(event.target.value) })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
-            </label>
-            <label className="flex min-h-11 items-center gap-3">
-              <input type="checkbox" checked={draft.allowParticipantVoting} onChange={(event) => setDraft({ ...draft, allowParticipantVoting: event.target.checked })} className="h-5 w-5" />
-              {t("Allow participants to vote")}
-            </label>
-            <p className="text-sm text-slate-600">{t("Participants can score other entries, never their own. This setting is fixed once submissions open.")}</p>
+            <p className="text-sm text-slate-600">{t("Submission format is fixed once submissions open.")}</p>
+            {draft.submissionType === "photo" && (
+              <div>
+                <SetupLabel label="Maximum photos per entry" htmlFor="competition-photos" help="Choose 1–20 photos per entry. Each photo can be up to 10 MB. This limit is fixed once submissions open." />
+                <input id="competition-photos" type="number" inputMode="numeric" required min={1} max={20} value={draft.maxSubmissionImages} onChange={(event) => setDraft({ ...draft, maxSubmissionImages: Number(event.target.value) })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+              </div>
+            )}
+            <div>
+              <SetupLabel label="Allow participants to vote" htmlFor="competition-participant-voting" help="Participants can score other entries, never their own. This setting is fixed once submissions open.">
+                <input id="competition-participant-voting" type="checkbox" checked={draft.allowParticipantVoting} onChange={(event) => setDraft({ ...draft, allowParticipantVoting: event.target.checked })} className="h-5 w-5" />
+              </SetupLabel>
+            </div>
             <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-[minmax(8rem,10rem)_minmax(0,1fr)_minmax(0,1fr)]">
-              <label className="block sm:col-span-2 md:col-span-1">{t("Event type")}
-                <select value={draft.eventType} onChange={(event) => setDraft({ ...draft, eventType: event.target.value as "live" | "remote" })} className="mt-1 block w-full rounded border border-slate-300 p-2">
+              <div className="sm:col-span-2 md:col-span-1">
+                <SetupLabel label="Event type" htmlFor="competition-event-type" help="Remote competitions can advance automatically at their deadlines when scheduled processing is configured. Live competitions are advanced by an admin. Both use blind voting." />
+                <select id="competition-event-type" value={draft.eventType} onChange={(event) => setDraft({ ...draft, eventType: event.target.value as "live" | "remote" })} className="mt-1 block w-full rounded border border-slate-300 p-2">
                   <option value="remote">{t("Remote")}</option>
                   <option value="live">{t("Live")}</option>
                 </select>
-              </label>
-              <label className="block">{t("Submission deadline")}
-                <input type="datetime-local" value={draft.submissionDeadline} onChange={(event) => setDraft({ ...draft, submissionDeadline: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
-              </label>
-              <label className="block">{t("Voting deadline")}
-                <input type="datetime-local" value={draft.votingDeadline} onChange={(event) => setDraft({ ...draft, votingDeadline: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+              </div>
+              <div>
+                <SetupLabel label="Submission deadline" htmlFor="competition-submission-deadline" help="Optional. Set the last time members can submit or edit an entry, in your local time zone. Leave blank to close submissions manually." />
+                <input id="competition-submission-deadline" type="datetime-local" value={draft.submissionDeadline} onChange={(event) => setDraft({ ...draft, submissionDeadline: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+              </div>
+              <div>
+                <SetupLabel label="Voting deadline" htmlFor="competition-voting-deadline" help="Optional. Set the last time voters can save or revise scores, in your local time zone. It must be after the submission deadline if both are set. Results are reviewed before publication." />
+                <input id="competition-voting-deadline" type="datetime-local" value={draft.votingDeadline} onChange={(event) => setDraft({ ...draft, votingDeadline: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+              </div>
+              <label className="block sm:col-span-2 md:col-span-3">{t("Results publication time (optional)")}
+                <input type="datetime-local" value={draft.resultsPublishAt} onChange={(event) => setDraft({ ...draft, resultsPublishAt: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
               </label>
             </div>
+            <p className="text-sm text-slate-600">{t("The scheduled publication time is used after voting closes and review is complete. You can change it during review.")}</p>
             <fieldset className="space-y-3">
               <legend className="sr-only">{t("Scoring categories")}</legend>
-              <div className="flex items-center justify-between gap-3">
-                <p aria-hidden className="font-semibold">{t("Scoring categories")} <span className="font-normal text-slate-500">{t("(maximum score 1–5)")}</span></p>
+              <SetupLabel label="Scoring categories" help="Add at least one category, such as Taste, Creativity, or Presentation. Give each a unique name and a maximum score from 1 to 5. Overall scores average each category's points equally, so a higher maximum allows a category to contribute more points. Scoring settings are fixed once submissions open." action={
                 <AddButton aria-label={t("Add category")} onClick={() => setDraft({
                   ...draft,
                   categories: [...draft.categories, { name: "", max_score: 5 }],
                 })} />
-              </div>
+              } />
               {draft.categories.map((category, index) => (
                 <div key={index} className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3 sm:grid-cols-[1fr_8rem_auto]">
                   <label className="col-span-2 block sm:col-span-1">{t("Category name")}

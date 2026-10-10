@@ -11,9 +11,9 @@ the `display_name`, `full_name`, or `name` fields in user metadata.
 | --- | --- |
 | `groups` | Tenant name, creator, and creation time |
 | `group_members` | Group/user membership with `admin` or `member` role |
-| `competitions` | Group event, optional description/rules, live/remote type, status, deadlines, and submission photo limit |
+| `competitions` | Group event, optional description/rules, live/remote type, status, submission/voting deadlines, optional results publication time, and photo or text submission format |
 | `categories` | Competition grading criteria with maximum scores from 1 to 5 |
-| `entries` | Submission creator, title, private media keys, anonymous number, and disqualification flag |
+| `entries` | Submission creator, title, private media keys or submitted text, anonymous number, and disqualification flag |
 | `votes` | Entry/category/user score, unique per entry, voter, and category |
 
 UUID primary keys, foreign keys, allowed-value checks, and cascading deletion of
@@ -43,6 +43,13 @@ scheduled caller or service-role process should invoke
 competitions, skips rows already being processed, and is safe to call repeatedly.
 The move from review to `results_published` is only available through atomic result
 publication.
+
+Admins can also return a competition to its immediately preceding phase through
+the same RPC. Reopening voting is allowed only before its deadline; reopening
+submissions after voting requires that no ballots exist. Returning to draft is
+blocked if start-notification emails were queued. Returning from published results
+to review removes both published result snapshots, cancels any schedule, and makes
+member-facing results unavailable until the admin publishes again.
 
 Migration `21_competition_start_notifications.sql` adds
 `start_competition(id, notify default false)`. Opt-in locks the draft competition,
@@ -88,6 +95,16 @@ or competition details; submission saves and Storage upload preflight enforce
 the configured limit, and a cap cannot be lowered below an existing entry's
 image count.
 
+Migration `27_text_submissions.sql` lets admins choose photo or text submissions
+when creating or editing a draft. Photo remains the default. Text entries are
+limited to 10,000 characters and are stored on the entry; owner, admin, eligible
+blind-voting, and published-result RPCs expose them only in their authorized
+phases. Text competitions reject photo saves and Storage uploads.
+
+Migration `28_reopen_competition_phases.sql` allows group admins to return a
+competition to its previous lifecycle phase under the same row lock and
+authorization checks as forward transitions.
+
 Migration `19_group_overview.sql` adds `get_my_groups()`, which returns each of
 the caller's groups with their role, member and admin counts, and the number of
 competitions in total and currently open for entries or voting. It exposes only
@@ -110,20 +127,20 @@ After voting closes, group admins can access preliminary rankings and
 disqualification controls only while a competition is in `review_pending`.
 Disqualification requires a 1–500 character reason, records the acting admin
 and timestamp. Admins can exclude an entry from results, retain it at the bottom
-with a disqualification label, or remove its title and media while retaining the
-entry, votes, and moderation audit. Removed media is deleted from private Storage.
+with a disqualification label, or remove its title and content while retaining
+the entry, votes, and moderation audit. Removed media is deleted from private
+Storage, and removed submitted text is cleared.
 An admin can reinstate a disqualified entry during review unless its content was
 removed; reinstatement is also recorded in the audit. Preliminary overall and
 category rankings recalculate after moderation.
 
 A ballot counts for an entry only when it contains a score for every category.
 Partial single-score votes and entries without complete ballots do not affect
-preliminary scores. Each category's complete-ballot scores are averaged after
-normalizing by that category's maximum to a percentage; the category
-percentages are then averaged with equal weight. Entries are ranked by this
-score in descending order; exact ties share a rank using standard competition
-ranking after scores are rounded to four decimal percentage points (for example,
-1, 1, 3). Before publication, each eligible entry must
+preliminary scores. Each category's complete-ballot scores are averaged as
+absolute points, then the category averages are averaged with equal weight.
+Entries are ranked by this score in descending order; exact ties share a rank
+using standard competition ranking after scores are rounded to four decimal
+places (for example, 1, 1, 3). Before publication, each eligible entry must
 have at least one complete ballot. Admins may disqualify an entry that does not
 meet that minimum; publication otherwise fails without changing competition
 status or writing a partial snapshot.
@@ -142,9 +159,10 @@ Preliminary rankings and disqualification audit
 data remain admin-only; direct access to result and audit tables is revoked.
 Disqualification audit rows prevent deletion of the associated entries.
 
-Admins can set, replace, or clear `results_publish_at` at any time while review is
-pending. Times must be in the future. Manual publishing remains available and
-publishes immediately. A trusted service-role scheduler must invoke
+Admins can configure `results_publish_at` while a competition is a draft, or set,
+replace, or clear it while review is pending. Times must be in the future. A draft
+schedule is retained until review; manual publishing remains available and publishes
+immediately. A trusted service-role scheduler must invoke
 `process_scheduled_competition_publications()` periodically; it publishes due
 competitions atomically and clients use private Realtime change notifications to
 refetch the published projections. If a device misses a notification, it refetches
@@ -166,8 +184,10 @@ Migration `12_roles_and_invites.sql` adds the [roles](architecture.md#roles):
 - `group_invites` holds revocable link tokens; `accept_group_invite(token)` joins
   as a member. `group_email_invites` holds addresses that
   `claim_group_invites()` turns into memberships once that confirmed address
-  signs in. Email invitations are rejected for addresses that already have an
-  account; invite links can be used to invite those people instead. Repeating
+  signs in. Email invitations are rejected for addresses that already have a
+  confirmed account; invite links can be used to invite those people instead.
+  Unconfirmed accounts, created when someone requests a sign-in link and never
+  opens it, can still be invited by email. Repeating
   an invitation for a pending address is allowed so its email can be resent.
 - Group admins list members with `get_group_members()`, change roles with
   `set_group_member_role()`, and remove members with `remove_group_member()`.
@@ -199,6 +219,13 @@ used as fallback labels. Email fallback is admin-only. The same migration append
 the metadata-only `creator_name` to published results without changing their
 completion/membership checks, rankings, or ordering.
 
+Migration `30_admin_participation_progress.sql` adds the admin-only
+`get_admin_competition_participation_progress(p_competition_id uuid)` projection.
+It reports aggregate join and submission counts plus the number of eligible voters
+who have completed every category for every entry they can vote on. It returns no
+voter identities, entry references, or ballot scores; ineligible voters and
+participants without an entry to score are excluded from the voting denominator.
+
 ## Implemented group access
 
 Apply `02_group_access.sql` after the initial migration, then
@@ -221,6 +248,12 @@ current group admins change only the name and those details in any phase under
 the same row lock. Categories, event type, deadlines, and lifecycle state are
 unchanged. Names remain trimmed and limited to 1–100 characters.
 
+Migration `28_draft_publication_schedule.sql` adds an optional
+`p_results_publish_at` argument to `save_draft_competition`. Draft administrators
+can set or clear the publication time; non-null times must be in the future. The
+schedule is honored after the competition enters review, when the scheduler can
+publish completed results.
+
 Migration `09_group_management.sql` adds `rename_group` and `delete_group` RPCs.
 Only group admins may rename or remove a group, and names are trimmed and limited
 to 1–100 characters. Removing a group deletes its group-owned data, but is
@@ -232,9 +265,10 @@ database-owned data and is blocked when disqualification audit records exist.
 Group admins can remove a competition from its group's competition list; the
 existing group settings also let admins remove an entire group.
 
-Migration `04_secure_submissions.sql` allows authenticated members to create
-and edit one submission per competition through `save_submission`. It locks the
-competition before validating its submission phase and deadline; direct entry
+Migration `04_secure_submissions.sql` allows authenticated participants to create
+and edit one submission per competition. Photo entries use `save_submission`;
+text entries use `save_text_submission` with a 10,000-character limit. Both lock
+the competition before validating its submission phase and deadline; direct entry
 and vote reads/writes remain revoked. `get_my_submission`,
 `get_admin_submissions`, and `get_blind_voting_entries` return distinct owner,
 admin, and blind-voting projections. Private images are stored in the
@@ -276,6 +310,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/my_overview.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_deletion.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_setup.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/secure_submissions.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/text_submissions.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/transactional_lifecycle.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/competition_start_notifications.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/admin_review_and_publication.sql
@@ -288,6 +323,8 @@ and test data inside a transaction and rolls everything back; do not run it
 against a production database. The competition setup test covers optional detail
 creation/clearing, length limits, authorization/revocation, and metadata-only
 edits across every phase without changing scoring or lifecycle fields.
+The text-submission test covers format selection, participant saves, owner/admin
+and anonymous-voting projections, photo-upload rejection, and content removal.
 The lifecycle test covers role authorization,
 legal transitions, ballot creation and revision, self-voting and membership
 denial, stable numbering, and idempotent remote deadline processing. The
@@ -301,8 +338,9 @@ review/publication test covers admin-only access, complete-ballot aggregation,
 category winners, ties, minimum votes, schedule replacement/cancellation, moderation
 outcomes and reinstatement, retained audit data, and atomic publication.
 The attendee test covers admin-only authorization, tenant isolation, inactive and
-departed participants, name fallbacks, email-free published labels, revoked
-membership, and continued denial of direct sensitive-table access.
+departed participants, name fallbacks, email-free published labels, aggregate
+completion counts, revoked membership, and continued denial of direct sensitive-table
+access.
 The realtime test verifies per-group and per-user channel authorization,
 membership revocation, rejection of forged broadcasts, and that sensitive row
 data remains excluded from Realtime.

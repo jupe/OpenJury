@@ -8,10 +8,11 @@ import { failureMessage } from "@/lib/errors";
 import Breadcrumbs, { type Crumb } from "@/components/Breadcrumbs";
 import Button, { ButtonLink } from "@/components/Button";
 import Card from "@/components/Card";
+import Podium, { type PodiumPlace } from "@/components/Podium";
 import IconButton, { Icon, IconLink } from "@/components/IconButton";
 import ImageLightbox from "@/components/ImageLightbox";
 import Toast, { type ToastMessage } from "@/components/Toast";
-import { StatusBadge, nextTransition } from "@/components/CompetitionStatus";
+import { StatusBadge, nextTransition, previousTransition } from "@/components/CompetitionStatus";
 import { CompetitionRole, type CompetitionRoleName } from "@/components/Membership";
 import { useLocale } from "@/lib/i18n";
 
@@ -30,8 +31,10 @@ function ErrorText({ error }: { error: string | LocalizedError }) {
   return <>{typeof error === "string" ? t(error) : t(error.message, { error: t(error.error ?? "Please try again.") })}</>;
 }
 
-/** Scores are percentages of the maximum; whole numbers read better than the stored precision. */
-const formatPercent = (score: number) => `${Math.round(score)}%`;
+const formatPoints = (score: number, locale: string) => new Intl.NumberFormat(
+  locale === "fi" ? "fi-FI" : "en",
+  { maximumFractionDigits: 4 },
+).format(score);
 
 const MAX_MEDIA_FILES = 5;
 const MAX_MEDIA_SIZE = 10 * 1024 * 1024;
@@ -50,6 +53,7 @@ type Competition = {
   description: string | null;
   rules: string | null;
   max_submission_images?: number;
+  submission_type?: "photo" | "text";
   allow_participant_voting: boolean;
   status: string;
   submission_deadline: string | null;
@@ -88,13 +92,13 @@ function CompetitionDetails({ competition }: { competition: Competition }) {
   return (
     <>
       {competition.description && (
-        <section className="mt-4">
+        <section>
           <h3 className="font-semibold">{t("Description")}</h3>
           <p className="whitespace-pre-wrap break-words">{competition.description}</p>
         </section>
       )}
       {competition.rules && (
-        <section className="mt-4">
+        <section>
           <h3 className="font-semibold">{t("Rules")}</h3>
           <p className="whitespace-pre-wrap break-words">{competition.rules}</p>
         </section>
@@ -103,15 +107,28 @@ function CompetitionDetails({ competition }: { competition: Competition }) {
   );
 }
 
-type Submission = { id: string; title: string; media_keys: string[] };
-type BlindEntry = { entry_number: number; media_keys: string[] };
-type AdminEntry = { id: string; creator_id: string; title: string; media_keys: string[] };
+function SubmissionText({ text }: { text?: string | null }) {
+  return text ? (
+    <p className="rounded-lg bg-slate-50 p-4 whitespace-pre-wrap break-words">{text}</p>
+  ) : null;
+}
+
+type Submission = { id: string; title: string; media_keys: string[]; submission_text?: string | null };
+type BlindEntry = { entry_number: number; media_keys: string[]; submission_text?: string | null };
+type AdminEntry = { id: string; creator_id: string; title: string; media_keys: string[]; submission_text?: string | null };
 type CompetitionAttendee = {
   user_id: string;
   display_name: string;
   role: string;
   has_submission: boolean;
   has_voted: boolean;
+};
+type ParticipationProgress = {
+  joined_count: number;
+  participant_count: number;
+  submitted_count: number;
+  complete_ballot_count: number;
+  eligible_voter_count: number;
 };
 type Category = { id: string; name: string; max_score: number };
 type SavedScore = { entry_number: number; category_id: string; score: number };
@@ -124,6 +141,7 @@ type PublishedResult = {
   creator_name: string;
   is_disqualified: boolean;
   media_keys?: string[] | null;
+  submission_text?: string | null;
 };
 type PublishedCategoryResult = {
   category_id: string;
@@ -315,7 +333,7 @@ function MediaGallery({
 }
 
 export function EntryWorkspace({ competitionId }: { competitionId: string }) {
-  const { t, formatDateTime } = useLocale();
+  const { t, formatDateTime, locale } = useLocale();
   const { client, session } = useAuth();
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
@@ -337,12 +355,14 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
   const [submissionOpen, setSubmissionOpen] = useState(false);
   const [votingOpen, setVotingOpen] = useState(false);
   const [title, setTitle] = useState("");
+  const [submissionText, setSubmissionText] = useState("");
   const [newFiles, setNewFiles] = useState<File[]>([]);
   const [removedKeys, setRemovedKeys] = useState<string[]>([]);
   const [cleanupKeys, setCleanupKeys] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | LocalizedError>("");
+  const [saveMessage, setSaveMessage] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const captureInput = useRef<HTMLInputElement>(null);
 
@@ -360,7 +380,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     setPublishedCategoryResults([]);
     try {
       const result = await client.from("competitions")
-        .select("id,group_id,name,description,rules,max_submission_images,allow_participant_voting,status,submission_deadline,voting_deadline,results_publish_at,groups(name),competition_participants(role)")
+        .select("id,group_id,name,description,rules,max_submission_images,submission_type,allow_participant_voting,status,submission_deadline,voting_deadline,results_publish_at,groups(name),competition_participants(role)")
         .eq("id", competitionId)
         .maybeSingle();
       if (result.error || !result.data) {
@@ -413,6 +433,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       const own = (mine.data || [])[0] as Submission | undefined;
       setSubmission(own || null);
       setTitle(own?.title || "");
+      setSubmissionText(own?.submission_text || "");
       if (blind.error) {
         setError(localizedFailure("Unable to load anonymous entries: {error}", blind.error));
         return;
@@ -508,6 +529,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       return;
     }
     setError("");
+    setSaveMessage("");
     setNewFiles((current) => append ? [...current, ...selected] : selected);
   }
 
@@ -524,9 +546,28 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     if (saving || !competition || !editable) return;
     setSaving(true);
     setError("");
+    setSaveMessage("");
     let entryId = submission?.id || null;
     const uploaded: string[] = [];
     try {
+      if (competition.submission_type === "text") {
+        const { data: savedEntryId, error: saveTextError } = await client.rpc("save_text_submission", {
+          p_competition_id: competitionId,
+          p_entry_id: entryId,
+          p_title: title.trim(),
+          p_submission_text: submissionText.trim(),
+        });
+        if (saveTextError || !savedEntryId) throw saveTextError || new Error(t("Unable to save submission."));
+        setSubmission({
+          id: savedEntryId,
+          title: title.trim(),
+          media_keys: [],
+          submission_text: submissionText.trim(),
+        });
+        setSaveMessage(t("Thanks for taking part! Your entry has been saved."));
+        return;
+      }
+
       const initialKeys = submission?.media_keys || [];
       const { data: initialId, error: initialError } = await client.rpc("save_submission", {
         p_competition_id: competitionId,
@@ -562,7 +603,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       });
       if (saveError) throw saveError;
 
-      setSubmission({ id: savedEntryId, title: title.trim(), media_keys: desiredKeys });
+      setSubmission({ id: savedEntryId, title: title.trim(), media_keys: desiredKeys, submission_text: null });
       setRemovedKeys([]);
       setNewFiles([]);
       if (fileInput.current) fileInput.current.value = "";
@@ -572,11 +613,12 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       ]);
       setCleanupKeys(pendingCleanup);
       setError(pendingCleanup.length ? t("Saved, but some removed media could not be cleaned up. Retry cleanup below.") : "");
+      setSaveMessage(t("Thanks for taking part! Your entry has been saved."));
     } catch (saveError) {
       const pendingCleanup = await cleanup(uploaded);
       setCleanupKeys(pendingCleanup);
       setError(localizedFailure("Unable to save submission: {error}", saveError));
-      if (!submission && entryId) {
+      if (!submission && (entryId || competition.submission_type === "text")) {
         const { data } = await client.rpc("get_my_submission", { p_competition_id: competitionId });
         const own = (data || [])[0] as Submission | undefined;
         if (own) setSubmission(own);
@@ -649,6 +691,12 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     pending.set(entryNumber, { timer: window.setTimeout(save, 400), save });
   }
 
+  // Ties share a rank, so the podium is the first three placed entries in rank order.
+  const podium = publishedResults
+    .filter((result) => !result.is_disqualified && result.rank >= 1 && result.rank <= 3)
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, 3);
+
   if (loading) return <p role="status">{t("Loading competition…")}</p>;
   if (!competition) return <p role="alert"><ErrorText error={error || { message: "Competition is unavailable." }} /></p>;
 
@@ -658,14 +706,24 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         index === all.length - 1 ? { label: crumb.label } : crumb)} />
       <Card
         title={competition.name}
-        action={isAdmin && <IconLink icon="manage" href={`/competition/${encodeURIComponent(competitionId)}/admin`} aria-label={t("Manage competition")} />}
+        action={
+          <div className="flex shrink-0 items-center gap-1">
+            <p><span className="sr-only">{t("Status:")} </span><StatusBadge status={competition.status} /></p>
+            {isAdmin && <IconLink icon="edit" href={`/competition/${encodeURIComponent(competitionId)}/admin`} aria-label={t("Manage competition")} />}
+          </div>
+        }
       >
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-          <p><span className="sr-only">{t("Status:")} </span><StatusBadge status={competition.status} /></p>
-          {competition.submission_deadline && <p>{t("Submissions close {date}", { date: formatDateTime(competition.submission_deadline) })}</p>}
-          {competition.voting_deadline && <p>{t("Voting closes {date}", { date: formatDateTime(competition.voting_deadline) })}</p>}
-        </div>
-        <CompetitionDetails competition={competition} />
+        {(competition.submission_deadline || competition.voting_deadline || competition.description || competition.rules) && (
+          <>
+            {(competition.submission_deadline || competition.voting_deadline) && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                {competition.submission_deadline && <p>{t("Submissions close {date}", { date: formatDateTime(competition.submission_deadline) })}</p>}
+                {competition.voting_deadline && <p>{t("Voting closes {date}", { date: formatDateTime(competition.voting_deadline) })}</p>}
+              </div>
+            )}
+            <CompetitionDetails competition={competition} />
+          </>
+        )}
       </Card>
 
       {["draft", "submission", "voting"].includes(competition.status) && (
@@ -687,50 +745,79 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                 required
                 maxLength={100}
                 value={title}
-                onChange={(event) => setTitle(event.target.value)}
+                onChange={(event) => {
+                  setSaveMessage("");
+                  setTitle(event.target.value);
+                }}
                 className="mt-1 block w-full rounded border border-slate-300 p-2"
               />
             </label>
-            <MediaGallery
-              client={client}
-              mediaKeys={activeMedia}
-              label={t("Your submission image")}
-              removeLabel={(key) => t("Remove image {number}", { number: (submission?.media_keys.indexOf(key) ?? 0) + 1 })}
-              onRemove={(key) => setRemovedKeys((current) => [...current, key])}
-              pendingFiles={newFiles}
-              onRemovePending={(index) => setNewFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))}
-            />
-            <div className="flex items-center gap-1">
-              <IconButton icon="camera" aria-label={t("Take a photo")} onClick={() => captureInput.current?.click()} />
-              <IconButton icon="addImage" aria-label={t("Add images")} onClick={() => fileInput.current?.click()} />
-              <p className="ml-2 text-xs text-slate-500">{t("JPEG, PNG, WebP, HEIC, or HEIF · up to {count} images, 10 MB each", { count: maxSubmissionImages })}</p>
-            </div>
-            <input
-              ref={fileInput}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-              multiple
-              aria-label={t("Add images")}
-              onChange={(event) => {
-                selectFiles(event.target.files, true);
-                event.currentTarget.value = "";
-              }}
-              className="hidden"
-            />
-            <input
-              ref={captureInput}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-              capture="environment"
-              aria-label={t("Take a photo")}
-              onChange={(event) => {
-                selectFiles(event.target.files, true);
-                event.currentTarget.value = "";
-              }}
-              className="hidden"
-            />
-            {newFiles.length > 0 && <p>{t("{count} new image(s) selected.", { count: newFiles.length })}</p>}
-            {removedKeys.length > 0 && <p role="status">{t("Save submission to delete the removed images.")}</p>}
+            {competition.submission_type === "text" ? (
+              <label className="block">{t("Your text entry")}
+                <textarea
+                  required
+                  maxLength={10000}
+                  rows={12}
+                  value={submissionText}
+                  onChange={(event) => {
+                    setSaveMessage("");
+                    setSubmissionText(event.target.value);
+                  }}
+                  className="mt-1 block w-full rounded border border-slate-300 p-3"
+                />
+                <span className="mt-1 block text-xs text-slate-500">{t("Up to 10000 characters.")}</span>
+              </label>
+            ) : (
+              <>
+                <MediaGallery
+                  client={client}
+                  mediaKeys={activeMedia}
+                  label={t("Your submission image")}
+                  removeLabel={(key) => t("Remove image {number}", { number: (submission?.media_keys.indexOf(key) ?? 0) + 1 })}
+                  onRemove={(key) => {
+                    setSaveMessage("");
+                    setRemovedKeys((current) => [...current, key]);
+                  }}
+                  pendingFiles={newFiles}
+                  onRemovePending={(index) => {
+                    setSaveMessage("");
+                    setNewFiles((current) => current.filter((_, fileIndex) => fileIndex !== index));
+                  }}
+                />
+                <div className="flex items-center gap-1">
+                  <IconButton icon="camera" aria-label={t("Take a photo")} onClick={() => captureInput.current?.click()} />
+                  <IconButton icon="addImage" aria-label={t("Add images")} onClick={() => fileInput.current?.click()} />
+                  <p className="ml-2 text-xs text-slate-500">{t("JPEG, PNG, WebP, HEIC, or HEIF · up to {count} images, 10 MB each", { count: maxSubmissionImages })}</p>
+                </div>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                  multiple
+                  aria-label={t("Add images")}
+                  onChange={(event) => {
+                    selectFiles(event.target.files, true);
+                    event.currentTarget.value = "";
+                  }}
+                  className="hidden"
+                />
+                <input
+                  ref={captureInput}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                  capture="environment"
+                  aria-label={t("Take a photo")}
+                  onChange={(event) => {
+                    selectFiles(event.target.files, true);
+                    event.currentTarget.value = "";
+                  }}
+                  className="hidden"
+                />
+                {newFiles.length > 0 && <p>{t("{count} new image(s) selected.", { count: newFiles.length })}</p>}
+                {removedKeys.length > 0 && <p role="status">{t("Save submission to delete the removed images.")}</p>}
+              </>
+            )}
+            {saveMessage && <p role="status" className="rounded-lg bg-emerald-50 p-3 font-medium text-emerald-800">{saveMessage}</p>}
             {error && <p role="alert"><ErrorText error={error} /></p>}
             <div className="flex justify-end">
               <IconButton type="submit" icon={saving ? "pending" : "save"} tone="primary" disabled={saving} aria-label={t(saving ? "Saving…" : "Save submission")} />
@@ -756,11 +843,15 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           {submission && (
             <section aria-labelledby="own-entry-heading" className="mb-6 space-y-2">
               <h2 id="own-entry-heading" className="font-semibold">{t("Your entry")}</h2>
-              <MediaGallery
-                client={client}
-                mediaKeys={submission.media_keys}
-                label={t("Your submission image")}
-              />
+              {competition.submission_type === "text" ? (
+                <SubmissionText text={submission.submission_text} />
+              ) : (
+                <MediaGallery
+                  client={client}
+                  mediaKeys={submission.media_keys}
+                  label={t("Your submission image")}
+                />
+              )}
               <p className="text-sm text-slate-600">{t("You cannot vote on your own entry.")}</p>
             </section>
           )}
@@ -779,11 +870,15 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                         <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">{t("Voted")}</span>
                       )}
                     </h2>
-                    <MediaGallery
-                      client={client}
-                      mediaKeys={entry.media_keys}
-                      label={t("Anonymous entry {number} image", { number: entry.entry_number })}
-                    />
+                    {competition.submission_type === "text" ? (
+                      <SubmissionText text={entry.submission_text} />
+                    ) : (
+                      <MediaGallery
+                        client={client}
+                        mediaKeys={entry.media_keys}
+                        label={t("Anonymous entry {number} image", { number: entry.entry_number })}
+                      />
+                    )}
                     <p id={helpId} className="text-sm text-slate-600">
                       {t(incomplete
                         ? "Not recorded. Select a score for every category to vote."
@@ -845,7 +940,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                                     aria-valuetext={points}
                                     onChange={(event) => changeScore(entry.entry_number, category.id, event.target.value)}
                                     className="vote-score-range w-full cursor-pointer"
-                                    style={{ backgroundImage: `linear-gradient(to right, #4f46e5 ${(score - min) / (category.max_score - min) * 100}%, var(--score-track) ${(score - min) / (category.max_score - min) * 100}%)` }}
+                                    style={{ backgroundImage: `linear-gradient(to right, var(--color-golden) ${(score - min) / (category.max_score - min) * 100}%, var(--score-track) ${(score - min) / (category.max_score - min) * 100}%)` }}
                                   />
                                   <div aria-hidden className="relative mx-3 h-6 text-xs tabular-nums text-slate-600">
                                     {ticks.map((value) => (
@@ -889,18 +984,36 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       )}
       {competition.status === "results_published" && (
         <Card title={t("Published results")}>
+          {podium.length > 0 && (
+            <section className="mb-6">
+              <h2 className="sr-only">{t("Top 3 winners")}</h2>
+              <Podium label={t("Top 3 winners")} spots={podium.map((result) => ({
+                key: `${result.rank}:${result.creator_id}`,
+                place: result.rank as PodiumPlace,
+                name: result.title,
+                detail: <>
+                  <span className="block">{result.creator_name || t("Participant")}</span>
+                  {result.score !== null && <span className="block">{formatPoints(result.score, locale)} {t("points")}</span>}
+                </>,
+              }))} />
+            </section>
+          )}
           {publishedResults.length ? (
             <ol className="space-y-3">
               {publishedResults.map((result) => (
-                <li key={`${result.rank}:${result.creator_id}`} className="space-y-2 rounded border border-slate-200 p-3">
+                <li key={`${result.rank}:${result.creator_id}`} className={`space-y-2 rounded-xl border border-slate-200 p-4 ${result.rank === 1 && !result.is_disqualified ? "winner-result" : ""}`}>
+                  {result.rank === 1 && !result.is_disqualified && (
+                    <span className="winner-badge"><Icon name="trophy" className="size-4" />{t("Winner:")}</span>
+                  )}
                   <h2 className="font-semibold">{t("Rank {rank}: {title}", { rank: result.rank, title: result.title })}</h2>
                   <p>{t("Submitted by {name}", { name: result.creator_name || t("Participant") })}</p>
                   {result.media_keys && result.media_keys.length > 0 && (
                     <MediaGallery client={client} mediaKeys={result.media_keys} label={`${result.title} image`} />
                   )}
+                  <SubmissionText text={result.submission_text} />
                   {result.is_disqualified
                     ? <p>{t("Disqualified")}</p>
-                    : <p>{result.score === null ? "—" : formatPercent(result.score)} · {t("{count} complete ballots", { count: result.vote_count })}</p>}
+                    : <p>{result.score === null ? "—" : `${formatPoints(result.score, locale)} ${t("points")}`} · {t("{count} complete ballots", { count: result.vote_count })}</p>}
                 </li>
               ))}
             </ol>
@@ -916,9 +1029,9 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                   <h3 className="font-semibold">{categoryName}</h3>
                   <ol className="list-inside list-decimal">
                     {publishedCategoryResults.filter((result) => result.category_id === categoryId).map((result, index) => (
-                      <li key={`${categoryId}:${index}`}>
+                      <li key={`${categoryId}:${index}`} className={result.rank === 1 ? "category-winner font-semibold text-amber-800" : ""}>
                         {result.rank === 1 ? `${t("Winner:")} ` : ""}{result.title} ({result.creator_name})
-                        {" — "}{formatPercent(result.score)}
+                        {" — "}{formatPoints(result.score, locale)} {t("points")}
                       </li>
                     ))}
                   </ol>
@@ -940,12 +1053,13 @@ export function AdminSubmissions({ competitionId }: { competitionId: string }) {
 }
 
 function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
-  const { t, formatDateTime } = useLocale();
+  const { t, formatDateTime, locale } = useLocale();
   const { client, session } = useAuth();
   const [groupId, setGroupId] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [entries, setEntries] = useState<AdminEntry[]>([]);
   const [attendees, setAttendees] = useState<CompetitionAttendee[]>([]);
+  const [participationProgress, setParticipationProgress] = useState<ParticipationProgress | null>(null);
   const [competitionRoles, setCompetitionRoles] = useState<Record<string, CompetitionRoleName>>({});
   const [reviewResults, setReviewResults] = useState<AdminReviewResult[] | null>(null);
   const [reviewCategories, setReviewCategories] = useState<AdminCategoryResult[]>([]);
@@ -975,6 +1089,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
     setError("");
     setEntries([]);
     setAttendees([]);
+    setParticipationProgress(null);
     setReviewResults(null);
     setCompetitionStatus("");
     setCompetition(null);
@@ -985,12 +1100,13 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
     let active = true;
     void (async () => {
       try {
-        const [submissionResult, competitionResult, attendeeResult, roleResult, notificationResult] = await Promise.all([
+        const [submissionResult, competitionResult, attendeeResult, participationResult, roleResult, notificationResult] = await Promise.all([
           client.rpc("get_admin_submissions", { p_competition_id: competitionId }),
           client.from("competitions")
-            .select("id,group_id,name,description,rules,max_submission_images,allow_participant_voting,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
+            .select("id,group_id,name,description,rules,max_submission_images,submission_type,allow_participant_voting,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
             .eq("id", competitionId).maybeSingle(),
           client.rpc("get_admin_competition_attendees", { p_competition_id: competitionId }),
+          client.rpc("get_admin_competition_participation_progress", { p_competition_id: competitionId }),
           client.rpc("get_competition_participants", { p_competition_id: competitionId }),
           client.rpc("get_my_pending_competition_start_emails", { p_competition_id: competitionId }),
         ]);
@@ -1013,8 +1129,19 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
           setError(localizedFailure("Unable to load competition attendees: {error}", attendeeResult.error));
           return;
         }
+        if (participationResult.error) {
+          setError(localizedFailure("Unable to load competition participation progress: {error}", participationResult.error));
+          return;
+        }
         setGroupId(competitionResult.data.group_id);
         setAttendees((attendeeResult.data || []) as CompetitionAttendee[]);
+        setParticipationProgress(((participationResult.data || []) as ParticipationProgress[])[0] ?? {
+          joined_count: 0,
+          participant_count: 0,
+          submitted_count: 0,
+          complete_ballot_count: 0,
+          eligible_voter_count: 0,
+        });
         // Roles only annotate the attendee list, so a failure leaves them out.
         setCompetitionRoles(Object.fromEntries(((roleResult.data || []) as Array<{ user_id: string; role: CompetitionRoleName }>)
           .map((row) => [row.user_id, row.role])));
@@ -1143,12 +1270,31 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
     }
   }
 
+  async function revert() {
+    const step = previousTransition[competitionStatus];
+    if (!step || transitioning || !window.confirm(t(step.confirm))) return;
+    setTransitioning(true);
+    setTransitionError(null);
+    try {
+      const { error: transitionFailure } = await client.rpc("transition_competition", {
+        p_competition_id: competitionId,
+        p_target_status: step.target,
+      });
+      if (transitionFailure) throw transitionFailure;
+      refresh();
+    } catch (failure) {
+      setTransitionError(localizedFailure(step.error, failure));
+    } finally {
+      setTransitioning(false);
+    }
+  }
+
   async function disqualify(entry: AdminReviewResult) {
     const reason = reasons[entry.entry_id]?.trim();
     if (!reason || workingEntry) return;
     const disposition = dispositions[entry.entry_id] || "exclude";
     if (disposition === "remove_content"
-      && !window.confirm(t("Remove this entry's title and private images? The entry and moderation audit remain, but it cannot be reinstated."))) return;
+      && !window.confirm(t("Remove this entry's title and content? The entry and moderation audit remain, but it cannot be reinstated."))) return;
     setWorkingEntry(entry.entry_id);
     setError("");
     setActionMessage("");
@@ -1164,7 +1310,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       if (disposition === "remove_content") {
         const submission = entries.find((item) => item.id === entry.entry_id);
         setEntries((current) => current.map((item) => item.id === entry.entry_id
-          ? { ...item, title: t("Content removed"), media_keys: [] }
+          ? { ...item, title: t("Content removed"), media_keys: [], submission_text: null }
           : item));
         if (submission?.media_keys.length) {
           const { error: removeError } = await client.storage
@@ -1268,6 +1414,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
   }
   if (error && !competition) return <p role="alert"><ErrorText error={error} /></p>;
   const step = nextTransition[competitionStatus];
+  const previousStep = previousTransition[competitionStatus];
 
   const attendeeName = (userId: string) =>
     attendees.find((attendee) => attendee.user_id === userId)?.display_name || t("Participant");
@@ -1331,6 +1478,12 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
               <IconButton icon={transitioning ? "pending" : "advance"} tone="primary" aria-label={t(transitioning ? "Updating…" : step.action)} disabled={transitioning} onClick={() => void advance()} />
             </div>
           )}
+          {previousStep && (
+            <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
+              <p className="text-sm font-medium">{t(previousStep.action)}</p>
+              <IconButton icon={transitioning ? "pending" : "undo"} aria-label={t(transitioning ? "Updating…" : previousStep.action)} disabled={transitioning} onClick={() => void revert()} />
+            </div>
+          )}
         </Card>
         {competition && (
           <Card
@@ -1355,9 +1508,11 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
                   <label className="block">{t("Rules (optional)")}
                     <textarea maxLength={10000} rows={4} value={detailsDraft.rules} onChange={(event) => setDetailsDraft({ ...detailsDraft, rules: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
                   </label>
-                  <label className="block">{t("Maximum photos per entry")}
-                    <input type="number" inputMode="numeric" required min={1} max={20} value={detailsDraft.maxSubmissionImages} onChange={(event) => setDetailsDraft({ ...detailsDraft, maxSubmissionImages: Number(event.target.value) })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
-                  </label>
+                  {competition.submission_type !== "text" && (
+                    <label className="block">{t("Maximum photos per entry")}
+                      <input type="number" inputMode="numeric" required min={1} max={20} value={detailsDraft.maxSubmissionImages} onChange={(event) => setDetailsDraft({ ...detailsDraft, maxSubmissionImages: Number(event.target.value) })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+                    </label>
+                  )}
                   <div className="flex justify-end gap-2">
                     <IconButton icon="cancel" aria-label={t("Cancel edit")} onClick={() => { setDetailsDraft(null); setDetailsError(null); }} />
                     <IconButton type="submit" icon={savingDetails ? "pending" : "save"} tone="primary" aria-label={t(savingDetails ? "Saving…" : "Save details")} />
@@ -1380,7 +1535,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       <Card title={t("Competition attendees")}>
         <dl className="grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-3">
           {[
-            { label: "Attendees", count: attendees.length },
+            { label: "Joined", count: participationProgress?.joined_count ?? 0 },
             { label: "Submitted", count: attendees.filter((attendee) => attendee.has_submission).length },
             { label: "Has voted", count: attendees.filter((attendee) => attendee.has_voted).length },
           ].map(({ label, count }) => (
@@ -1391,6 +1546,42 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
           ))}
         </dl>
         <p className="text-sm">{t("Group members and anyone who has submitted or voted, with how each takes part in this competition.")}</p>
+        <div className="grid gap-3 rounded-xl border border-slate-200 p-3 sm:grid-cols-2">
+          <div>
+            <p className="text-sm font-medium">
+              {t("Submission completion: {complete} of {expected} participants", {
+                complete: participationProgress?.submitted_count ?? 0,
+                expected: participationProgress?.participant_count ?? 0,
+              })}
+            </p>
+            <progress
+              aria-label={t("Submission completion: {complete} of {expected} participants", {
+                complete: participationProgress?.submitted_count ?? 0,
+                expected: participationProgress?.participant_count ?? 0,
+              })}
+              value={participationProgress?.submitted_count ?? 0}
+              max={Math.max(participationProgress?.participant_count ?? 0, 1)}
+              className="mt-1 h-2 w-full accent-indigo-600"
+            />
+          </div>
+          <div>
+            <p className="text-sm font-medium">
+              {t("Complete ballots: {complete} of {eligible} eligible voters", {
+                complete: participationProgress?.complete_ballot_count ?? 0,
+                eligible: participationProgress?.eligible_voter_count ?? 0,
+              })}
+            </p>
+            <progress
+              aria-label={t("Complete ballots: {complete} of {eligible} eligible voters", {
+                complete: participationProgress?.complete_ballot_count ?? 0,
+                eligible: participationProgress?.eligible_voter_count ?? 0,
+              })}
+              value={participationProgress?.complete_ballot_count ?? 0}
+              max={Math.max(participationProgress?.eligible_voter_count ?? 0, 1)}
+              className="mt-1 h-2 w-full accent-indigo-600"
+            />
+          </div>
+        </div>
         {attendees.length ? (
           <ul className="grid gap-3 sm:grid-cols-2">
             {attendees.map((attendee) => (
@@ -1415,7 +1606,11 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
               <li key={entry.id} className="min-w-0 space-y-3 rounded-xl border border-slate-200 p-4">
                 <h3 className="break-words font-semibold">{entry.title}</h3>
                 <p className="break-words text-sm text-slate-600">{t("Submitted by {name}", { name: attendeeName(entry.creator_id) })}</p>
-                <MediaGallery client={client} mediaKeys={entry.media_keys} label={t("Submission image")} />
+                {competition?.submission_type === "text" ? (
+                  <SubmissionText text={entry.submission_text} />
+                ) : (
+                  <MediaGallery client={client} mediaKeys={entry.media_keys} label={t("Submission image")} />
+                )}
               </li>
             ))}
           </ul>
@@ -1423,7 +1618,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       </Card>
       {reviewResults && (
         <Card title={t("Preliminary rankings (admins only)")}>
-          <p>{t("Scores are category-normalized averages. Ties share a rank; only complete ballots count.")}</p>
+          <p>{t("Scores average absolute points across categories equally. Ties share a rank; only complete ballots count.")}</p>
           <ul className="space-y-4">
             {reviewResults.map((entry) => (
               <li key={entry.entry_id} className="rounded border border-slate-200 p-4">
@@ -1432,7 +1627,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
                 </h3>
                 <p className="break-words text-sm text-slate-600">{t("Submitted by {name}", { name: attendeeName(entry.creator_id) })}</p>
                 {!entry.is_disqualified && (
-                  <p>{entry.score === null ? t("No complete ballots") : formatPercent(entry.score)}
+                  <p>{entry.score === null ? t("No complete ballots") : `${formatPoints(entry.score, locale)} ${t("points")}`}
                     {" · "}{t("{count} complete ballots", { count: entry.vote_count })}</p>
                 )}
                 {entry.is_disqualified && (
@@ -1508,7 +1703,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
               <h3 className="text-lg font-semibold">{t("Preliminary category winners")}</h3>
               {reviewCategories.filter((category) => category.rank === 1).map((winner) => (
                 <p key={`${winner.category_id}:${winner.entry_id}`}>
-                  {winner.category_name}: {winner.title} ({attendeeName(winner.creator_id)}) — {formatPercent(winner.score)}
+                  {winner.category_name}: {winner.title} ({attendeeName(winner.creator_id)}) — {formatPoints(winner.score, locale)} {t("points")}
                 </p>
               ))}
             </section>

@@ -42,6 +42,10 @@ update their own existing vote. Remote deadlines are processed by a
 security-definer function executable by `service_role` only; invoke it from a
 trusted scheduled process. Its status checks and row locks make repeated or
 concurrent processing safe.
+Migration `28_reopen_competition_phases.sql` keeps those admin and row-lock
+requirements for backward transitions. It blocks reopening submissions after
+votes exist and invalidates published snapshots before returning a competition
+to review.
 Migration `21_competition_start_notifications.sql` adds opt-in
 `start_competition(id, notify default false)` without changing the existing
 two-argument transition RPC. It checks current admin membership and locks the
@@ -104,6 +108,11 @@ participation flags, never scores or ballot contents. Trimmed metadata names
 fall back to email only in this admin projection, then to `Participant`, never
 to UUIDs. The published-results RPC appends metadata-only `creator_name` labels
 with a `Participant` fallback; no email fallback is exposed to members.
+Migration `30_admin_participation_progress.sql` adds an authenticated,
+admin-authorized projection of joined/submitted and complete-ballot totals only.
+It does not return individual ballot completion, voter identities, entries, or
+scores, and counts only currently joined, eligible voters who have entries and
+categories to score.
 Migration `11_review_enhancements.sql` adds admin-only category review projections,
 disqualification dispositions, audited reinstatement, and an admin-editable
 publication schedule. Content removal clears the entry's title and media references,

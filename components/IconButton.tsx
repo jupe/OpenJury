@@ -32,6 +32,7 @@ const paths = {
   retry: "M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1",
   disqualify: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM6 6l12 12",
   reinstate: "M9 4 4 9l5 5M4 9h10a6 6 0 0 1 0 12",
+  undo: "M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12",
 };
 
 export type IconName = keyof typeof paths;
@@ -50,7 +51,7 @@ const baseClass = "icon-button inline-flex size-12 shrink-0 cursor-pointer items
 const tones = {
   neutral: "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
   danger: "text-red-700 hover:bg-red-50",
-  primary: "bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800",
+  primary: "bg-coral text-charcoal hover:bg-coral-hover active:bg-coral-active",
 };
 
 /** A compact square button showing only an icon. Requires an aria-label, also shown as a tooltip unless a title is given. */

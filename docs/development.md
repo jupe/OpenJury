@@ -72,18 +72,35 @@ as `http://localhost:3000/dashboard` locally and your production
 `/dashboard`. For preview-safe links, set the **Magic Link**, **Confirm signup**,
 and **Invite user** email templates in Supabase Auth to the contents of
 `public/auth-email.html`. Set Site URL to the app origin without a trailing slash.
-The template links directly to the app with `{{ .TokenHash }}` in the URL fragment,
+The template includes the Supabase sign-in code (`{{ .Token }}`) so recipients can
+open the installed Home Screen app and enter it with the same email address.
+Updating the file in this repository does not update a hosted Supabase project:
+copy it into all three hosted Auth email templates and configure Site URL,
+allowed redirects, and production SMTP delivery there.
+The template also links directly to the app with `{{ .TokenHash }}` in the URL fragment,
 not to `{{ .ConfirmationURL }}` (which consumes the token on a GET).
 The app calls `verifyOtp` only after the recipient selects **Continue to OpenJury**.
 Fragments are not sent in HTTP requests or referrer headers. Gmail long-press
 previews and email scanners can load the page without spending the token, even
 when they execute JavaScript. The recipient can reopen the original email link.
-Keep tokens single-use and retain Supabase's normal expiration (one hour by
-default); extending expiration alone does not fix premature consumption.
+Codes and links use the same Supabase Auth verification flow. Keep them single-use
+and retain Supabase's normal expiration (one hour by default) and rate limits;
+extending expiration alone does not fix premature consumption.
 Previously sent links still use the old flow; request a fresh link after updating
 the templates.
 Configure production email delivery and rate limits in Supabase. Do not allow
 untrusted preview origins against a production Auth project.
+
+Group invitation emails retain their dashboard links. With the server-only
+`SUPABASE_SERVICE_ROLE_KEY` and the invitation SMTP settings configured, the API
+also includes Supabase's generated `email_otp` in the plain-text email, addressed
+only to the recipient. Both the code and token hash must be generated successfully
+before sending; neither is returned to the inviting administrator or logged.
+Use the invitation's email address when entering its code in the Home Screen app.
+Without the service-role key, the invitation instead explains how to request a
+sign-in code inside OpenJury with that address; the resulting Auth email requires
+the configured templates above. Do not bypass Supabase's normal verification,
+expiration, single-use protections, or sign-in email rate limits.
 
 ## 3. Apply the schema
 
@@ -112,8 +129,15 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/22_submission_upload_preflight.sql`, and
 `supabase/migrations/23_my_overview.sql`,
 `supabase/migrations/24_registered_email_invites.sql`, and
-`supabase/migrations/25_prevent_self_voting.sql`, and
-`supabase/migrations/26_own_entry_voting_gallery.sql`, once each, in that order.
+`supabase/migrations/25_prevent_self_voting.sql`,
+`supabase/migrations/25_submission_photo_limit.sql`,
+`supabase/migrations/26_own_entry_voting_gallery.sql`,
+`supabase/migrations/27_absolute_point_scoring.sql`,
+`supabase/migrations/27_text_submissions.sql`,
+`supabase/migrations/28_draft_publication_schedule.sql`,
+`supabase/migrations/28_reopen_competition_phases.sql`, and
+`supabase/migrations/29_unconfirmed_email_invites.sql`, and
+`supabase/migrations/30_admin_participation_progress.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
@@ -127,6 +151,10 @@ Migration 16 adds an admin-only competition deletion RPC that preserves
 disqualification audit records.
 Migration 17 adds default-disabled participant voting, configurable by admins
 while a competition is a draft. Participants still cannot vote on their own entry.
+Migration 28 lets admins configure or clear the future results-publication time
+while a competition is still a draft.
+Migration 28 also lets admins reopen the previous competition phase; the affected
+publication schedule is cleared when voting or review restarts.
 Migration 18 adds HEIC/HEIF support for private submission media.
 Migration 19 adds a read-only group overview RPC with member and competition counts.
 Without it, groups still list but show no counts.
@@ -142,6 +170,8 @@ before completed file-size metadata is available. Existing deployments must
 apply it to resolve upload policy failures.
 Migration 23 adds the home page's personal totals and per-competition next steps.
 Without it, the home page still lists open competitions without totals or highlights.
+Migration 27 switches result scoring to absolute category points and converts
+existing published result snapshots.
 Competition setup and details support English and Finnish through `lib/i18n.tsx`.
 Choose the language from the account menu; the preference is stored in the browser.
 Translate interface labels and messages, not user-provided competition names,

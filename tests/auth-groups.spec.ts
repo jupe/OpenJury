@@ -46,6 +46,15 @@ async function configure(page: Page, signedIn = false, passwordSignIn = false) {
         has_voted: false,
       }],
     });
+    if (path === "/rest/v1/rpc/get_admin_competition_participation_progress") return route.fulfill({
+      json: [{
+        joined_count: 1,
+        participant_count: 0,
+        submitted_count: 0,
+        complete_ballot_count: 0,
+        eligible_voter_count: 0,
+      }],
+    });
     if (path === "/rest/v1/rpc/get_my_pending_competition_start_emails") return route.fulfill({ json: false });
     return route.fulfill({ status: 400, json: { message: `Unexpected endpoint: ${path}` } });
   });
@@ -113,12 +122,24 @@ test("users save and clear only their own name from the profile page @mobile", a
   await page.getByRole("link", { name: "Profile" }).click();
   await expect(page).toHaveURL(/\/profile$/);
   const name = page.getByRole("textbox", { name: "Your name" });
+  await expect(name).toHaveCount(0);
+  await expect(page.getByText("—", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Only you can change it/)).toBeVisible();
+  await page.getByRole("button", { name: "Edit name" }).click();
   await expect(name).toHaveValue("");
   await expect(name).toHaveAttribute("maxlength", "100");
+  await name.fill("Discard this name");
+  await page.getByRole("button", { name: "Cancel edit" }).click();
+  await expect(name).toHaveCount(0);
+  await expect(page.getByText("—", { exact: true })).toBeVisible();
+  expect(updates).toEqual([]);
+  await page.getByRole("button", { name: "Edit name" }).click();
   await name.fill("  Alex Baker  ");
   await expectPhoneLayout(page);
   await page.getByRole("button", { name: "Save name", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "Your name has been saved." })).toBeVisible();
+  await expect(name).toHaveCount(0);
+  await expect(page.getByText("Alex Baker", { exact: true })).toBeVisible();
   expect(updates).toEqual([{ data: { display_name: "Alex Baker" } }]);
   // Navigate in-app: a full reload would restore the test's original session.
   const openGroup = async () => {
@@ -132,6 +153,14 @@ test("users save and clear only their own name from the profile page @mobile", a
   await openGroup();
   await expect(members.getByRole("cell", { name: "Alex Baker (you) member@example.com", exact: true })).toBeVisible();
   await openProfile();
+  await page.getByRole("button", { name: "Edit name" }).click();
+  await expect(name).toHaveValue("Alex Baker");
+  await name.fill("Discard this update");
+  await page.getByRole("button", { name: "Cancel edit" }).click();
+  await expect(name).toHaveCount(0);
+  await expect(page.getByText("Alex Baker", { exact: true })).toBeVisible();
+  expect(updates).toEqual([{ data: { display_name: "Alex Baker" } }]);
+  await page.getByRole("button", { name: "Edit name" }).click();
   await expect(name).toHaveValue("Alex Baker");
   await name.fill("   ");
   await page.getByRole("button", { name: "Save name", exact: true }).click();
@@ -148,6 +177,7 @@ test("name save errors keep the input and allow retry", async ({ page }) => {
     ? route.fulfill({ status: 422, json: { msg: "Name update rejected" } })
     : route.fulfill({ json: session().user }));
   await page.goto("/profile");
+  await page.getByRole("button", { name: "Edit name" }).click();
   await page.getByRole("textbox", { name: "Your name" }).fill("Keep this name");
   await page.getByRole("button", { name: "Save name", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Unable to save your name" })).toContainText("Name update rejected");
@@ -163,8 +193,11 @@ test("name settings are localized in Finnish", async ({ page }) => {
   await page.getByRole("button", { name: "Tili (member@example.com)" }).click();
   await page.getByRole("link", { name: "Profiili" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Profiili");
+  await expect(page.getByRole("button", { name: "Muokkaa nimeä" })).toBeVisible();
+  await page.getByRole("button", { name: "Muokkaa nimeä" }).click();
   await expect(page.getByRole("textbox", { name: "Oma nimi" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Tallenna nimi" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Peruuta muokkaus" })).toBeVisible();
   await expect(page.getByText(/Vain sinä voit muuttaa sitä/)).toBeVisible();
 });
 
@@ -193,8 +226,8 @@ test("small phone forms, long names and landscape stay usable @mobile", async ({
     await page.getByRole("button", { name: "New competition" }).click();
     await expect(page.getByRole("textbox", { name: "Competition name" })).toBeVisible();
     await page.getByRole("textbox", { name: "Competition name" }).fill("Phone bake-off");
-    await page.getByLabel("Submission deadline").fill("2026-11-01T12:00");
-    await page.getByLabel("Voting deadline").fill("2026-11-02T12:00");
+    await page.getByLabel("Submission deadline", { exact: true }).fill("2026-11-01T12:00");
+    await page.getByLabel("Voting deadline", { exact: true }).fill("2026-11-02T12:00");
     await page.getByRole("button", { name: "Add category" }).click();
     await expect(page.getByRole("textbox", { name: "Category name" })).toHaveCount(2);
     await expectPhoneLayout(page);
@@ -319,6 +352,7 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   await saveSubmission.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Edit your submission" })).toBeVisible();
+  await expect(page.getByRole("status")).toContainText("Thanks for taking part! Your entry has been saved.");
   expect(saves[1].p_title).toBe("My phone photo");
   expect(saves[1].p_media_keys).toHaveLength(1);
   expect(saves[1].p_media_keys[0]).toMatch(/\.heic$/);
@@ -337,6 +371,55 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   await page.getByRole("button", { name: "Save submission" }).click();
   await expect.poll(() => saves.at(-1)?.p_media_keys).toEqual([]);
   await expect.poll(() => deletions).toEqual([saves[1].p_media_keys]);
+});
+
+test("text competitions accept editable text submissions without uploading media", async ({ page }) => {
+  await configure(page, true);
+  const saves: Array<Record<string, unknown>> = [];
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{
+      id: secondId,
+      group_id: groupId,
+      name: "Poetry competition",
+      submission_type: "text",
+      status: "submission",
+      submission_deadline: null,
+      voting_deadline: null,
+      competition_participants: [{ role: "participant" }],
+    }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) =>
+    route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/save_text_submission`, (route) => {
+    saves.push(route.request().postDataJSON());
+    return route.fulfill({ json: groupId });
+  });
+  const mediaRequests: string[] = [];
+  await page.route(`${supabaseURL}/storage/v1/**`, (route) => {
+    mediaRequests.push(route.request().url());
+    return route.fulfill({ status: 400, json: { message: "Unexpected media request" } });
+  });
+
+  await page.goto(`/competition/${secondId}`);
+  await page.getByRole("textbox", { name: "Entry title" }).fill("A short poem");
+  const text = page.getByRole("textbox", { name: "Your text entry" });
+  await expect(text).toHaveAttribute("maxlength", "10000");
+  await text.fill("First line\nSecond line");
+  await expect(page.getByRole("button", { name: "Take a photo" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Add images" })).toHaveCount(0);
+  await expectPhoneLayout(page);
+  await page.getByRole("button", { name: "Save submission" }).click();
+  await expect.poll(() => saves).toEqual([{
+    p_competition_id: secondId,
+    p_entry_id: null,
+    p_title: "A short poem",
+    p_submission_text: "First line\nSecond line",
+  }]);
+  await expect(page.getByRole("status")).toContainText("Thanks for taking part! Your entry has been saved.");
+  await text.fill("Updated poem");
+  await expect(page.getByRole("status")).toHaveCount(0);
+  expect(mediaRequests).toEqual([]);
+  await expect(page.getByRole("heading", { name: "Edit your submission" })).toBeVisible();
 });
 
 for (const failureStage of ["initial save", "upload", "final save"] as const) {
@@ -511,11 +594,15 @@ test("unconfigured deployments run the in-browser demo without network data", as
   await expect(page.getByRole("link", { name: "Northside Makers" })).toBeVisible();
   await page.getByRole("button", { name: "Account (alex@demo.openjury.app)" }).click();
   await page.getByRole("link", { name: "Profile" }).click();
+  await expect(page.getByText("Alex Rivera", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Edit name" }).click();
   await expect(page.getByRole("textbox", { name: "Your name" })).toHaveValue("Alex Rivera");
   await page.getByRole("textbox", { name: "Your name" }).fill("Demo Alex");
   await page.getByRole("button", { name: "Save name", exact: true }).click();
   await expect(page.getByText("Your name has been saved.")).toBeVisible();
   await page.reload();
+  await expect(page.getByText("Demo Alex", { exact: true })).toBeVisible({ timeout: 60_000 });
+  await page.getByRole("button", { name: "Edit name" }).click();
   await expect(page.getByRole("textbox", { name: "Your name" })).toHaveValue("Demo Alex", { timeout: 60_000 });
   expect(apiRequests).toEqual([]);
 });
@@ -613,11 +700,126 @@ test("Auth email template points to app confirmation rather than a consuming ver
   expect(template).toContain('href="{{ .SiteURL }}/dashboard#token_hash={{ .TokenHash }}"');
   expect(template).not.toContain(".ConfirmationURL");
   expect(template).not.toContain("/auth/v1/verify");
+  expect(template).toContain("{{ .Token }}");
+  expect(template).toContain("Using the Home Screen app? Open OpenJury and enter this code.");
+});
+
+test("one-time codes sign in inside the app during the email resend cooldown @mobile", async ({ page }) => {
+  await configure(page);
+  const verifications: unknown[] = [];
+  await page.route(`${supabaseURL}/auth/v1/verify`, (route) => {
+    verifications.push(route.request().postDataJSON());
+    return route.fulfill({ json: session() });
+  });
+  await page.goto("/dashboard");
+  await page.getByRole("textbox", { name: "Email address" }).fill("member@example.com");
+  await page.getByRole("button", { name: "Send sign-in link" }).click();
+  await expect(page.getByRole("status")).toContainText("one-time code");
+  await expect(page.getByRole("button", { name: /Send a new link in/ })).toBeDisabled();
+  const code = page.getByRole("textbox", { name: "One-time code" });
+  await expect(code).toHaveAttribute("autocomplete", "one-time-code");
+  await expect(code).toHaveAttribute("inputmode", "numeric");
+  await code.fill("012345");
+  await expectPhoneLayout(page);
+  await page.getByRole("button", { name: "Sign in with code" }).click();
+  await expect(page.getByRole("button", { name: "Account (member@example.com)" })).toBeVisible();
+  expect(verifications).toMatchObject([{ email: "member@example.com", token: "012345", type: "email" }]);
+  await expect(page).toHaveURL(/\/dashboard$/);
+});
+
+for (const failure of ["incorrect", "expired", "used", "rate limited", "network"]) {
+  test(`one-time code ${failure} failures stay private and allow retry @mobile`, async ({ page }) => {
+    await configure(page);
+    let fail = true;
+    const verifications: unknown[] = [];
+    await page.route(`${supabaseURL}/auth/v1/verify`, (route) => {
+      verifications.push(route.request().postDataJSON());
+      if (!fail) return route.fulfill({ json: session() });
+      if (failure === "network") return route.abort("failed");
+      return route.fulfill({
+        status: failure === "rate limited" ? 429 : 403,
+        json: { msg: `Private ${failure} code 012345`, error_code: failure === "rate limited" ? "over_request_rate_limit" : "otp_expired" },
+      });
+    });
+    const emails: unknown[] = [];
+    await page.route(`${supabaseURL}/auth/v1/otp**`, (route) => {
+      emails.push(route.request().postDataJSON());
+      return route.fulfill({ json: {} });
+    });
+    await page.goto("/dashboard#email=member%40example.com");
+    await page.getByRole("textbox", { name: "One-time code" }).fill("012345");
+    await page.getByRole("button", { name: "Sign in with code" }).click();
+    await expect(page.getByRole("main").getByRole("alert")).toContainText("This code is incorrect, expired, or could not be verified.");
+    await expect(page.getByRole("main")).not.toContainText("012345");
+    await expect(page.getByRole("textbox", { name: "One-time code" })).toHaveValue("");
+    await expect(page.getByRole("textbox", { name: "Email address" })).toHaveValue("member@example.com");
+    await expect(page.getByRole("button", { name: "Send sign-in link" })).toBeEnabled();
+    expect(emails).toEqual([]);
+    fail = false;
+    await page.getByRole("textbox", { name: "One-time code" }).fill("012345");
+    await page.getByRole("button", { name: "Sign in with code" }).click();
+    await expect(page.getByRole("button", { name: "Account (member@example.com)" })).toBeVisible();
+    expect(verifications).toHaveLength(2);
+  });
+}
+
+test("code entry validates email and digits, and clears when the address changes", async ({ page }) => {
+  await configure(page);
+  const verifications: unknown[] = [];
+  await page.route(`${supabaseURL}/auth/v1/verify`, (route) => {
+    verifications.push(route.request().postDataJSON());
+    return route.fulfill({ json: session() });
+  });
+  await page.goto("/dashboard");
+  const email = page.getByRole("textbox", { name: "Email address" });
+  const code = page.getByRole("textbox", { name: "One-time code" });
+  const submit = page.getByRole("button", { name: "Sign in with code" });
+  await code.fill("012345");
+  await expect(submit).toBeDisabled();
+  await email.fill("invalid");
+  await expect(code).toHaveValue("");
+  await code.fill("012345");
+  await submit.click();
+  expect(verifications).toEqual([]);
+  await email.fill("member@example.com");
+  for (const invalid of ["123", "abcdef"]) {
+    await code.fill(invalid);
+    await submit.click();
+    expect(verifications).toEqual([]);
+  }
+});
+
+test("one-time code sign-in is localized in Finnish", async ({ page }) => {
+  await configure(page);
+  await page.addInitScript(() => localStorage.setItem("openjury:locale", "fi"));
+  await page.route(`${supabaseURL}/auth/v1/verify`, (route) => route.fulfill({
+    status: 403, json: { msg: "Private expired code", error_code: "otp_expired" },
+  }));
+  await page.goto("/dashboard#email=member%40example.com");
+  await page.getByRole("textbox", { name: "Kertakäyttöinen koodi" }).fill("012345");
+  await page.getByRole("button", { name: "Kirjaudu koodilla" }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("Koodi on virheellinen, vanhentunut");
+});
+
+test("invitation email pre-fills the recipient without sending another email automatically @mobile", async ({ page }) => {
+  await configure(page);
+  const requests: unknown[] = [];
+  await page.route(`${supabaseURL}/auth/v1/otp**`, (route) => {
+    requests.push(route.request().postDataJSON());
+    return route.fulfill({ json: {} });
+  });
+  await page.goto("/dashboard#email=person%2Binvite%40example.com");
+  await expect(page.getByRole("textbox", { name: "Email address" })).toHaveValue("person+invite@example.com");
+  await expect(page).toHaveURL(/\/dashboard$/);
+  expect(requests).toEqual([]);
+  await page.getByRole("button", { name: "Send sign-in link" }).click();
+  await expect(page.getByRole("status")).toContainText("Check your email");
+  expect(requests).toMatchObject([{ email: "person+invite@example.com", create_user: true }]);
 });
 
 test("email previews and reopens do not consume sign-in links before confirmation @mobile", async ({ page, context }) => {
   const token = "preview-safe-test-token";
-  const link = `/dashboard#token_hash=${token}`;
+  const link = `/dashboard#email=member%40example.com&token_hash=${token}`;
   const verifications: unknown[] = [];
   const preview = await context.newPage();
   await configure(preview);
@@ -637,6 +839,11 @@ test("email previews and reopens do not consume sign-in links before confirmatio
     verifications.push(route.request().postDataJSON());
     await route.fulfill({ json: session() });
   });
+  const emails: unknown[] = [];
+  await page.route(`${supabaseURL}/auth/v1/otp**`, (route) => {
+    emails.push(route.request().postDataJSON());
+    return route.fulfill({ json: {} });
+  });
   await page.goto(link);
   await expect(page.getByRole("button", { name: "Continue to OpenJury" })).toBeVisible();
   expect(verifications).toEqual([]);
@@ -644,6 +851,7 @@ test("email previews and reopens do not consume sign-in links before confirmatio
   await page.getByRole("button", { name: "Continue to OpenJury" }).click();
   await expect(page.getByRole("button", { name: "Account (member@example.com)" })).toBeVisible();
   expect(verifications).toMatchObject([{ token_hash: token, type: "email" }]);
+  expect(emails).toEqual([]);
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole("link", { name: "Baking club" })).toBeVisible();
 });
@@ -653,12 +861,12 @@ test("expired confirmation links offer a fresh sign-in link without exposing the
   await page.route(`${supabaseURL}/auth/v1/verify`, (route) => route.fulfill({
     status: 403, json: { msg: "Token expired: private-test-token", error_code: "otp_expired" },
   }));
-  await page.goto("/dashboard#token_hash=private-test-token");
+  await page.goto("/dashboard#email=member%40example.com&token_hash=private-test-token");
   await page.getByRole("button", { name: "Continue to OpenJury" }).click();
   await expect(page.getByRole("main").getByRole("alert")).toContainText("Request a new link below.");
   await expect(page.getByRole("main")).not.toContainText("private-test-token");
   await expect(page).toHaveURL(/\/dashboard$/);
-  await page.getByRole("textbox", { name: "Email address" }).fill("member@example.com");
+  await expect(page.getByRole("textbox", { name: "Email address" })).toHaveValue("member@example.com");
   await page.getByRole("button", { name: "Send sign-in link" }).click();
   await expect(page.getByRole("status")).toContainText("Check your email");
 });
@@ -695,7 +903,7 @@ test("preview password sign-in uses the seeded account", async ({ page }) => {
 test("OTP failures and rejected links are visible and retryable", async ({ page }) => {
   await configure(page);
   await page.route(`${supabaseURL}/auth/v1/otp**`, (route) => route.fulfill({
-    status: 429, json: { msg: "Too many requests" },
+    status: 500, json: { msg: "Too many requests" },
   }));
   await page.goto("/dashboard#error=access_denied&error_description=Link%20expired");
   await expect(page.getByRole("alert").filter({ hasText: "Link expired" })).toBeVisible();
@@ -704,6 +912,39 @@ test("OTP failures and rejected links are visible and retryable", async ({ page 
   await page.getByRole("button", { name: "Send sign-in link" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Unable to send" })).toContainText("Too many requests");
   await expect(page.getByRole("button", { name: "Send sign-in link" })).toBeEnabled();
+});
+
+test("sign-in links wait out the resend limit instead of failing repeatedly", async ({ page }) => {
+  await page.clock.install();
+  await configure(page);
+  let limited = false;
+  const requests: unknown[] = [];
+  await page.route(`${supabaseURL}/auth/v1/otp**`, (route) => {
+    requests.push(route.request().postDataJSON());
+    return limited
+      ? route.fulfill({ status: 429, json: { code: 429, error_code: "over_email_send_rate_limit", msg: "For security purposes, you can only request this after 5 seconds." } })
+      : route.fulfill({ json: {} });
+  });
+  await page.goto("/");
+  const address = page.getByRole("textbox", { name: "Email address" });
+  await address.fill("member@example.com");
+  await page.getByRole("button", { name: "Send sign-in link" }).click();
+  await expect(page.getByRole("status")).toContainText("Check your email");
+  // A repeat request would invalidate the link that was just sent.
+  await expect(page.getByRole("button", { name: "Send a new link in 60 s" })).toBeDisabled();
+  await page.clock.runFor(1000);
+  await expect(page.getByRole("button", { name: "Send a new link in 59 s" })).toBeDisabled();
+  expect(requests).toHaveLength(1);
+
+  // A corrected address is not limited, but the server's remaining wait is honoured.
+  limited = true;
+  await address.fill("other@example.com");
+  await page.getByRole("button", { name: "Send sign-in link" }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("A sign-in link was sent recently.");
+  await expect(page.getByRole("button", { name: "Send a new link in 5 s" })).toBeDisabled();
+  await page.clock.runFor(5000);
+  await expect(page.getByRole("button", { name: "Send sign-in link" })).toBeEnabled();
+  expect(requests).toHaveLength(2);
 });
 
 test("session initialization errors fail closed and offer retry", async ({ page }) => {
@@ -774,6 +1015,32 @@ test("dashboard and group lobby show member and competition counts @mobile", asy
   await expect(page.getByRole("heading", { name: "Group lobby" })).toHaveCount(0);
 });
 
+test("competition setup guides expand without clutter or mobile overflow @mobile", async ({ page }) => {
+  await configure(page, true);
+  await page.goto(`/group/${groupId}`);
+  await page.getByRole("button", { name: "New competition" }).click();
+  const dialog = page.getByRole("dialog", { name: "Create a draft competition" });
+  const guides = dialog.getByRole("button", { name: /^Help: / });
+  await expect(guides).toHaveCount(8);
+  for (const guide of await guides.all()) {
+    await expect(guide).toHaveAttribute("aria-expanded", "false");
+    const helpId = await guide.getAttribute("aria-controls");
+    const help = dialog.locator(`[id="${helpId}"]`);
+    await expect(help).toBeHidden();
+    await guide.click();
+    await expect(guide).toHaveAttribute("aria-expanded", "true");
+    await expect(help).toBeVisible();
+    await expect(help).not.toBeEmpty();
+    await expectPhoneLayout(page);
+    await guide.click();
+    await expect(help).toBeHidden();
+  }
+  await expect(dialog).toBeVisible();
+  await expect(page.getByLabel("Allow participants to vote", { exact: true })).not.toBeChecked();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toBeHidden();
+});
+
 test("group admins create and edit draft competitions with scoring criteria", async ({ page }) => {
   await configure(page, true);
   const competitionId = "33333333-3333-4333-8333-333333333333";
@@ -794,14 +1061,24 @@ test("group admins create and edit draft competitions with scoring criteria", as
         description: body.p_description,
         rules: body.p_rules,
         max_submission_images: body.p_max_submission_images,
+        submission_type: body.p_submission_type,
         allow_participant_voting: body.p_allow_participant_voting,
         event_type: body.p_event_type,
         status: "draft",
         submission_deadline: body.p_submission_deadline,
         voting_deadline: body.p_voting_deadline,
+        results_publish_at: body.p_results_publish_at,
       });
     } else {
-      Object.assign(competitions[0], { name: body.p_name, description: body.p_description, rules: body.p_rules, allow_participant_voting: body.p_allow_participant_voting });
+      Object.assign(competitions[0], {
+        name: body.p_name,
+        description: body.p_description,
+        rules: body.p_rules,
+        allow_participant_voting: body.p_allow_participant_voting,
+        submission_deadline: body.p_submission_deadline,
+        voting_deadline: body.p_voting_deadline,
+        results_publish_at: body.p_results_publish_at,
+      });
     }
     expect(categories).toHaveLength(1);
     return route.fulfill({ json: competitionId });
@@ -812,11 +1089,22 @@ test("group admins create and edit draft competitions with scoring criteria", as
   await page.getByRole("button", { name: "New competition" }).click();
   await expect(page.getByRole("dialog", { name: "Create a draft competition" })).toBeVisible();
   await page.getByRole("textbox", { name: "Competition name" }).fill("Autumn bake-off");
-  await page.getByLabel("Description (optional)").fill("  A friendly baking competition.  ");
-  await page.getByLabel("Rules (optional)").fill("One entry per person.\nNo identifying marks.");
+  await page.getByLabel("Description (optional)", { exact: true }).fill("  A friendly baking competition.  ");
+  await page.getByLabel("Rules (optional)", { exact: true }).fill("One entry per person.\nNo identifying marks.");
   await page.getByRole("textbox", { name: "Category name" }).fill("Taste");
-  await expect(page.getByLabel("Allow participants to vote")).not.toBeChecked();
-  await page.getByLabel("Allow participants to vote").check();
+  const votingHelp = page.getByRole("button", { name: "Help: Allow participants to vote", exact: true });
+  await votingHelp.focus();
+  await page.keyboard.press("Enter");
+  await expect(votingHelp).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByText("Participants can score other entries, never their own. This setting is fixed once submissions open.", { exact: true })).toBeVisible();
+  await page.keyboard.press("Space");
+  await expect(votingHelp).toHaveAttribute("aria-expanded", "false");
+  expect(saves).toHaveLength(0);
+  await expect(page.getByLabel("Allow participants to vote", { exact: true })).not.toBeChecked();
+  await page.getByLabel("Allow participants to vote", { exact: true }).check();
+  await page.getByLabel("Submission deadline", { exact: true }).fill("2026-11-01T12:00");
+  await page.getByLabel("Voting deadline", { exact: true }).fill("2026-11-02T12:00");
+  await page.getByLabel("Results publication time (optional)").fill("2026-11-03T12:00");
   await page.getByRole("button", { name: "Create competition" }).click();
   await expect(page.getByRole("link", { name: "Autumn bake-off", exact: true })).toHaveAttribute("href", `/competition/${competitionId}`);
   await expect(page.getByRole("dialog")).toBeHidden();
@@ -828,18 +1116,28 @@ test("group admins create and edit draft competitions with scoring criteria", as
     p_rules: "One entry per person.\nNo identifying marks.",
     p_allow_participant_voting: true,
     p_event_type: "remote",
+    p_submission_deadline: new Date("2026-11-01T12:00").toISOString(),
+    p_voting_deadline: new Date("2026-11-02T12:00").toISOString(),
+    p_results_publish_at: new Date("2026-11-03T12:00").toISOString(),
     p_max_submission_images: 5,
+    p_submission_type: "photo",
     p_categories: [{ name: "Taste", max_score: 5 }],
   });
 
   await page.getByRole("button", { name: "Edit draft" }).click();
   await expect(page.getByRole("dialog", { name: "Edit draft competition" })).toBeVisible();
-  await expect(page.getByLabel("Description (optional)")).toHaveValue("A friendly baking competition.");
-  await expect(page.getByLabel("Rules (optional)")).toHaveValue("One entry per person.\nNo identifying marks.");
-  await expect(page.getByLabel("Allow participants to vote")).toBeChecked();
-  await page.getByLabel("Allow participants to vote").uncheck();
-  await page.getByLabel("Description (optional)").fill("");
-  await page.getByLabel("Rules (optional)").fill("");
+  await expect(page.getByLabel("Description (optional)", { exact: true })).toHaveValue("A friendly baking competition.");
+  await expect(page.getByLabel("Rules (optional)", { exact: true })).toHaveValue("One entry per person.\nNo identifying marks.");
+  await expect(page.getByLabel("Allow participants to vote", { exact: true })).toBeChecked();
+  await expect(page.getByLabel("Submission deadline", { exact: true })).toHaveValue("2026-11-01T12:00");
+  await expect(page.getByLabel("Voting deadline", { exact: true })).toHaveValue("2026-11-02T12:00");
+  await expect(page.getByLabel("Results publication time (optional)")).toHaveValue("2026-11-03T12:00");
+  await page.getByLabel("Submission deadline", { exact: true }).fill("2026-11-04T12:00");
+  await page.getByLabel("Voting deadline", { exact: true }).fill("2026-11-05T12:00");
+  await page.getByLabel("Results publication time (optional)").fill("");
+  await page.getByLabel("Allow participants to vote", { exact: true }).uncheck();
+  await page.getByLabel("Description (optional)", { exact: true }).fill("");
+  await page.getByLabel("Rules (optional)", { exact: true }).fill("");
   await expect(page.getByRole("textbox", { name: "Category name" })).toHaveValue("Taste");
   await page.getByRole("textbox", { name: "Category name" }).fill("Creativity");
   await page.getByRole("button", { name: "Save draft" }).click();
@@ -850,8 +1148,85 @@ test("group admins create and edit draft competitions with scoring criteria", as
     p_description: null,
     p_rules: null,
     p_allow_participant_voting: false,
+    p_submission_deadline: new Date("2026-11-04T12:00").toISOString(),
+    p_voting_deadline: new Date("2026-11-05T12:00").toISOString(),
+    p_results_publish_at: null,
     p_max_submission_images: 5,
+    p_submission_type: "photo",
     p_categories: [{ name: "Creativity", max_score: 5 }],
+  });
+});
+
+test("admins can create a new competition from a past template without copying competition data", async ({ page }) => {
+  await configure(page, true);
+  const templateId = "88888888-8888-4888-8888-888888888888";
+  const createdId = "99999999-9999-4999-8999-999999999999";
+  const template = {
+    id: templateId,
+    name: "Past writing challenge",
+    description: "Write about the sea.",
+    rules: "No identifying details.",
+    max_submission_images: 8,
+    submission_type: "text",
+    allow_participant_voting: true,
+    event_type: "live",
+    status: "results_published",
+    submission_deadline: "2025-04-01T12:00:00Z",
+    voting_deadline: "2025-04-05T12:00:00Z",
+    results_publish_at: "2025-04-10T12:00:00Z",
+  };
+  const saves: Array<Record<string, unknown>> = [];
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) =>
+    route.fulfill({ json: [template] }));
+  await page.route(`${supabaseURL}/rest/v1/categories**`, (route) =>
+    route.fulfill({
+      json: route.request().url().includes(templateId)
+        ? [{ name: "Originality", max_score: 4 }, { name: "Clarity", max_score: 2 }]
+        : [],
+    }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/save_draft_competition`, (route) => {
+    saves.push(route.request().postDataJSON());
+    return route.fulfill({ json: createdId });
+  });
+
+  await page.goto(`/group/${groupId}`);
+  await page.getByRole("button", { name: "New competition" }).click();
+  await page.getByLabel("Use a past competition as a template").selectOption(templateId);
+  await expect(page.getByLabel("Competition name")).toHaveValue("");
+  await expect(page.getByLabel("Description (optional)", { exact: true })).toHaveValue("Write about the sea.");
+  await expect(page.getByLabel("Rules (optional)", { exact: true })).toHaveValue("No identifying details.");
+  await expect(page.getByLabel("Submission format")).toHaveValue("text");
+  await expect(page.getByLabel("Allow participants to vote", { exact: true })).toBeChecked();
+  await expect(page.getByLabel("Event type", { exact: true })).toHaveValue("live");
+  await expect(page.getByLabel("Submission deadline", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Voting deadline", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Results publication time (optional)")).toHaveValue("");
+  const categoryNames = page.getByRole("textbox", { name: "Category name" });
+  await expect(categoryNames).toHaveCount(2);
+  await expect(categoryNames.nth(0)).toHaveValue("Originality");
+  await expect(categoryNames.nth(1)).toHaveValue("Clarity");
+  await page.getByLabel("Competition name").fill("New writing challenge");
+  await page.getByRole("button", { name: "Create competition" }).click();
+
+  await expect(page.getByRole("dialog")).toBeHidden();
+  expect(saves).toHaveLength(1);
+  expect(saves[0]).toEqual({
+    p_competition_id: null,
+    p_group_id: groupId,
+    p_name: "New writing challenge",
+    p_description: "Write about the sea.",
+    p_rules: "No identifying details.",
+    p_allow_participant_voting: true,
+    p_event_type: "live",
+    p_submission_deadline: null,
+    p_voting_deadline: null,
+    p_results_publish_at: null,
+    p_max_submission_images: 8,
+    p_submission_type: "text",
+    p_categories: [
+      { name: "Originality", max_score: 4 },
+      { name: "Clarity", max_score: 2 },
+    ],
   });
 });
 
@@ -1012,6 +1387,27 @@ test("ordinary group members can view competitions but cannot create drafts", as
   await expect(page.getByRole("button", { name: "Edit draft" })).toHaveCount(0);
 });
 
+test("group competition list shows drafts first and published results last", async ({ page }) => {
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [
+      { id: "44444444-4444-4444-8444-444444444444", name: "Published", status: "results_published", results_publish_at: "2027-01-01T00:00:00Z" },
+      { id: "55555555-5555-4555-8555-555555555555", name: "Voting", status: "voting", voting_deadline: "2026-12-01T00:00:00Z" },
+      { id: "66666666-6666-4666-8666-666666666666", name: "Draft", status: "draft" },
+      { id: "77777777-7777-4777-8777-777777777777", name: "Submission", status: "submission", submission_deadline: "2026-11-01T00:00:00Z" },
+    ],
+  }));
+
+  await page.goto(`/group/${groupId}`);
+  const competitions = page.locator("#competitions").getByRole("listitem");
+  await expect(competitions).toHaveText([
+    /Draft/,
+    /Voting/,
+    /Submission/,
+    /Published/,
+  ]);
+});
+
 test("competition details follow the selected language without translating user content @mobile", async ({ page }) => {
   await configure(page, true);
   const competitionId = "33333333-3333-4333-8333-333333333333";
@@ -1088,6 +1484,7 @@ test("draft competition details can be created and edited in Finnish", async ({ 
     competitions.splice(0, competitions.length, {
       id: secondId, name: body.p_name, description: body.p_description, rules: body.p_rules,
       max_submission_images: body.p_max_submission_images,
+      submission_type: body.p_submission_type,
       event_type: body.p_event_type, status: "draft", submission_deadline: null, voting_deadline: null,
     });
     return route.fulfill({ json: secondId });
@@ -1095,24 +1492,107 @@ test("draft competition details can be created and edited in Finnish", async ({ 
   await page.goto(`/group/${groupId}`);
   await page.getByRole("button", { name: "Uusi kilpailu", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Luo kilpailuluonnos" })).toBeVisible();
+  await page.getByRole("button", { name: "Ohje: Ehdotuksen kuvien enimmäismäärä", exact: true }).click();
+  await expect(page.getByText("Valitse 1–20 kuvaa ehdotusta kohden. Yhden kuvan koko voi olla enintään 10 Mt. Rajaa ei voi muuttaa osallistumisen avaamisen jälkeen.", { exact: true })).toBeVisible();
   await page.getByLabel("Kilpailun nimi").fill("Finnish competition");
-  await page.getByLabel("Kuvaus (valinnainen)").fill("User description");
-  await page.getByLabel("Säännöt (valinnainen)").fill("User rules");
-  await page.getByLabel("Ehdotuksen kuvien enimmäismäärä").fill("12");
+  await page.getByLabel("Kuvaus (valinnainen)", { exact: true }).fill("User description");
+  await page.getByLabel("Säännöt (valinnainen)", { exact: true }).fill("User rules");
+  await page.getByLabel("Ehdotuksen kuvien enimmäismäärä", { exact: true }).fill("12");
   await page.getByLabel("Kategorian nimi").fill("Taste");
   await page.getByRole("button", { name: "Luo kilpailu", exact: true }).click();
   await expect(page.getByRole("link", { name: "Finnish competition", exact: true })).toBeVisible();
-  expect(saves[0]).toMatchObject({ p_name: "Finnish competition", p_description: "User description", p_rules: "User rules", p_max_submission_images: 12 });
+  expect(saves[0]).toMatchObject({
+    p_name: "Finnish competition", p_description: "User description", p_rules: "User rules",
+    p_max_submission_images: 12, p_submission_type: "photo",
+  });
   await page.getByRole("button", { name: "Muokkaa luonnosta", exact: true }).click();
-  await expect(page.getByLabel("Kuvaus (valinnainen)")).toHaveValue("User description");
-  await expect(page.getByLabel("Säännöt (valinnainen)")).toHaveValue("User rules");
-  await expect(page.getByLabel("Ehdotuksen kuvien enimmäismäärä")).toHaveValue("12");
-  await page.getByLabel("Ehdotuksen kuvien enimmäismäärä").fill("7");
-  await page.getByLabel("Kuvaus (valinnainen)").fill("");
-  await page.getByLabel("Säännöt (valinnainen)").fill("");
+  await expect(page.getByLabel("Kuvaus (valinnainen)", { exact: true })).toHaveValue("User description");
+  await expect(page.getByLabel("Säännöt (valinnainen)", { exact: true })).toHaveValue("User rules");
+  await expect(page.getByLabel("Ehdotuksen kuvien enimmäismäärä", { exact: true })).toHaveValue("12");
+  await page.getByLabel("Ehdotuksen kuvien enimmäismäärä", { exact: true }).fill("7");
+  await page.getByLabel("Kuvaus (valinnainen)", { exact: true }).fill("");
+  await page.getByLabel("Säännöt (valinnainen)", { exact: true }).fill("");
   await page.getByRole("button", { name: "Tallenna luonnos", exact: true }).click();
   await expect.poll(() => saves.length).toBe(2);
   expect(saves[1]).toMatchObject({ p_competition_id: secondId, p_description: null, p_rules: null, p_max_submission_images: 7 });
+});
+
+test("competition admins can create a text-entry draft", async ({ page }) => {
+  await configure(page, true);
+  const competitions: Array<Record<string, unknown>> = [];
+  let saved: Record<string, unknown> | undefined;
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({ json: competitions }));
+  await page.route(`${supabaseURL}/rest/v1/categories**`, (route) =>
+    route.fulfill({ json: [{ name: "Creativity", max_score: 5 }] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/save_draft_competition`, (route) => {
+    const body = route.request().postDataJSON();
+    saved = body;
+    competitions.push({
+      id: secondId,
+      name: body.p_name,
+      submission_type: body.p_submission_type,
+      event_type: body.p_event_type,
+      status: "draft",
+      submission_deadline: null,
+      voting_deadline: null,
+    });
+    return route.fulfill({ json: secondId });
+  });
+
+  await page.goto(`/group/${groupId}`);
+  await page.getByRole("button", { name: "New competition" }).click();
+  await page.getByLabel("Competition name").fill("Poetry night");
+  await page.getByLabel("Submission format").selectOption("text");
+  await expect(page.getByLabel("Maximum photos per entry")).toHaveCount(0);
+  await page.getByLabel("Category name").fill("Creativity");
+  await page.getByRole("button", { name: "Create competition" }).click();
+  await expect(page.getByRole("link", { name: "Poetry night", exact: true })).toBeVisible();
+  expect(saved).toMatchObject({
+    p_name: "Poetry night",
+    p_submission_type: "text",
+  });
+});
+
+test("published results lead with a top 3 podium that shares tied places @mobile", async ({ page }) => {
+  const competitionId = "55555555-5555-4555-8555-555555555551";
+  await mockRealtime(page);
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{
+      id: competitionId, group_id: groupId, name: "Podium bake-off", status: "results_published",
+      submission_deadline: null, voting_deadline: null, competition_participants: [{ role: "audience" }],
+    }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/categories**`, (route) => route.fulfill({ json: [] }));
+  for (const rpc of ["get_my_submission", "get_blind_voting_entries", "get_my_ballot", "get_published_competition_category_results"]) {
+    await page.route(`${supabaseURL}/rest/v1/rpc/${rpc}`, (route) => route.fulfill({ json: [] }));
+  }
+  const result = (rank: number, title: string, name: string, score: number | null, disqualified = false) => ({
+    rank, score, vote_count: 2, title, creator_id: `${title}-id`, creator_name: name, is_disqualified: disqualified, media_keys: [],
+  });
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_published_competition_results`, (route) => route.fulfill({
+    json: [
+      result(1, "Lemon tart", "Alex Baker", 9),
+      result(1, "Apple pie", "Sam Lee", 9),
+      result(3, "Rye bread", "Robin Park", 7.5),
+      result(4, "Scones", "Kai Moreno", 6),
+      result(5, "Copied cake", "Pat Quinn", null, true),
+    ],
+  }));
+
+  await page.goto(`/competition/${competitionId}`);
+  const podium = page.getByRole("list", { name: "Top 3 winners" });
+  await expect(podium.getByRole("listitem")).toHaveCount(3);
+  // Shown left to right as 2nd, 1st, 3rd; the tied entry keeps its 1st place.
+  await expect(podium.getByRole("listitem").nth(0)).toContainText("Apple pie");
+  await expect(podium.getByRole("listitem").nth(0)).toContainText("1st place");
+  await expect(podium.getByRole("listitem").nth(1)).toContainText("Lemon tart");
+  await expect(podium.getByRole("listitem").nth(1)).toContainText("Alex Baker");
+  await expect(podium.getByRole("listitem").nth(1)).toContainText("9 points");
+  await expect(podium.getByRole("listitem").nth(2)).toContainText("3rd place");
+  await expect(podium).not.toContainText("Scones");
+  await expect(page.getByRole("heading", { name: "Rank 4: Scones" })).toBeVisible();
+  await expectPhoneLayout(page);
 });
 
 test("participants refetch authorized competition data after reconnect", async ({ page }) => {
@@ -1335,6 +1815,7 @@ test(`${votingRole} voting cards load a private ballot and save score revisions 
     json: [{
       id: competitionId,
       name: "Blind bake-off",
+      submission_type: "text",
       status: "voting",
       submission_deadline: null,
       voting_deadline: new Date(Date.now() + 60_000).toISOString(),
@@ -1351,7 +1832,7 @@ test(`${votingRole} voting cards load a private ballot and save score revisions 
   await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) =>
     route.fulfill({ json: [] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_blind_voting_entries`, (route) =>
-    route.fulfill({ json: [{ entry_number: 7, media_keys: [] }] }));
+    route.fulfill({ json: [{ entry_number: 7, media_keys: [], submission_text: "Anonymous poem line." }] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_my_ballot`, (route) =>
     route.fulfill({ json: [
       { entry_number: 7, category_id: tasteId, score: 2 },
@@ -1364,6 +1845,7 @@ test(`${votingRole} voting cards load a private ballot and save score revisions 
 
   await page.goto(`/competition/${competitionId}`);
   await expect(page.getByRole("heading", { name: "Entry 7" })).toBeVisible();
+  await expect(page.getByText("Anonymous poem line.")).toBeVisible();
   if (votingRole === "participant") {
     await expect(page.getByText("Submit your own entry and vote on other entries. You cannot vote on your own entry.")).toBeVisible();
     await expect(page.getByText("Submit your own entry. Participants do not vote.")).toHaveCount(0);
@@ -1562,7 +2044,7 @@ test("admins disqualify and publish while group members see only final identitie
   let disqualification: Record<string, unknown> | undefined;
   await configure(page, true);
   await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
-    json: [{ id: competitionId, name: "Finals", status, submission_deadline: null, voting_deadline: null }],
+    json: [{ id: competitionId, name: "Finals", submission_type: "text", status, submission_deadline: null, voting_deadline: null }],
   }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) =>
     route.fulfill({ json: [{
@@ -1570,6 +2052,7 @@ test("admins disqualify and publish while group members see only final identitie
       creator_id: reviewRows[0].creator_id,
       title: reviewRows[0].title,
       media_keys: [],
+      submission_text: "Submitted poem line.",
     }] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_review_results`, (route) =>
     route.fulfill({ json: reviewRows }));
@@ -1606,12 +2089,14 @@ test("admins disqualify and publish while group members see only final identitie
       creator_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       creator_name: "Alex Baker",
       is_disqualified: false,
+      submission_text: "Submitted poem line.",
     }] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_published_competition_category_results`, (route) =>
     route.fulfill({ json: [] }));
 
   await page.goto(`/competition/${competitionId}/admin`);
   await expect(page.getByRole("heading", { name: "Preliminary rankings (admins only)" })).toBeVisible();
+  await expect(page.getByText("Submitted poem line.")).toBeVisible();
   for (const name of ["Save publication schedule", "Disqualify", "Publish final results"]) {
     const control = page.getByRole("button", { name, exact: true });
     await expect(control).toHaveAttribute("title", name);
@@ -1634,8 +2119,9 @@ test("admins disqualify and publish while group members see only final identitie
 
   await page.goto(`/competition/${competitionId}`);
   await expect(page.getByRole("heading", { name: "Published results" })).toBeVisible();
+  await expect(page.getByText("Submitted poem line.")).toBeVisible();
   await expect(page.getByText("Submitted by Alex Baker")).toBeVisible();
-  await expect(page.getByText("83% · 2 complete ballots")).toBeVisible();
+  await expect(page.getByText("82.5 points · 2 complete ballots")).toBeVisible();
   await expectPhoneLayout(page);
 });
 
@@ -1659,6 +2145,18 @@ test("competition admins see all attendees, including non-submitters and former 
       ],
     });
   });
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_competition_participation_progress`, (route) => {
+    expect(route.request().postDataJSON()).toEqual({ p_competition_id: secondId });
+    return route.fulfill({
+      json: [{
+        joined_count: 2,
+        participant_count: 1,
+        submitted_count: 1,
+        complete_ballot_count: 2,
+        eligible_voter_count: 3,
+      }],
+    });
+  });
   await page.route(`${supabaseURL}/rest/v1/rpc/get_competition_participants`, (route) => route.fulfill({
     json: [
       { user_id: userId, email: "alex@example.com", role: "participant", has_entry: true },
@@ -1668,8 +2166,10 @@ test("competition admins see all attendees, including non-submitters and former 
   await page.goto(`/competition/${secondId}/admin`);
   await expect(page.getByRole("heading", { name: "Community bake-off" })).toBeVisible();
   const roster = page.getByRole("heading", { name: "Competition attendees" }).locator("..");
-  await expect(roster.locator("dt")).toHaveText(["Attendees", "Submitted", "Has voted"]);
-  await expect(roster.locator("dd")).toHaveText(["4", "2", "1"]);
+  await expect(roster.locator("dt")).toHaveText(["Joined", "Submitted", "Has voted"]);
+  await expect(roster.locator("dd")).toHaveText(["2", "2", "1"]);
+  await expect(roster.getByLabel("Submission completion: 1 of 1 participants")).toBeVisible();
+  await expect(roster.getByLabel("Complete ballots: 2 of 3 eligible voters")).toBeVisible();
   await expect(roster.getByRole("listitem")).toHaveCount(4);
   await expect(roster.getByRole("listitem").filter({ hasText: "Voter only" })).toContainText("Member · Audience · No submission · Has voted");
   await expect(roster.getByRole("listitem").filter({ hasText: "Not started" })).toContainText("Member · Not taking part · No submission · Has not voted");
@@ -2096,7 +2596,9 @@ test("email delivery errors stay visible and preserve the address for retry", as
   responseMode = "registered";
   await address.fill("registered@example.com");
   await page.getByRole("button", { name: "Invite", exact: true }).click();
-  await expect(page.getByRole("main").getByRole("alert")).toContainText("This email is already registered. Use an invite link instead.");
+  // Shown inside the invite form, not below the invite links.
+  await expect(page.locator("form").filter({ has: address }).getByRole("alert"))
+    .toContainText("This email is already registered. Use an invite link instead.");
   await expect(address).toHaveValue("registered@example.com");
 });
 
@@ -2216,6 +2718,18 @@ test("platform admins see every group in a table and can take one over @mobile",
   await expect(adminGroups.getByRole("row").filter({ hasText: "Book club" })).toContainText("You are a member");
   await expect(adminGroups.getByRole("link", { name: "Open Baking club" })).toHaveAttribute("href", `/group/${groupId}`);
   await expect(adminGroups.getByRole("button", { name: "Manage Book club as admin" })).toBeEnabled();
+  const openGroup = adminGroups.getByRole("link", { name: "Open Baking club" });
+  const manageGroup = adminGroups.getByRole("button", { name: "Manage Chess club as admin" });
+  for (const action of [openGroup, manageGroup]) {
+    await expect(action).toHaveText("");
+    await expect(action.locator("svg")).toHaveAttribute("aria-hidden", "true");
+    await expect(action).toHaveAttribute("title", await action.getAttribute("aria-label") as string);
+    const bounds = await action.boundingBox();
+    expect(bounds?.width).toBe(48);
+    expect(bounds?.height).toBe(48);
+  }
+  const compactRow = await adminGroups.getByRole("row").filter({ hasText: "Chess club" }).boundingBox();
+  expect(compactRow?.height).toBeLessThanOrEqual(60);
   page.once("dialog", (dialog) => void dialog.dismiss());
   await adminGroups.getByRole("button", { name: "Manage Chess club as admin" }).click();
   expect(joined).toBeUndefined();

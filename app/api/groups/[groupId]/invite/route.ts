@@ -14,10 +14,11 @@ function log(event: string, details: Record<string, unknown> = {}, level: "info"
 }
 
 function configuration(): { error: string } | {
-  url: string; anonKey: string; mail: MailConfig; origin: string;
+  url: string; anonKey: string; serviceKey?: string; mail: MailConfig; origin: string;
 } {
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const appUrl = process.env.APP_URL;
   const missing = Object.entries({ SUPABASE_URL: url, SUPABASE_ANON_KEY: anonKey, APP_URL: appUrl })
     .filter(([, value]) => !value).map(([name]) => name);
@@ -27,6 +28,7 @@ function configuration(): { error: string } | {
   }
   if ("error" in mail) return mail;
   if (/\s/.test(anonKey)) return { error: "SUPABASE_ANON_KEY contains whitespace" };
+  if (serviceKey && /\s/.test(serviceKey)) return { error: "SUPABASE_SERVICE_ROLE_KEY contains whitespace" };
   try {
     const origin = new URL(appUrl);
     const backend = new URL(url);
@@ -38,7 +40,7 @@ function configuration(): { error: string } | {
     }
     if (!["https:", "http:"].includes(backend.protocol) || backend.username || backend.password
       || backend.search || backend.hash) return { error: "SUPABASE_URL is invalid" };
-    return { url, anonKey, mail, origin: origin.origin };
+    return { url, anonKey, serviceKey, mail, origin: origin.origin };
   } catch {
     return { error: "APP_URL or SUPABASE_URL is not a URL" };
   }
@@ -72,6 +74,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ gro
     return json({ error: "Invitation emails are not configured" }, 503);
   }
   let invited = false;
+  let emailOtp: string | undefined;
+  let invitationToken: string | undefined;
+  const redactInvitationSecrets = (text: string) => {
+    for (const secret of [emailOtp, invitationToken]) {
+      if (secret) text = text.replaceAll(secret, "<sign-in-secret>");
+    }
+    return text;
+  };
   try {
     const client = createClient(config.url, config.anonKey, {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
@@ -102,6 +112,32 @@ export async function POST(request: Request, { params }: { params: Promise<{ gro
     log("invite-saved", context);
     const { data: group, error: groupError } = await client.from("groups").select("name").eq("id", groupId).single();
     if (groupError || !group) throw new Error(`Group unavailable: ${groupError?.message ?? "not found"}`);
+    const link = new URL("/dashboard", config.origin);
+    const fragment = new URLSearchParams({ email });
+    if (config.serviceKey) {
+      // Generate only after the caller's RPC authorizes the invite; secrets go only to the recipient.
+      const admin = createClient(config.url, config.serviceKey, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+        global: {
+          fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(10_000) }),
+        },
+      });
+      const { data, error: linkError } = await admin.auth.admin.generateLink({
+        type: "magiclink", email, options: { redirectTo: link.href },
+      }).catch(() => {
+        throw new Error("Unable to generate invitation sign-in link and code");
+      });
+      invitationToken = typeof data.properties?.hashed_token === "string" ? data.properties.hashed_token : undefined;
+      emailOtp = typeof data.properties?.email_otp === "string" ? data.properties.email_otp : undefined;
+      if (linkError || !invitationToken || !emailOtp?.trim()) {
+        throw new Error("Unable to generate invitation sign-in link and code");
+      }
+      fragment.set("token_hash", invitationToken);
+    }
+    link.hash = fragment.toString();
+    const signInGuidance = emailOtp
+      ? `Sign-in code: ${emailOtp}\nUsing the Home Screen app? Open OpenJury and enter this code.\nUse the email address ${email} when entering the code.`
+      : `Using the Home Screen app? Open OpenJury and request a sign-in code inside the app with ${email}.\nThis invitation does not contain a sign-in code.`;
     const sendStarted = Date.now();
     const transport = mailer.createTransport(config.mail);
     try {
@@ -109,16 +145,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ gro
         from: config.mail.from,
         to: [email],
         subject: "You have been invited to an OpenJury group",
-        text: `You have been invited to "${group.name}" on OpenJury.\nSign in with ${email} to join the group:\n${config.origin}/dashboard`,
+        text: `You have been invited to "${group.name}" on OpenJury.\n${signInGuidance}\n\nSign in with ${email} to join the group:\n${link.href}`,
       });
       log("email-accepted", {
-        ...context, smtpHost: config.mail.host, messageId: result.messageId,
+        ...context, smtpHost: config.mail.host,
+        messageId: result.messageId && redactInvitationSecrets(result.messageId),
         sendMs: Date.now() - sendStarted, totalMs: Date.now() - started,
       });
     } catch (error) {
       // The SMTP reply names the problem, e.g. rejected credentials or a sending limit.
       log("smtp-rejected", {
-        ...context, smtpHost: config.mail.host, ...describeMailError(error, email), sendMs: Date.now() - sendStarted,
+        ...context, smtpHost: config.mail.host,
+        ...Object.fromEntries(Object.entries(describeMailError(error, email)).map(([key, value]) =>
+          [key, typeof value === "string" ? redactInvitationSecrets(value) : value])),
+        sendMs: Date.now() - sendStarted,
       }, "error");
       return json({ invited, error: "Invitation saved, but email delivery failed. Please retry." }, 502);
     } finally {
@@ -127,7 +167,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ gro
     return json({ invited: true, emailSent: true });
   } catch (error) {
     // Timeouts and network failures reaching Supabase land here.
-    log("unexpected-error", { ...context, invited, error: String(error), totalMs: Date.now() - started }, "error");
+    log("unexpected-error", {
+      ...context, invited, error: redactInvitationSecrets(String(error)), totalMs: Date.now() - started,
+    }, "error");
     return json({ invited, error: invited
       ? "Invitation saved, but email delivery failed. Please retry."
       : "Unable to invite member" }, 502);
