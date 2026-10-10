@@ -1,7 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
 import { getEnabledSocialProviders, getSupabase, passwordSignInEnabled, type SocialProvider } from "@/lib/supabase";
 import Button from "@/components/Button";
@@ -13,6 +13,21 @@ import { useLocale } from "@/lib/i18n";
 // Supabase Auth refuses a new sign-in email to the same address for 60 seconds
 // (GOTRUE_SMTP_MAX_FREQUENCY), and each new link invalidates the previous one.
 const LINK_COOLDOWN_SECONDS = 60;
+
+function isRunningAsApp() {
+  return window.matchMedia("(display-mode: standalone)").matches ||
+    (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
+}
+
+function subscribeToAppMode(listener: () => void) {
+  const media = window.matchMedia("(display-mode: standalone)");
+  media.addEventListener("change", listener);
+  return () => media.removeEventListener("change", listener);
+}
+
+function getServerAppMode() {
+  return false;
+}
 
 const AuthContext = createContext<{ client: SupabaseClient; session: Session; demo: boolean } | null>(null);
 
@@ -28,6 +43,7 @@ export default function AuthBoundary({ children, signedOut }: {
   signedOut?: ReactNode;
 }) {
   const { t } = useLocale();
+  const appMode = useSyncExternalStore(subscribeToAppMode, isRunningAsApp, getServerAppMode);
   const [client, setClient] = useState<SupabaseClient>();
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -183,14 +199,15 @@ export default function AuthBoundary({ children, signedOut }: {
       if (error?.status === 429) {
         const wait = Number(/after (\d+) seconds/.exec(error.message)?.[1]);
         setCooldown(Number.isInteger(wait) && wait > 0 ? wait : LINK_COOLDOWN_SECONDS);
-        setActionError(t("A sign-in link was sent recently. Check your email, including the spam folder, or wait before requesting a new one."));
-      } else if (error) setActionError(t("Unable to send sign-in link: {error}", { error: t(error.message) }));
+        setActionError(t(appMode ? "A sign-in code was sent recently. Check your email or wait before requesting a new one."
+          : "A sign-in link was sent recently. Check your email, including the spam folder, or wait before requesting a new one."));
+      } else if (error) setActionError(t(appMode ? "Unable to send sign-in code: {error}" : "Unable to send sign-in link: {error}", { error: t(error.message) }));
       else {
         setCooldown(LINK_COOLDOWN_SECONDS);
-        setMessage(t("Check your email for a sign-in link or one-time code. Enter the code here to sign in inside this app."));
+        setMessage(t(appMode ? "Check your email for a sign-in code." : "Check your email for a sign-in link."));
       }
     } catch {
-      if (mounted.current && revision.current === requestRevision) setActionError(t("Unable to send sign-in link. Please try again."));
+      if (mounted.current && revision.current === requestRevision) setActionError(t(appMode ? "Unable to send sign-in code. Please try again." : "Unable to send sign-in link. Please try again."));
     } finally {
       if (mounted.current) setPending(false);
     }
@@ -319,9 +336,9 @@ export default function AuthBoundary({ children, signedOut }: {
         </>
       ) : (
         <>
-        {signedOut}
+        {!appMode && signedOut}
         <Card title={t("Sign in to OpenJury")}>
-          <p>{t("Sign in with your email to view your groups. New accounts are welcome.")}</p>
+          {!appMode && <p>{t("Sign in with your email to view your groups. New accounts are welcome.")}</p>}
           {demo && <p>{t("In the demo, any email signs in instantly as a new account, or pick a demo person in the toolbar below.")}</p>}
           {!demo && getEnabledSocialProviders().length > 0 && (
             <div className="space-y-3">
@@ -344,12 +361,12 @@ export default function AuthBoundary({ children, signedOut }: {
                 setCooldown(0);
               }} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
-            <Button type="submit" disabled={pending || cooldown > 0}>{pending && !oauthProvider && !verifyingCode ? t("Sending link…")
-              : cooldown > 0 ? t("Send a new link in {seconds} s", { seconds: cooldown }) : t("Send sign-in link")}</Button>
+            <Button type="submit" disabled={pending || cooldown > 0}>{pending && !oauthProvider && !verifyingCode ? t(appMode ? "Sending code…" : "Sending link…")
+              : cooldown > 0 ? t(appMode ? "Send a new code in {seconds} s" : "Send a new link in {seconds} s", { seconds: cooldown })
+                : t(appMode ? "Send sign-in code" : "Send sign-in link")}</Button>
           </form>
-          {(pending || message) && <p role="status">{pending ? t(oauthProvider ? "Redirecting to sign-in…" : verifyingCode ? "Signing in…" : "Sending your sign-in link…") : message}</p>}
-          {!demo && <form onSubmit={verifyCode} className="mt-6 space-y-4 border-t border-slate-200 pt-4" aria-busy={verifyingCode}>
-            <p>{t("Using the Home Screen app? Request a sign-in email above, or use your invitation email. Enter its code below with the email address above.")}</p>
+          {(pending || message) && <p role="status">{pending ? t(oauthProvider ? "Redirecting to sign-in…" : verifyingCode ? "Signing in…" : appMode ? "Sending code…" : "Sending your sign-in link…") : message}</p>}
+          {!demo && appMode && <form onSubmit={verifyCode} className="mt-6 space-y-4 border-t border-slate-200 pt-4" aria-busy={verifyingCode}>
             <label className="block">{t("One-time code")}
               <input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6,10}" minLength={6} maxLength={10} required disabled={pending} value={code} onChange={(event) => setCode(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>

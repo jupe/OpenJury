@@ -71,6 +71,21 @@ async function configure(page: Page, signedIn = false, passwordSignIn = false, p
   }
 }
 
+async function configureAppMode(page: Page, mode: "standalone" | "ios" = "standalone") {
+  await page.addInitScript((mode) => {
+    if (mode === "ios") {
+      Object.defineProperty(navigator, "standalone", { value: true });
+      return;
+    }
+    const matchMedia = window.matchMedia.bind(window);
+    window.matchMedia = (query) => {
+      const media = matchMedia(query);
+      if (query === "(display-mode: standalone)") Object.defineProperty(media, "matches", { value: true });
+      return media;
+    };
+  }, mode);
+}
+
 test("social login is absent by default @mobile", async ({ page }) => {
   await configure(page);
   await page.goto("/dashboard");
@@ -816,6 +831,46 @@ test("magic link permits signup and redirects to dashboard with accessible statu
   expect(request.postDataJSON()).toMatchObject({ email: "new@example.com", create_user: true });
   expect(new URL(request.url()).searchParams.get("redirect_to")).toBe(new URL("/dashboard", page.url()).href);
   await expect(page.getByRole("status")).toContainText("Check your email");
+  await expect(page.getByRole("textbox", { name: "One-time code" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Send sign-in code" })).toHaveCount(0);
+});
+
+for (const mode of ["standalone", "ios"] as const) {
+  test(`${mode} installed app shows code sign-in without explanatory text @mobile`, async ({ page }) => {
+    await configure(page);
+    await configureAppMode(page, mode);
+    await page.goto("/");
+    await expect(page.getByRole("textbox", { name: "One-time code" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send sign-in code" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send sign-in link" })).toHaveCount(0);
+    await expect(page.getByText("Sign in with your email to view your groups. New accounts are welcome.")).toHaveCount(0);
+    await expect(page.getByText(/Using the Home Screen app/)).toHaveCount(0);
+    await expectPhoneLayout(page);
+  });
+}
+
+test("login adapts when standalone display mode changes @mobile", async ({ page }) => {
+  await configure(page);
+  await page.addInitScript(() => {
+    const matchMedia = window.matchMedia.bind(window);
+    const standalone = matchMedia("(display-mode: standalone)");
+    window.matchMedia = (query) => query === standalone.media ? standalone : matchMedia(query);
+  });
+  await page.goto("/dashboard");
+  await expect(page.getByRole("button", { name: "Send sign-in link" })).toBeVisible();
+  await page.evaluate(() => {
+    const media = window.matchMedia("(display-mode: standalone)");
+    Object.defineProperty(media, "matches", { value: true, configurable: true });
+    media.dispatchEvent(new Event("change"));
+  });
+  await expect(page.getByRole("textbox", { name: "One-time code" })).toBeVisible();
+  await page.evaluate(() => {
+    const media = window.matchMedia("(display-mode: standalone)");
+    Object.defineProperty(media, "matches", { value: false, configurable: true });
+    media.dispatchEvent(new Event("change"));
+  });
+  await expect(page.getByRole("textbox", { name: "One-time code" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Send sign-in link" })).toBeVisible();
 });
 
 test("Auth email template points to app confirmation rather than a consuming verification URL", async ({ request }) => {
@@ -826,11 +881,12 @@ test("Auth email template points to app confirmation rather than a consuming ver
   expect(template).not.toContain(".ConfirmationURL");
   expect(template).not.toContain("/auth/v1/verify");
   expect(template).toContain("{{ .Token }}");
-  expect(template).toContain("Using the Home Screen app? Open OpenJury and enter this code.");
+  expect(template).toContain("Enter this code in the OpenJury app, or sign in using the link below.");
 });
 
 test("one-time codes sign in inside the app during the email resend cooldown @mobile", async ({ page }) => {
   await configure(page);
+  await configureAppMode(page);
   const verifications: unknown[] = [];
   await page.route(`${supabaseURL}/auth/v1/verify`, (route) => {
     verifications.push(route.request().postDataJSON());
@@ -838,9 +894,9 @@ test("one-time codes sign in inside the app during the email resend cooldown @mo
   });
   await page.goto("/dashboard");
   await page.getByRole("textbox", { name: "Email address" }).fill("member@example.com");
-  await page.getByRole("button", { name: "Send sign-in link" }).click();
-  await expect(page.getByRole("status")).toContainText("one-time code");
-  await expect(page.getByRole("button", { name: /Send a new link in/ })).toBeDisabled();
+  await page.getByRole("button", { name: "Send sign-in code" }).click();
+  await expect(page.getByRole("status")).toHaveText("Check your email for a sign-in code.");
+  await expect(page.getByRole("button", { name: /Send a new code in/ })).toBeDisabled();
   const code = page.getByRole("textbox", { name: "One-time code" });
   await expect(code).toHaveAttribute("autocomplete", "one-time-code");
   await expect(code).toHaveAttribute("inputmode", "numeric");
@@ -855,6 +911,7 @@ test("one-time codes sign in inside the app during the email resend cooldown @mo
 for (const failure of ["incorrect", "expired", "used", "rate limited", "network"]) {
   test(`one-time code ${failure} failures stay private and allow retry @mobile`, async ({ page }) => {
     await configure(page);
+    await configureAppMode(page);
     let fail = true;
     const verifications: unknown[] = [];
     await page.route(`${supabaseURL}/auth/v1/verify`, (route) => {
@@ -878,7 +935,7 @@ for (const failure of ["incorrect", "expired", "used", "rate limited", "network"
     await expect(page.getByRole("main")).not.toContainText("012345");
     await expect(page.getByRole("textbox", { name: "One-time code" })).toHaveValue("");
     await expect(page.getByRole("textbox", { name: "Email address" })).toHaveValue("member@example.com");
-    await expect(page.getByRole("button", { name: "Send sign-in link" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Send sign-in code" })).toBeEnabled();
     expect(emails).toEqual([]);
     fail = false;
     await page.getByRole("textbox", { name: "One-time code" }).fill("012345");
@@ -890,6 +947,7 @@ for (const failure of ["incorrect", "expired", "used", "rate limited", "network"
 
 test("code entry validates email and digits, and clears when the address changes", async ({ page }) => {
   await configure(page);
+  await configureAppMode(page);
   const verifications: unknown[] = [];
   await page.route(`${supabaseURL}/auth/v1/verify`, (route) => {
     verifications.push(route.request().postDataJSON());
@@ -916,11 +974,15 @@ test("code entry validates email and digits, and clears when the address changes
 
 test("one-time code sign-in is localized in Finnish", async ({ page }) => {
   await configure(page);
+  await configureAppMode(page, "ios");
   await page.addInitScript(() => localStorage.setItem("openjury:locale", "fi"));
   await page.route(`${supabaseURL}/auth/v1/verify`, (route) => route.fulfill({
     status: 403, json: { msg: "Private expired code", error_code: "otp_expired" },
   }));
   await page.goto("/dashboard#email=member%40example.com");
+  await page.getByRole("button", { name: "Lähetä kirjautumiskoodi" }).click();
+  await expect(page.getByRole("status")).toHaveText("Tarkista kirjautumiskoodi sähköpostistasi.");
+  await expect(page.getByRole("button", { name: /Uusi koodi/ })).toBeDisabled();
   await page.getByRole("textbox", { name: "Kertakäyttöinen koodi" }).fill("012345");
   await page.getByRole("button", { name: "Kirjaudu koodilla" }).click();
   await expect(page.getByRole("main").getByRole("alert")).toContainText("Koodi on virheellinen, vanhentunut");
