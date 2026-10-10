@@ -76,6 +76,10 @@ jobs:
           # Supabase supplies its own service-role key, so this one is for hosted Supabase.
           APP_URL: ${{ vars.APP_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          WEB_PUSH_PUBLIC_KEY: ${{ vars.WEB_PUSH_PUBLIC_KEY }}
+          WEB_PUSH_PRIVATE_KEY: ${{ secrets.WEB_PUSH_PRIVATE_KEY }}
+          WEB_PUSH_SUBJECT: ${{ vars.WEB_PUSH_SUBJECT }}
+          WEB_PUSH_DISPATCH_SECRET: ${{ secrets.WEB_PUSH_DISPATCH_SECRET }}
           GH_TOKEN: ${{ github.token }}
           DOCKER_CONFIG: ${{ runner.temp }}/registry-auth
         shell: bash

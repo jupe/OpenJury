@@ -92,6 +92,90 @@ async function expectPhoneLayout(page: Page) {
   }
 }
 
+test("iOS Home Screen notifications request permission only on opt-in @mobile", async ({ page }) => {
+  await configure(page, true);
+  let saved = false;
+  await page.route("**/api/push/subscriptions", (route) => {
+    if (route.request().method() === "POST") {
+      const payload = route.request().postDataJSON();
+      expect(payload.locale).toBe("en");
+      expect(payload.subscription.endpoint).toBe("https://web.push.apple.com/test-device");
+      saved = true;
+      return route.fulfill({ json: { saved: true } });
+    }
+    return route.fulfill({ json: { publicKey: Buffer.alloc(65, 1).toString("base64url") } });
+  });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "userAgent", { value: "iPhone" });
+    Object.defineProperty(navigator, "standalone", { value: true });
+    const subscription = {
+      endpoint: "https://web.push.apple.com/test-device",
+      toJSON: () => ({ endpoint: "https://web.push.apple.com/test-device", keys: { p256dh: "test", auth: "test" } }),
+      unsubscribe: async () => true,
+    };
+    const worker = {
+      pushManager: {
+        getSubscription: async () => null,
+        subscribe: async () => subscription,
+      },
+    };
+    Object.defineProperty(navigator, "serviceWorker", {
+      value: { register: async () => worker, ready: Promise.resolve(worker) },
+    });
+    Object.defineProperty(window, "PushManager", { value: class {} });
+    Object.defineProperty(window, "Notification", { value: {
+      requestPermission: async () => {
+        document.documentElement.dataset.permissionRequested = "true";
+        return "granted";
+      },
+    } });
+  });
+  await page.goto("/profile");
+  await expect(page.getByRole("button", { name: "Enable notifications", exact: true })).toBeVisible();
+  expect(await page.locator("html").getAttribute("data-permission-requested")).toBeNull();
+  await page.getByRole("button", { name: "Enable notifications", exact: true }).click();
+  await expect(page.getByText("Notifications are enabled on this device.")).toBeVisible();
+  expect(saved).toBe(true);
+  expect(await page.locator("html").getAttribute("data-permission-requested")).toBe("true");
+});
+
+test("iOS browser explains Home Screen installation without requesting permission @mobile", async ({ page }) => {
+  await configure(page, true);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "userAgent", { value: "iPhone" });
+    Object.defineProperty(navigator, "standalone", { value: false });
+  });
+  await page.goto("/profile");
+  await expect(page.getByText(/On iOS 16.4 or later, use Share/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Enable notifications", exact: true })).toHaveCount(0);
+});
+
+test("iOS notification denial does not register a subscription @mobile", async ({ page }) => {
+  await configure(page, true);
+  let posts = 0;
+  await page.route("**/api/push/subscriptions", (route) => {
+    if (route.request().method() === "POST") posts++;
+    return route.fulfill({ json: { publicKey: Buffer.alloc(65, 1).toString("base64url") } });
+  });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "userAgent", { value: "iPhone" });
+    Object.defineProperty(navigator, "standalone", { value: true });
+    const worker = { pushManager: {
+      getSubscription: async () => null,
+      subscribe: async () => { throw new Error("Must not subscribe after denial"); },
+    } };
+    Object.defineProperty(navigator, "serviceWorker", {
+      value: { register: async () => worker, ready: Promise.resolve(worker) },
+    });
+    Object.defineProperty(window, "PushManager", { value: class {} });
+    Object.defineProperty(window, "Notification", { value: { requestPermission: async () => "denied" } });
+  });
+  await page.goto("/profile");
+  await page.getByRole("button", { name: "Enable notifications", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Notifications were not allowed" })).toBeVisible();
+  expect(posts).toBe(0);
+});
+
 test("users save and clear only their own name from the profile page @mobile", async ({ page }) => {
   await configure(page, true);
   let metadata: { display_name?: string | null } = {};

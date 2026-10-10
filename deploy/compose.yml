@@ -19,6 +19,10 @@ services:
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      WEB_PUSH_PUBLIC_KEY: ${WEB_PUSH_PUBLIC_KEY:-}
+      WEB_PUSH_PRIVATE_KEY: ${WEB_PUSH_PRIVATE_KEY:-}
+      WEB_PUSH_SUBJECT: ${WEB_PUSH_SUBJECT:-}
+      WEB_PUSH_DISPATCH_SECRET: ${WEB_PUSH_DISPATCH_SECRET:-}
       APP_URL: ${APP_URL:-}
       # App-sent email shares the SMTP server Supabase Auth uses for sign-in links.
       SMTP_HOST: ${SMTP_HOST:-}
@@ -27,7 +31,9 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-}
       SMTP_SENDER_NAME: ${SMTP_SENDER_NAME:-}
-    networks: [proxy]
+    networks:
+      proxy:
+        aliases: ["${COMPOSE_PROJECT_NAME}-web"]
     labels:
       - traefik.enable=true
       - traefik.docker.network=${PROXY_NETWORK:-openjury-proxy}
@@ -36,6 +42,44 @@ services:
       - traefik.http.routers.${COMPOSE_PROJECT_NAME}.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
       - traefik.http.routers.${COMPOSE_PROJECT_NAME}.service=${COMPOSE_PROJECT_NAME}
       - traefik.http.services.${COMPOSE_PROJECT_NAME}.loadbalancer.server.port=3000
+
+  push-dispatch:
+    image: ${IMAGE:?IMAGE is required}
+    pull_policy: ${PULL_POLICY:-always}
+    user: "1001:1001"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 32
+    mem_limit: 128m
+    cpus: 0.1
+    healthcheck:
+      disable: true
+    environment:
+      WEB_PUSH_DISPATCH_SECRET: ${WEB_PUSH_DISPATCH_SECRET:-}
+      WEB_PUSH_DISPATCH_URL: http://${COMPOSE_PROJECT_NAME}-web:3000/api/push/dispatch
+    networks: [proxy]
+    depends_on: [web]
+    # Same immutable app image; no additional image/package or public listener.
+    entrypoint: ["node", "-e"]
+    command:
+      - |
+        const secret = process.env.WEB_PUSH_DISPATCH_SECRET;
+        async function dispatch() {
+          if (!secret) return;
+          try {
+            const response = await fetch(process.env.WEB_PUSH_DISPATCH_URL, {
+              method: 'POST',
+              headers: { authorization: ['Bearer', secret].join(' ') },
+              signal: AbortSignal.timeout(30000)
+            });
+            const result = await response.json();
+            if (!response.ok || !result.notificationsSent) console.error('Push dispatch incomplete; next interval will retry');
+          } catch { console.error('Push dispatch unavailable; next interval will retry'); }
+        }
+        (async () => { for (;;) { await dispatch(); await new Promise(resolve => setTimeout(resolve, 60000)); } })();
 
 networks:
   proxy:

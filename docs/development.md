@@ -120,7 +120,8 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/28_draft_publication_schedule.sql`,
 `supabase/migrations/28_reopen_competition_phases.sql`, and
 `supabase/migrations/29_unconfirmed_email_invites.sql`, and
-`supabase/migrations/30_admin_participation_progress.sql`, once each, in that order.
+`supabase/migrations/30_admin_participation_progress.sql`, and
+`supabase/migrations/31_web_push.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
@@ -148,6 +149,13 @@ also appear in existing attendee and published-result projections.
 Migration 21 adds optional competition-start emails. Notifications are skipped
 by default; trusted servers need the [email configuration](deployment.md#optional-competition-start-emails)
 before admins can opt in when opening submissions. The browser-only demo never sends emails.
+Migration 31 adds optional iOS web push subscriptions and a private competition-phase
+outbox. Follow the [web push configuration](deployment.md#optional-ios-home-screen-web-push)
+to enable delivery. Users opt in from Profile after installing OpenJury on the
+iPhone/iPad Home Screen (iOS/iPadOS 16.4+). Ordinary iOS browser tabs cannot subscribe.
+The service worker only displays notifications; it never caches authenticated
+pages, API responses, or private media. The demo cannot subscribe or send pushes.
+Android-specific support is deferred to a later phase.
 Migration 22 fixes photo upload authorization during Storage's preflight check,
 before completed file-size metadata is available. Existing deployments must
 apply it to resolve upload policy failures.

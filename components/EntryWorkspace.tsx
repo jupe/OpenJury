@@ -1016,6 +1016,8 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
   const [notifyMembers, setNotifyMembers] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState("");
   const [notificationsPending, setNotificationsPending] = useState(false);
+  const [pushPending, setPushPending] = useState(false);
+  const [sendingPush, setSendingPush] = useState(false);
   const [detailsDraft, setDetailsDraft] = useState<{ name: string; description: string; rules: string; maxSubmissionImages: number } | null>(null);
   const [savingDetails, setSavingDetails] = useState(false);
   const [detailsError, setDetailsError] = useState<LocalizedError | null>(null);
@@ -1036,7 +1038,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
     let active = true;
     void (async () => {
       try {
-        const [submissionResult, competitionResult, attendeeResult, participationResult, roleResult, notificationResult] = await Promise.all([
+        const [submissionResult, competitionResult, attendeeResult, participationResult, roleResult, notificationResult, pushResult] = await Promise.all([
           client.rpc("get_admin_submissions", { p_competition_id: competitionId }),
           client.from("competitions")
             .select("id,group_id,name,description,rules,max_submission_images,submission_type,allow_participant_voting,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
@@ -1045,6 +1047,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
           client.rpc("get_admin_competition_participation_progress", { p_competition_id: competitionId }),
           client.rpc("get_competition_participants", { p_competition_id: competitionId }),
           client.rpc("get_my_pending_competition_start_emails", { p_competition_id: competitionId }),
+          client.rpc("get_my_pending_competition_push", { p_competition_id: competitionId }),
         ]);
         if (!active) return;
         if (submissionResult.error?.code === "42501") {
@@ -1085,6 +1088,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
         setPublishAt(localDateTime(competitionResult.data.results_publish_at));
         setEntries((submissionResult.data || []) as AdminEntry[]);
         setCompetitionStatus(competitionResult.data.status);
+        if (!pushResult.error) setPushPending(pushResult.data === true);
         if (!notificationResult.error) {
           setNotificationsPending(notificationResult.data === true);
           if (notificationResult.data === true) {
@@ -1181,6 +1185,27 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
     }
   }
 
+  async function sendPushNotifications() {
+    if (session.access_token.startsWith("demo-")) return;
+    setSendingPush(true);
+    try {
+      const { data, error: sessionError } = await client.auth.getSession();
+      if (sessionError || !data.session) throw new Error("Authentication required");
+      const response = await fetch(`/api/competitions/${encodeURIComponent(competitionId)}/push`, {
+        method: "POST",
+        headers: { Authorization: ["Bearer", data.session.access_token].join(" ") },
+        signal: AbortSignal.timeout(30_000),
+      });
+      const result = await response.json();
+      // Optional server configuration must not turn a completed phase change into a failure.
+      setPushPending(response.status !== 503 && (!response.ok || result.notificationsSent !== true));
+    } catch {
+      setPushPending(true);
+    } finally {
+      setSendingPush(false);
+    }
+  }
+
   async function advance() {
     const step = nextTransition[competitionStatus];
     if (!step || transitioning || !window.confirm(t(step.confirm))) return;
@@ -1196,6 +1221,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
         });
         if (transitionFailure) throw transitionFailure;
       }
+      await sendPushNotifications();
       setNotifyMembers(false);
       refresh();
     } catch (failure) {
@@ -1217,6 +1243,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
         p_target_status: step.target,
       });
       if (transitionFailure) throw transitionFailure;
+      await sendPushNotifications();
       refresh();
     } catch (failure) {
       setTransitionError(localizedFailure(step.error, failure));
@@ -1332,6 +1359,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
       setCompetitionStatus("results_published");
       setReviewResults(null);
       setActionMessage("Results published. Group members can now view the final rankings and identities.");
+      await sendPushNotifications();
     } catch (publishError) {
       setError(localizedFailure("Unable to publish results: {error}", publishError));
     } finally {
@@ -1407,6 +1435,12 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
           {notificationMessage && <p role="status">{t(notificationMessage)}</p>}
           {notificationsPending && (
             <IconButton icon={transitioning ? "pending" : "retry"} aria-label={t(transitioning ? "Updating…" : "Retry notifications")} disabled={transitioning} onClick={() => void retryStartNotifications()} />
+          )}
+          {pushPending && (
+            <div>
+              <p role="status">{t("Some push notifications are pending. Retry delivery.")}</p>
+              <IconButton icon={sendingPush ? "pending" : "retry"} aria-label={t("Retry push notifications")} disabled={sendingPush || transitioning || publishing} onClick={() => void sendPushNotifications()} />
+            </div>
           )}
           {step && (
             <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-4">

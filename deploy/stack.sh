@@ -137,6 +137,11 @@ fi
 for name in SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS SMTP_ADMIN_EMAIL APP_URL SUPABASE_SERVICE_ROLE_KEY; do
   if [[ -n "${!name:-}" ]]; then echo "App email setting $name: set"; else echo "App email setting $name: missing"; fi
 done
+# Explicitly export push runtime settings to Compose without logging their values.
+export WEB_PUSH_PUBLIC_KEY="${WEB_PUSH_PUBLIC_KEY:-}"
+export WEB_PUSH_PRIVATE_KEY="${WEB_PUSH_PRIVATE_KEY:-}"
+export WEB_PUSH_SUBJECT="${WEB_PUSH_SUBJECT:-}"
+export WEB_PUSH_DISPATCH_SECRET="${WEB_PUSH_DISPATCH_SECRET:-}"
 docker compose "${files[@]}" up --detach --wait --wait-timeout 300 --remove-orphans
 if [[ -n "${SUPABASE_MIGRATIONS:-}" && "$preview" == true ]]; then
   # This default is only for disposable previews; persistent environments never seed it.

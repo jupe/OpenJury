@@ -5,6 +5,7 @@ import { useAuth } from "@/components/AuthBoundary";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import Card from "@/components/Card";
 import IconButton from "@/components/IconButton";
+import PushNotifications from "@/components/PushNotifications";
 import { failureMessage } from "@/lib/errors";
 import { useLocale } from "@/lib/i18n";
 
@@ -92,6 +93,7 @@ export function ProfileSettings() {
           {saved && <p role="status" className="mt-2 text-sm">{t("Your name has been saved.")}</p>}
         </div>
       </Card>
+      <PushNotifications />
     </>
   );
 }
