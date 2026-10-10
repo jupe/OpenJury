@@ -10,6 +10,7 @@ import AccountMenu from "@/components/AccountMenu";
 import DemoToolbar from "@/components/DemoToolbar";
 import SocialProviderIcon from "@/components/SocialProviderIcon";
 import { useLocale } from "@/lib/i18n";
+import { removeDevicePush } from "@/lib/push-client";
 
 // Supabase Auth refuses a new sign-in email to the same address for 60 seconds
 // (GOTRUE_SMTP_MAX_FREQUENCY), and each new link invalidates the previous one.
@@ -287,6 +288,9 @@ export default function AuthBoundary({ children, signedOut }: {
     setSigningOut(true);
     setActionError("");
     try {
+      if (currentSession.current && !currentSession.current.access_token.startsWith("demo-")) {
+        await removeDevicePush(currentSession.current.access_token).catch(() => {});
+      }
       const { error } = await client.auth.signOut();
       if (!mounted.current) return;
       if (error && (revision.current === requestRevision || !currentSession.current)) {

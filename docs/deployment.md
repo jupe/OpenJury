@@ -229,6 +229,108 @@ and removed admin access may leave notifications pending indefinitely. Deleting
 the starting Auth user clears the retry-owner reference without blocking account
 deletion; remaining recipients cannot be retried through the admin endpoint.
 
+### Optional iOS Home Screen web push
+
+Apply `31_web_push.sql` (also discovered automatically by the demo migration
+loader). Generate a stable VAPID pair with `npx web-push generate-vapid-keys` and
+provide `WEB_PUSH_PUBLIC_KEY`, `WEB_PUSH_PRIVATE_KEY`, `WEB_PUSH_SUBJECT` (a
+`mailto:` or HTTPS contact URI), Supabase public URL/anon key, and the server-only
+`SUPABASE_SERVICE_ROLE_KEY`. Set `WEB_PUSH_DISPATCH_SECRET` to at least 32 random
+characters (for example, generate with `openssl rand -hex 32`).
+Never expose the dispatcher secret, private key or service key to the
+browser. Rotating VAPID keys requires browsers to resubscribe.
+
+This uses standard Web Push for iOS/iPadOS 16.4+ installed Home Screen web apps,
+with permission requested from a user gesture and a visible notification for
+every delivered push. Android-specific enablement is deferred: only HTTPS Apple
+push endpoints are accepted. Apple's documentation could not be verified live
+during implementation; verify current platform requirements before deployment.
+Serve the installed app over HTTPS; do not cache push API requests in a service
+worker. This backend does not change email delivery.
+
+API contracts (all responses have `Cache-Control: no-store`):
+
+- `GET /api/push/subscriptions`: `{publicKey:string}`; HTTP 503 when the VAPID
+  public/private pair, subject, or backend/service-role configuration is absent
+  or invalid. No authentication or
+  private values are returned.
+- Bearer-authenticated `POST /api/push/subscriptions`: JSON
+  `{subscription:{endpoint,keys:{p256dh,auth}},locale:"en"|"fi"}`. Returns
+  `{subscribed:true}`. Requires delivery configuration and stores only the
+  caller's subscription, capped at five.
+- Bearer-authenticated `DELETE /api/push/subscriptions`: JSON
+  `{endpoint}` or `{subscription:{endpoint}}` (the POST body also works); returns
+  `{subscribed:false}`, even when the caller has no matching endpoint.
+  Disabling requires only public backend authentication configuration, not
+  VAPID or service-role credentials.
+- Bodyless bearer-authenticated `POST /api/competitions/<uuid>/push`: current
+  group admins only. Returns `{notificationsSent:boolean}` after authorization.
+  `true` means no eligible queue items remain, not proof of device display.
+- Bodyless `POST /api/push/dispatch`, authenticated with the server-only
+  `WEB_PUSH_DISPATCH_SECRET` as bearer token: runs due remote phase transitions
+  and scheduled publications, then drains eligible queues across up to ten
+  competitions using a shared 50-item/25-second budget. Returns
+  `{notificationsSent:boolean}`; invalid secrets return 401 and absent/invalid
+  configuration returns 503. Never pass this secret through a browser.
+
+Subscription failures use 400 for invalid JSON/endpoint/keys/locale, 401 for
+missing or invalid sessions, 403 for denied access, 409 for an endpoint owned by
+another user, 429 for the per-user cap, 503 for unavailable configuration, and
+502 for upstream failures. Delivery uses 400 for invalid IDs, 401 for sessions,
+403 for non-admins, 503 for configuration, and 502 for authorization outages.
+Once authorized, delivery/claim/ack failures return HTTP 200 with
+`{notificationsSent:false}` so the frontend can offer an explicit retry.
+
+A database status-change trigger atomically snapshots subscribed current group
+members on entry to submission, voting, or results_published, independently of emails.
+Every actual transition (including reopening) has its own event and stable tag.
+Every status change retires unfinished notifications from previous phase
+occurrences, including active leases; claims recheck the current phase before
+delivery. Withdrawing results or closing voting therefore cancels pending
+announcements, rather than delivering stale availability messages.
+Names, entries, and other private details never enter notification payloads.
+Payloads contain `{title:"OpenJury",body:<generic localized phase message>,
+url:"/competition/<uuid>",tag:<stable event tag>}`. Unsubscriptions cascade away
+queued work; membership is checked both at claim and immediately before sending.
+A revocation racing with a provider request cannot recall an accepted push.
+
+Requests drain at most 50 items within a 25-second budget. Service-only RPCs
+provide two-minute leases and matching-token acknowledgements. Failed sends
+remain durable and retry after exponential backoff (30 seconds up to one hour);
+crashes become retryable after lease expiry. HTTP 404/410 deletes expired
+subscriptions, but never a concurrently refreshed subscription. Malformed
+RPC-registered subscriptions are also pruned before any network request. Other provider
+failures are preserved, not exposed or silently discarded. Large groups or
+outages are retried automatically by the configured dispatcher.
+Claims check the subscription revision immediately before sending. Refreshing
+keys before delivery or acknowledgment preserves the event for a retry with the
+current encryption keys, even if an old-key provider request was accepted.
+Call the drain endpoint after each successful phase transition, and offer retry
+when false. On admin reload, authenticated
+`get_my_pending_competition_push(p_competition_id)` returns whether eligible
+unfinished notifications remain, including leased or backed-off items; only
+current group admins can query it. No subscription details are returned.
+Provider acceptance followed by a lost acknowledgement may cause
+duplicate delivery; stable notification tags reduce visible duplication.
+
+The Docker deployment includes a non-listening `push-dispatch` service using the
+same immutable app image. Once `WEB_PUSH_DISPATCH_SECRET` is configured, it calls
+the internal web endpoint approximately every minute (after the previous call
+finishes). With no secret it is inert. GitHub environment variables
+`WEB_PUSH_PUBLIC_KEY`/`WEB_PUSH_SUBJECT` and secrets
+`WEB_PUSH_PRIVATE_KEY`/`WEB_PUSH_DISPATCH_SECRET` are forwarded to deployment.
+The sidecar receives only the dispatcher secret, not Supabase/VAPID credentials.
+For other hosting, schedule an HTTPS POST to `/api/push/dispatch` every minute
+with the secret bearer header using a trusted scheduler; prevent headers from
+entering logs. Do not use a GET-only scheduler or expose credentials in URLs.
+There is no existing `process_due_competitions` RPC: the actual service-only
+processors are `process_remote_competition_deadlines` and
+`process_scheduled_competition_publications`. The dispatcher invokes both before
+delivery; their transactions queue notifications via the status trigger.
+Monitor incomplete/unavailable dispatcher messages. Provider outages and active
+leases are retained for later intervals; `notificationsSent` does not guarantee
+device display.
+
 ### Troubleshooting email delivery
 
 Each deploy prints whether every app email setting reached the container

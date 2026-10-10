@@ -8,6 +8,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "OpenJury",
   description: "A multi-tenant competition and blind-voting platform.",
+  appleWebApp: { capable: true, title: "OpenJury", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {
