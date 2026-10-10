@@ -2865,6 +2865,47 @@ test("platform admins see every group in a table and can take one over @mobile",
   expect(joined).toEqual({ p_group_id: otherGroup });
 });
 
+for (const locale of ["en", "fi"] as const) {
+  test(`platform group summaries show creator and lifecycle totals (${locale}) @mobile`, async ({ page }) => {
+    await configure(page, true);
+    await page.addInitScript((value) => localStorage.setItem("openjury:locale", value), locale);
+    await page.route(`${supabaseURL}/rest/v1/rpc/is_platform_admin`, (route) => route.fulfill({ json: true }));
+    await page.route(`${supabaseURL}/rest/v1/rpc/get_platform_groups`, (route) => route.fulfill({ json: [
+      {
+        id: groupId, name: "Summary club", member_count: 8, admin_count: 2, my_role: null,
+        creator_name: "Alex Creator", creator_email: `${"creator".repeat(20)}@example.invalid`,
+        created_at: "2026-01-02T03:04:00Z", competition_count: 6,
+        competition_status_counts: { draft: 2, submission: 1, voting: 1, review_pending: 1, results_published: 1 },
+      },
+      {
+        id: secondId, name: "Empty club", member_count: 0, admin_count: 0, my_role: null,
+        creator_name: null, creator_email: "unnamed@example.invalid",
+        created_at: "2026-01-02T03:04:00Z", competition_count: 0, competition_status_counts: {},
+      },
+    ] }));
+    await page.goto("/dashboard");
+    const table = page.getByRole("table", { name: locale === "fi" ? "Kaikki ryhmät (palvelun ylläpitäjä)" : "All groups (platform admin)" });
+    const summary = table.getByRole("row").filter({ hasText: "Summary club" });
+    await expect(summary).toContainText(locale === "fi" ? "Luonut: Alex Creator" : "Created by: Alex Creator");
+    await expect(summary).toContainText(`${"creator".repeat(20)}@example.invalid`);
+    await expect(summary.locator("time")).toHaveAttribute("datetime", "2026-01-02T03:04:00Z");
+    await expect(summary.locator("time")).toHaveText(new Intl.DateTimeFormat(locale === "fi" ? "fi-FI" : "en", {
+      dateStyle: "medium", timeStyle: "short",
+    }).format(new Date("2026-01-02T03:04:00Z")));
+    await expect(summary).toContainText(locale === "fi" ? "6 kilpailua" : "6 competitions");
+    const states = summary.getByRole("list", { name: locale === "fi" ? "Kilpailujen tilat" : "Competition states" });
+    await expect(states.getByRole("listitem")).toHaveText(locale === "fi"
+      ? ["Luonnos: 2", "Osallistuminen avoinna: 1", "Äänestys: 1", "Tarkistettavana: 1", "Tulokset julkaistu: 1"]
+      : ["Draft: 2", "Open for entries: 1", "Voting: 1", "In review: 1", "Results published: 1"]);
+    const empty = table.getByRole("row").filter({ hasText: "Empty club" });
+    await expect(empty).toContainText(locale === "fi" ? "Nimeä ei annettu" : "Name not provided");
+    await expect(empty).toContainText(locale === "fi" ? "0 kilpailua" : "0 competitions");
+    await expect(empty.getByRole("listitem")).toHaveCount(0);
+    await page.setViewportSize({ width: 320, height: 568 });
+    await expectPhoneLayout(page);
+  });
+}
+
 test("group tables fit narrow screens with long names @mobile", async ({ page }) => {
   const name = "Community".repeat(12);
   await configure(page, true);

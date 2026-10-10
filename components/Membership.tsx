@@ -10,6 +10,7 @@ import { useLocale } from "@/lib/i18n";
 import Button, { ButtonLink } from "@/components/Button";
 import Card from "@/components/Card";
 import IconButton, { Icon, IconLink } from "@/components/IconButton";
+import { statusLabel } from "@/components/CompetitionStatus";
 
 // Sign-in links always return to /dashboard, so an invite opened while signed
 // out is remembered here and resumed from the dashboard.
@@ -373,11 +374,17 @@ export function GroupMembers({ groupId }: { groupId: string }) {
   );
 }
 
-type PlatformGroup = { id: string; name: string; member_count: number; admin_count: number; my_role: string | null };
+type PlatformGroup = {
+  id: string; name: string; member_count: number; admin_count: number; my_role: string | null;
+  created_at?: string; creator_name?: string | null; creator_email?: string | null;
+  competition_count?: number; competition_status_counts?: Record<string, number>;
+};
+
+const competitionStates = ["draft", "submission", "voting", "review_pending", "results_published"];
 
 /** Every group, for platform admins configured by the deployment. */
 export function PlatformGroups() {
-  const { t } = useLocale();
+  const { t, formatDateTime } = useLocale();
   const { client } = useAuth();
   const router = useRouter();
   const [groups, setGroups] = useState<PlatformGroup[] | null>(null);
@@ -433,6 +440,33 @@ export function PlatformGroups() {
                 <td className="break-words py-1 pr-2">
                   <p className="font-semibold text-slate-900">{group.name}</p>
                   <p className="text-sm">{t("{count} members", { count: group.member_count })} · {t("{count} admins", { count: group.admin_count })}{group.my_role === "admin" ? ` · ${t("You are an admin")}` : group.my_role ? ` · ${t("You are a member")}` : ""}</p>
+                  {group.created_at && (
+                    <dl className="mt-2 space-y-1 text-sm">
+                      <div>
+                        <dt className="inline font-medium">{t("Created by")}: </dt>
+                        <dd className="inline">
+                          {group.creator_name || t("Name not provided")}
+                          {group.creator_email && <span className="block">{group.creator_email}</span>}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="inline font-medium">{t("Created")}: </dt>
+                        <dd className="inline"><time dateTime={group.created_at}>{formatDateTime(group.created_at)}</time></dd>
+                      </div>
+                    </dl>
+                  )}
+                  {group.competition_count !== undefined && (
+                    <div className="mt-2 text-sm">
+                      <p>{t("{count} competitions", { count: group.competition_count })}</p>
+                      <ul aria-label={t("Competition states")} className="mt-1 flex flex-wrap gap-1">
+                        {competitionStates.filter((state) => (group.competition_status_counts?.[state] ?? 0) > 0).map((state) => (
+                          <li key={state} className="rounded bg-slate-100 px-2 py-1 text-xs">
+                            {t(statusLabel(state))}: {group.competition_status_counts?.[state]}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </td>
                 <td className="py-1 text-right">
                   {group.my_role === "admin" ? (
