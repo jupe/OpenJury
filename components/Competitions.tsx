@@ -358,7 +358,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
     const competition = competitions.find((item) => item.id === competitionId && item.status === "draft");
     if (!competition) return;
     autoEditCompetition.current = competitionId;
-    void editCompetition(competition);
+    queueMicrotask(() => void editCompetition(competition));
   }, [competitions, editCompetition, isAdmin, loading]);
 
   async function saveCompetition(event: FormEvent<HTMLFormElement>) {
