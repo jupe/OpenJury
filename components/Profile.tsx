@@ -5,6 +5,7 @@ import { useAuth } from "@/components/AuthBoundary";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import Card from "@/components/Card";
 import IconButton from "@/components/IconButton";
+import PushNotifications from "@/components/PushNotifications";
 import Button from "@/components/Button";
 import { failureMessage } from "@/lib/errors";
 import { useLocale } from "@/lib/i18n";
@@ -113,6 +114,7 @@ export function ProfileSettings() {
           {saved && <p role="status" className="mt-2 text-sm">{t("Your name has been saved.")}</p>}
         </div>
       </Card>
+      <PushNotifications />
       {providers.length > 0 && (
         <Card title={t("Linked sign-in services")}>
           <p>{t("Link another service while signed in to keep your groups, entries, and votes in this account, even if its email is different.")}</p>
