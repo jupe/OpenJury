@@ -1971,7 +1971,7 @@ test("certificate printing is admin-only except for each member's own published 
   await expect(page.getByRole("button", { name: "Print blank certificate templates" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Print published winner certificates" })).toBeVisible();
   await expect(page.locator(".winner-certificates .award-certificate")).toHaveCount(2);
-  await expect(page.locator(".winner-certificates")).not.toContainText("Jordan Baker");
+  await expect(page.locator(".winner-certificates")).toContainText("Jordan Baker");
 
   groupRole = "member";
   await page.reload();
@@ -1980,6 +1980,7 @@ test("certificate printing is admin-only except for each member's own published 
   await expect(page.locator(".template-certificates")).toHaveCount(0);
   await expect(page.locator(".winner-certificates .award-certificate")).toHaveCount(1);
   await expect(page.locator(".winner-certificates")).toContainText("Alex Baker");
+  await expect(page.locator(".winner-certificates")).not.toContainText("Jordan Baker");
 
   publishedWinners = [publishedWinners[0]];
   await page.reload();
