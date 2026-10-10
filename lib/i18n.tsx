@@ -61,7 +61,6 @@ const finnish: Record<string, string> = {
   "Sign in with {provider}": "Kirjaudu palvelulla {provider}",
   "Unable to sign in with {provider}: {error}": "Kirjautuminen palvelulla {provider} epäonnistui: {error}",
   "Sign-in failed: {error}. Please try again.": "Kirjautuminen epäonnistui: {error}. Yritä uudelleen.",
-  "Please try again.": "Yritä uudelleen.",
   "Redirecting to sign-in…": "Siirrytään kirjautumiseen…",
   "Use the same verified email to keep one account. If your service uses a different email, sign in to your existing account first and link it in Profile.": "Käytä samaa vahvistettua sähköpostiosoitetta säilyttääksesi yhden tilin. Jos palvelusi käyttää eri osoitetta, kirjaudu ensin nykyiselle tilillesi ja yhdistä palvelu profiilissa.",
   "Linked sign-in services": "Yhdistetyt kirjautumispalvelut",
