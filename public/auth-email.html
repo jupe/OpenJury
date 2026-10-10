@@ -2,8 +2,9 @@
 <html lang="en">
   <body>
     <h2>Sign in to OpenJury</h2>
-    <p>Open this link, then select “Continue to OpenJury” to confirm your sign-in.</p>
+    <p>Sign-in code: <strong>{{ .Token }}</strong></p>
+    <p>Enter this code in the OpenJury app, or sign in using the link below.</p>
     <p><a href="{{ .SiteURL }}/dashboard#token_hash={{ .TokenHash }}">Continue to OpenJury</a></p>
-    <p>Previewing this email or link will not sign you in. The link can only be used once after confirmation. If you did not request it, you can ignore this email.</p>
+    <p>If you did not request this email, you can ignore it.</p>
   </body>
 </html>

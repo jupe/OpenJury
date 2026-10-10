@@ -1,9 +1,9 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
-import { getSupabase, passwordSignInEnabled } from "@/lib/supabase";
+import { getEnabledSocialProviders, getSupabase, passwordSignInEnabled, type SocialProvider } from "@/lib/supabase";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
 import AccountMenu from "@/components/AccountMenu";
@@ -15,7 +15,22 @@ import { removeDevicePush } from "@/lib/push-client";
 // (GOTRUE_SMTP_MAX_FREQUENCY), and each new link invalidates the previous one.
 const LINK_COOLDOWN_SECONDS = 60;
 
-const AuthContext = createContext<{ client: SupabaseClient; session: Session } | null>(null);
+function isRunningAsApp() {
+  return window.matchMedia("(display-mode: standalone)").matches ||
+    (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
+}
+
+function subscribeToAppMode(listener: () => void) {
+  const media = window.matchMedia("(display-mode: standalone)");
+  media.addEventListener("change", listener);
+  return () => media.removeEventListener("change", listener);
+}
+
+function getServerAppMode() {
+  return false;
+}
+
+const AuthContext = createContext<{ client: SupabaseClient; session: Session; demo: boolean } | null>(null);
 
 export function useAuth() {
   const auth = useContext(AuthContext);
@@ -29,6 +44,7 @@ export default function AuthBoundary({ children, signedOut }: {
   signedOut?: ReactNode;
 }) {
   const { t } = useLocale();
+  const appMode = useSyncExternalStore(subscribeToAppMode, isRunningAsApp, getServerAppMode);
   const [client, setClient] = useState<SupabaseClient>();
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,7 +56,10 @@ export default function AuthBoundary({ children, signedOut }: {
   const [message, setMessage] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [verifyingCode, setVerifyingCode] = useState(false);
   const [pending, setPending] = useState(false);
+  const [oauthProvider, setOauthProvider] = useState<SocialProvider["id"] | null>(null);
   const [cooldown, setCooldown] = useState(0);
   const [signingOut, setSigningOut] = useState(false);
   const mounted = useRef(false);
@@ -48,6 +67,7 @@ export default function AuthBoundary({ children, signedOut }: {
   const currentSession = useRef<Session | null>(null);
   const confirmingLink = useRef(false);
   const translate = useRef(t);
+  const emailInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     translate.current = t;
@@ -80,7 +100,7 @@ export default function AuthBoundary({ children, signedOut }: {
       if (token) setLinkToken(token);
       const error = hash.get("error_description") || query.get("error_description") || hash.get("error") || query.get("error");
       if (error) {
-        setLinkError(translate.current("Sign-in link failed: {error}. Request a new link below.", { error }));
+        setLinkError(translate.current("Sign-in failed: {error}. Please try again.", { error }));
         for (const key of ["error", "error_code", "error_description"]) {
           hash.delete(key);
           query.delete(key);
@@ -113,7 +133,7 @@ export default function AuthBoundary({ children, signedOut }: {
         });
         unsubscribe = () => data.subscription.unsubscribe();
         const initialized = await supabase.auth.initialize();
-        if (initialized.error) throw initialized.error;
+        if (initialized.error && !error) throw initialized.error;
         const result = await supabase.auth.getSession();
         if (active && revision.current === initialRevision) {
           if (result.error) {
@@ -180,16 +200,42 @@ export default function AuthBoundary({ children, signedOut }: {
       if (error?.status === 429) {
         const wait = Number(/after (\d+) seconds/.exec(error.message)?.[1]);
         setCooldown(Number.isInteger(wait) && wait > 0 ? wait : LINK_COOLDOWN_SECONDS);
-        setActionError(t("A sign-in link was sent recently. Check your email, including the spam folder, or wait before requesting a new one."));
-      } else if (error) setActionError(t("Unable to send sign-in link: {error}", { error: t(error.message) }));
+        setActionError(t(appMode ? "A sign-in code was sent recently. Check your email or wait before requesting a new one."
+          : "A sign-in link was sent recently. Check your email, including the spam folder, or wait before requesting a new one."));
+      } else if (error) setActionError(t(appMode ? "Unable to send sign-in code: {error}" : "Unable to send sign-in link: {error}", { error: t(error.message) }));
       else {
         setCooldown(LINK_COOLDOWN_SECONDS);
-        setMessage(t("Check your email for a sign-in link. You can close this tab."));
+        setMessage(t(appMode ? "Check your email for a sign-in code." : "Check your email for a sign-in link."));
       }
     } catch {
-      if (mounted.current && revision.current === requestRevision) setActionError(t("Unable to send sign-in link. Please try again."));
+      if (mounted.current && revision.current === requestRevision) setActionError(t(appMode ? "Unable to send sign-in code. Please try again." : "Unable to send sign-in link. Please try again."));
     } finally {
       if (mounted.current) setPending(false);
+    }
+  }
+
+  async function verifyCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!client || pending || !emailInput.current?.reportValidity()) return;
+    const requestRevision = revision.current;
+    setPending(true);
+    setVerifyingCode(true);
+    setActionError("");
+    setMessage("");
+    try {
+      const { error } = await client.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: "email" });
+      if (!mounted.current || revision.current !== requestRevision) return;
+      if (error) setActionError(t("This code is incorrect, expired, or could not be verified. Try again or request a new sign-in email."));
+    } catch {
+      if (mounted.current && revision.current === requestRevision) {
+        setActionError(t("Unable to verify the code. Please try again."));
+      }
+    } finally {
+      if (mounted.current) {
+        setCode("");
+        setPending(false);
+        setVerifyingCode(false);
+      }
     }
   }
 
@@ -208,6 +254,30 @@ export default function AuthBoundary({ children, signedOut }: {
       if (mounted.current && revision.current === requestRevision) setActionError(t("Unable to sign in. Please try again."));
     } finally {
       if (mounted.current) setPending(false);
+    }
+  }
+
+  async function signInWithProvider(provider: SocialProvider) {
+    if (!client || pending || demo || !getEnabledSocialProviders().some(({ id }) => id === provider.id)) return;
+    const requestRevision = revision.current;
+    setPending(true);
+    setOauthProvider(provider.id);
+    setActionError("");
+    setMessage("");
+    try {
+      const { error } = await client.auth.signInWithOAuth({
+        provider: provider.id,
+        options: { redirectTo: `${window.location.origin}/dashboard` },
+      });
+      if (error) throw error;
+    } catch (error) {
+      if (!mounted.current || revision.current !== requestRevision) return;
+      setActionError(t("Unable to sign in with {provider}: {error}", {
+        provider: provider.name,
+        error: error instanceof Error ? t(error.message) : t("Please try again."),
+      }));
+      setPending(false);
+      setOauthProvider(null);
     }
   }
 
@@ -263,29 +333,49 @@ export default function AuthBoundary({ children, signedOut }: {
             accountSlot,
           )}
           {signingOut ? <p role="status">{t("Signing out…")}</p> : (
-            <AuthContext.Provider value={{ client, session }}>
+            <AuthContext.Provider value={{ client, session, demo }}>
               <div key={`${session.user.id}:${session.access_token}`} className="space-y-6">{children}</div>
             </AuthContext.Provider>
           )}
         </>
       ) : (
         <>
-        {signedOut}
+        {!appMode && signedOut}
         <Card title={t("Sign in to OpenJury")}>
-          <p>{t("Sign in with your email to view your groups. New accounts are welcome.")}</p>
+          {!appMode && <p>{t("Sign in with your email to view your groups. New accounts are welcome.")}</p>}
           {demo && <p>{t("In the demo, any email signs in instantly as a new account, or pick a demo person in the toolbar below.")}</p>}
+          {!demo && getEnabledSocialProviders().length > 0 && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {getEnabledSocialProviders().map((provider) => (
+                  <Button key={provider.id} disabled={pending} onClick={() => signInWithProvider(provider)}>
+                    {t("Sign in with {provider}", { provider: provider.name })}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-sm text-slate-600">{t("Use the same verified email to keep one account. If your service uses a different email, sign in to your existing account first and link it in Profile.")}</p>
+            </div>
+          )}
           <form onSubmit={requestLink} className="space-y-4" aria-busy={pending}>
             <label className="block">{t("Email address")}
-              <input type="email" autoComplete="email" autoCapitalize="none" spellCheck={false} enterKeyHint="send" required value={email} onChange={(event) => {
+              <input ref={emailInput} type="email" autoComplete="email" autoCapitalize="none" spellCheck={false} enterKeyHint="send" required disabled={pending} value={email} onChange={(event) => {
                 setEmail(event.target.value);
+                setCode("");
                 // The limit is per address, so a corrected address may be sent at once.
                 setCooldown(0);
               }} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
-            <Button type="submit" disabled={pending || cooldown > 0}>{pending ? t("Sending link…")
-              : cooldown > 0 ? t("Send a new link in {seconds} s", { seconds: cooldown }) : t("Send sign-in link")}</Button>
+            <Button type="submit" disabled={pending || cooldown > 0}>{pending && !oauthProvider && !verifyingCode ? t(appMode ? "Sending code…" : "Sending link…")
+              : cooldown > 0 ? t(appMode ? "Send a new code in {seconds} s" : "Send a new link in {seconds} s", { seconds: cooldown })
+                : t(appMode ? "Send sign-in code" : "Send sign-in link")}</Button>
           </form>
-          {(pending || message) && <p role="status">{pending ? t("Sending your sign-in link…") : message}</p>}
+          {(pending || message) && <p role="status">{pending ? t(oauthProvider ? "Redirecting to sign-in…" : verifyingCode ? "Signing in…" : appMode ? "Sending code…" : "Sending your sign-in link…") : message}</p>}
+          {!demo && appMode && <form onSubmit={verifyCode} className="mt-6 space-y-4 border-t border-slate-200 pt-4" aria-busy={verifyingCode}>
+            <label className="block">{t("One-time code")}
+              <input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6,10}" minLength={6} maxLength={10} required disabled={pending} value={code} onChange={(event) => setCode(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+            </label>
+            <Button type="submit" disabled={pending || !email.trim() || !code.trim()}>{t(verifyingCode ? "Signing in…" : "Sign in with code")}</Button>
+          </form>}
           {passwordSignInEnabled() && (
             <form onSubmit={signInWithPassword} className="mt-6 space-y-4 border-t border-slate-200 pt-4" aria-busy={pending}>
               <p>{t("Preview environment: sign in with the seeded account instead.")}</p>

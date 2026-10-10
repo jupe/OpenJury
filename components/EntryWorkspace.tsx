@@ -635,7 +635,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     else setError("");
   }
 
-  // Leaving the page saves any slider move still waiting for its pause.
+  // Leaving the page saves any score change still waiting for its pause.
   useEffect(() => {
     const pending = pendingBallots.current;
     return () => {
@@ -667,7 +667,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         setSavedBallots((current) => ({ ...current, [entryNumber]: scores }));
         setToast({ id: Date.now(), text: t("Vote recorded · Entry {number}", { number: entryNumber }), tone: "success" });
       } catch {
-        setToast({ id: Date.now(), text: t("Couldn't save your vote for Entry {number}. Move a slider to try again.", { number: entryNumber }), tone: "error" });
+        setToast({ id: Date.now(), text: t("Couldn't save your vote for Entry {number}. Select a score to try again.", { number: entryNumber }), tone: "error" });
       }
     });
     ballotQueue.current.set(entryNumber, next);
@@ -680,9 +680,10 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       [categoryId]: value,
     };
     setBallotScores((current) => ({ ...current, [entryNumber]: scores }));
-    if (Object.values(scores).some((score) => Number(score) < 1)) return;
     const pending = pendingBallots.current;
     window.clearTimeout(pending.get(entryNumber)?.timer);
+    pending.delete(entryNumber);
+    if (Object.values(scores).some((score) => Number(score) < 1)) return;
     const save = () => {
       pending.delete(entryNumber);
       saveBallot(entryNumber, scores);
@@ -836,6 +837,9 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       )}
       {competition.status === "voting" && votingOpen && canVote && (
         <Card title={t("Anonymous entries")}>
+          <p className="mb-4 text-sm text-slate-600">
+            {t("Changes save automatically once every category of this entry is scored.")}
+          </p>
           {submission && (
             <section aria-labelledby="own-entry-heading" className="mb-6 space-y-2">
               <h2 id="own-entry-heading" className="font-semibold">{t("Your entry")}</h2>
@@ -854,11 +858,15 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           {blindEntries.length ? (
             <ol className="space-y-6">
               {blindEntries.map((entry) => {
+                const recorded = categories.every((category) =>
+                  savedBallots[entry.entry_number]?.[category.id] === ballotScore(entry.entry_number, category));
+                const incomplete = categories.some((category) => ballotScore(entry.entry_number, category) === "0");
+                const helpId = `ballot-help-${entry.entry_number}`;
                 return (
                   <li key={entry.entry_number} className="space-y-3">
                     <h2 className="flex flex-wrap items-center gap-2 font-semibold">
                       {t("Entry {number}", { number: entry.entry_number })}
-                      {savedBallots[entry.entry_number] && (
+                      {recorded && (
                         <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">{t("Voted")}</span>
                       )}
                     </h2>
@@ -871,29 +879,85 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                         label={t("Anonymous entry {number} image", { number: entry.entry_number })}
                       />
                     )}
-                    <div className="space-y-1">
+                    <p id={helpId} className="text-sm text-slate-600">
+                      {t(incomplete
+                        ? "Not recorded. Select a score for every category to vote."
+                        : recorded ? "Your displayed scores are recorded."
+                          : "Changes not saved yet.")}
+                    </p>
+                    <div className="space-y-4">
                       {categories.map((category) => {
                         const id = `ballot-${entry.entry_number}-${category.id}`;
-                        const score = ballotScore(entry.entry_number, category);
-                        const hasSavedBallot = !!savedBallots[entry.entry_number];
+                        const score = Number(ballotScore(entry.entry_number, category));
+                        const points = score === 0 ? t("Not scored") : t("{score} of {max} points", { score, max: category.max_score });
+                        const min = savedBallots[entry.entry_number] ? 1 : 0;
+                        const ticks = Array.from({ length: 5 }, (_, index) =>
+                          1 + Math.round((category.max_score - 1) * index / 4));
                         return (
-                          <div key={category.id} className="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)_auto] items-center gap-3">
-                            <label htmlFor={id} className="truncate">{category.name}</label>
-                            <input
-                              id={id}
-                              type="range"
-                              min={hasSavedBallot ? 1 : 0}
-                              max={category.max_score}
-                              step={1}
-                              value={score}
-                              aria-valuetext={score === "0" ? t("Not scored") : `${score}/${category.max_score}`}
-                              onChange={(event) => changeScore(entry.entry_number, category.id, event.target.value)}
-                              className="h-11 w-full cursor-pointer accent-golden"
-                            />
-                            <span aria-hidden className="w-12 text-right font-semibold tabular-nums">
-                              {score === "0" ? "—" : `${score}/${category.max_score}`}
-                            </span>
-                          </div>
+                          <fieldset key={category.id} aria-describedby={helpId} className="min-w-0">
+                            <legend className="mb-2 w-full">
+                              <span className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                                <span id={`${id}-label`} className="break-words font-medium">{category.name}</span>
+                                <span className="font-semibold tabular-nums text-indigo-700">{points}</span>
+                              </span>
+                            </legend>
+                            {category.max_score <= 10 ? (
+                              <div className="grid grid-cols-[repeat(auto-fit,minmax(2.75rem,1fr))] gap-2">
+                                {Array.from({ length: category.max_score }, (_, index) => index + 1).map((value) => (
+                                  <button
+                                    key={value}
+                                    type="button"
+                                    aria-label={t("{score} of {max} points", { score: value, max: category.max_score })}
+                                    aria-pressed={score === value}
+                                    onClick={() => changeScore(entry.entry_number, category.id, String(value))}
+                                    className={`min-h-11 rounded-lg border font-semibold tabular-nums ${score === value
+                                      ? "border-indigo-600 bg-indigo-600 text-white"
+                                      : "border-slate-300 bg-white text-slate-700 hover:bg-indigo-50"}`}
+                                  >
+                                    {value}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="flex items-start gap-3">
+                                <button
+                                  type="button"
+                                  aria-label={t("Decrease points for {category}", { category: category.name })}
+                                  disabled={score <= 1}
+                                  onClick={() => changeScore(entry.entry_number, category.id, String(score - 1))}
+                                  className="h-11 w-11 shrink-0 rounded-lg border border-slate-300 bg-white text-xl disabled:opacity-40"
+                                >−</button>
+                                <div className="min-w-0 flex-1">
+                                  <input
+                                    id={id}
+                                    type="range"
+                                    min={min}
+                                    max={category.max_score}
+                                    step={1}
+                                    value={score}
+                                    aria-labelledby={`${id}-label`}
+                                    aria-describedby={helpId}
+                                    aria-valuetext={points}
+                                    onChange={(event) => changeScore(entry.entry_number, category.id, event.target.value)}
+                                    className="vote-score-range w-full cursor-pointer"
+                                    style={{ backgroundImage: `linear-gradient(to right, var(--color-golden) ${(score - min) / (category.max_score - min) * 100}%, var(--score-track) ${(score - min) / (category.max_score - min) * 100}%)` }}
+                                  />
+                                  <div aria-hidden className="relative mx-3 h-6 text-xs tabular-nums text-slate-600">
+                                    {ticks.map((value) => (
+                                      <span key={value} className="absolute -translate-x-1/2 border-t border-slate-300 pt-1" style={{ left: `${(value - min) / (category.max_score - min) * 100}%` }}>{value}</span>
+                                    ))}
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  aria-label={t("Increase points for {category}", { category: category.name })}
+                                  disabled={score >= category.max_score}
+                                  onClick={() => changeScore(entry.entry_number, category.id, String(score + 1))}
+                                  className="h-11 w-11 shrink-0 rounded-lg border border-slate-300 bg-white text-xl disabled:opacity-40"
+                                >+</button>
+                              </div>
+                            )}
+                          </fieldset>
                         );
                       })}
                     </div>

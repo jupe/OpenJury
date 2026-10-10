@@ -19,10 +19,16 @@ function session(user = userId, email = "member@example.com") {
   };
 }
 
-async function configure(page: Page, signedIn = false, passwordSignIn = false) {
+async function configure(page: Page, signedIn = false, passwordSignIn = false, providers: string[] = []) {
   await page.route("**/runtime-config.js", (route) => route.fulfill({
     contentType: "application/javascript",
-    body: `window.__OPENJURY_CONFIG__ = ${JSON.stringify({ SUPABASE_URL: supabaseURL, SUPABASE_ANON_KEY: "public-test-anon", PASSWORD_SIGN_IN: passwordSignIn })};`,
+    headers: { "Cache-Control": "no-store" },
+    body: `window.__OPENJURY_CONFIG__ = ${JSON.stringify({
+      SUPABASE_URL: supabaseURL, SUPABASE_ANON_KEY: "public-test-anon", PASSWORD_SIGN_IN: passwordSignIn,
+      AUTH_GOOGLE_ENABLED: providers.includes("google"),
+      AUTH_FACEBOOK_ENABLED: providers.includes("facebook"),
+      AUTH_GITHUB_ENABLED: providers.includes("github"),
+    })};`,
   }));
   await page.route(`${supabaseURL}/**`, (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -64,6 +70,140 @@ async function configure(page: Page, signedIn = false, passwordSignIn = false) {
     }, session());
   }
 }
+
+async function configureAppMode(page: Page, mode: "standalone" | "ios" = "standalone") {
+  await page.addInitScript((mode) => {
+    if (mode === "ios") {
+      Object.defineProperty(navigator, "standalone", { value: true });
+      return;
+    }
+    const matchMedia = window.matchMedia.bind(window);
+    window.matchMedia = (query) => {
+      const media = matchMedia(query);
+      if (query === "(display-mode: standalone)") Object.defineProperty(media, "matches", { value: true });
+      return media;
+    };
+  }, mode);
+}
+
+test("social login is absent by default @mobile", async ({ page }) => {
+  await configure(page);
+  await page.goto("/dashboard");
+  await expect(page.getByRole("button", { name: "Send sign-in link", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Sign in with (Google|Facebook|GitHub)$/ })).toHaveCount(0);
+});
+
+test("deployments can enable a subset of social login providers @mobile", async ({ page }) => {
+  await configure(page, false, false, ["google", "github"]);
+  await page.goto("/dashboard");
+  await expect(page.getByRole("button", { name: "Sign in with Google", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in with GitHub", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in with Facebook", exact: true })).toHaveCount(0);
+  await expect(page.getByText(/If your service uses a different email/)).toBeVisible();
+  await expectPhoneLayout(page);
+});
+
+for (const [provider, name] of [["google", "Google"], ["facebook", "Facebook"], ["github", "GitHub"]]) {
+  test(`${name} social login redirects through Supabase and accepts the existing account session @mobile`, async ({ page }) => {
+    await configure(page, false, false, [provider]);
+    let authorizeURL: URL | undefined;
+    await page.route(`${supabaseURL}/auth/v1/authorize**`, (route) => {
+      authorizeURL = new URL(route.request().url());
+      const callback = new URL(authorizeURL.searchParams.get("redirect_to")!);
+      callback.hash = new URLSearchParams({
+        access_token: session().access_token, refresh_token: session().refresh_token,
+        token_type: "bearer", expires_in: "3600",
+      }).toString();
+      return route.fulfill({ contentType: "text/html", body: `<script>window.location.replace(${JSON.stringify(callback.href)})</script>` });
+    });
+    await page.goto("/dashboard");
+    const origin = new URL(page.url()).origin;
+    await page.getByRole("button", { name: `Sign in with ${name}`, exact: true }).click();
+    await expect(page.getByRole("button", { name: "Account (member@example.com)" })).toBeVisible();
+    expect(authorizeURL?.searchParams.get("provider")).toBe(provider);
+    expect(authorizeURL?.searchParams.get("redirect_to")).toBe(`${origin}/dashboard`);
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem("sb-foundation-auth-token")!).user.id)).toBe(userId);
+    await expect(page).toHaveURL(/\/dashboard#?$/);
+  });
+
+  test(`${name} identity linking is authenticated and retains the user ID with a different email @mobile`, async ({ page }) => {
+    await configure(page, true, false, [provider]);
+    const identity = { id: secondId, identity_id: secondId, user_id: userId, provider, identity_data: { email: "other@example.com" }, created_at: "2026-01-01T00:00:00Z" };
+    await page.route(`${supabaseURL}/auth/v1/user`, (route) => route.fulfill({
+      json: { ...session().user, identities: [identity] },
+    }));
+    let linkRequests = 0;
+    await page.route(`${supabaseURL}/mock-provider**`, (route) => {
+      const callback = new URL(route.request().url()).searchParams.get("callback")!;
+      return route.fulfill({ contentType: "text/html", body: `<script>window.location.replace(${JSON.stringify(callback)})</script>` });
+    });
+    await page.route(`${supabaseURL}/auth/v1/user/identities/authorize**`, (route) => {
+      linkRequests++;
+      expect(route.request().headers().authorization).toBe(["Bearer", session().access_token].join(" "));
+      const url = new URL(route.request().url());
+      expect(url.searchParams.get("provider")).toBe(provider);
+      const callback = new URL(url.searchParams.get("redirect_to")!);
+      expect(callback.pathname).toBe("/profile");
+      callback.hash = new URLSearchParams({
+        access_token: session().access_token, refresh_token: session().refresh_token,
+        token_type: "bearer", expires_in: "3600",
+      }).toString();
+      return route.fulfill({ json: { url: `${supabaseURL}/mock-provider?callback=${encodeURIComponent(callback.href)}` } });
+    });
+    await page.goto("/profile");
+    await page.getByRole("button", { name: `Link ${name}`, exact: true }).click();
+    await expect(page.getByText("Linked", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: `Link ${name}`, exact: true })).toHaveCount(0);
+    expect(linkRequests).toBe(1);
+    const user = await page.evaluate(() => JSON.parse(localStorage.getItem("sb-foundation-auth-token")!).user);
+    expect(user.id).toBe(userId);
+    expect(user.email).toBe("member@example.com");
+    expect(user.identities[0].identity_data.email).toBe("other@example.com");
+  });
+}
+
+test("social identity conflicts show an error and never switch or merge accounts", async ({ page }) => {
+  await configure(page, true, false, ["google", "github"]);
+  await page.route(`${supabaseURL}/auth/v1/user/identities/authorize**`, (route) => route.fulfill({
+    status: 422, json: { code: "identity_already_exists", msg: "Identity is already linked to another user" },
+  }));
+  await page.goto("/profile");
+  await page.getByRole("button", { name: "Link GitHub", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Unable to link GitHub" })).toContainText("Identity is already linked to another user");
+  await expect(page.getByRole("button", { name: "Link Google", exact: true })).toBeEnabled();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("sb-foundation-auth-token")!).user.id)).toBe(userId);
+});
+
+test("social login cancellation displays the callback error and allows retry", async ({ page }) => {
+  await configure(page, false, false, ["facebook"]);
+  await page.goto("/dashboard#error=access_denied&error_description=Login%20cancelled");
+  await expect(page.getByRole("alert").filter({ hasText: "Sign-in failed" })).toContainText("Login cancelled. Please try again.");
+  await expect(page.getByRole("button", { name: "Sign in with Facebook", exact: true })).toBeEnabled();
+  await expect(page).toHaveURL(/\/dashboard$/);
+});
+
+test("social identity linking cancellation retains the original session", async ({ page }) => {
+  await configure(page, true, false, ["github"]);
+  await page.goto("/profile#error=access_denied&error_code=identity_already_exists&error_description=Linking%20cancelled");
+  await expect(page.getByRole("alert").filter({ hasText: "Sign-in failed" })).toContainText("Linking cancelled");
+  await expect(page.getByRole("button", { name: "Link GitHub", exact: true })).toBeEnabled();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("sb-foundation-auth-token")!).user.id)).toBe(userId);
+  await expect(page).toHaveURL(/\/profile$/);
+});
+
+test("social login and linking labels are translated into Finnish @mobile", async ({ page }) => {
+  await configure(page, false, false, ["google", "facebook", "github"]);
+  await page.addInitScript(() => localStorage.setItem("openjury:locale", "fi"));
+  await page.goto("/dashboard");
+  await expect(page.getByRole("button", { name: "Kirjaudu palvelulla Google", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Kirjaudu palvelulla Facebook", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Kirjaudu palvelulla GitHub", exact: true })).toBeVisible();
+  await configure(page, true, false, ["github"]);
+  await page.goto("/profile");
+  await expect(page.getByRole("heading", { name: "Yhdistetyt kirjautumispalvelut", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Yhdistä GitHub", exact: true })).toBeVisible();
+  await expectPhoneLayout(page);
+});
 
 async function expectPhoneLayout(page: Page) {
   const layout = await page.evaluate(() => ({
@@ -775,6 +915,46 @@ test("magic link permits signup and redirects to dashboard with accessible statu
   expect(request.postDataJSON()).toMatchObject({ email: "new@example.com", create_user: true });
   expect(new URL(request.url()).searchParams.get("redirect_to")).toBe(new URL("/dashboard", page.url()).href);
   await expect(page.getByRole("status")).toContainText("Check your email");
+  await expect(page.getByRole("textbox", { name: "One-time code" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Send sign-in code" })).toHaveCount(0);
+});
+
+for (const mode of ["standalone", "ios"] as const) {
+  test(`${mode} installed app shows code sign-in without explanatory text @mobile`, async ({ page }) => {
+    await configure(page);
+    await configureAppMode(page, mode);
+    await page.goto("/");
+    await expect(page.getByRole("textbox", { name: "One-time code" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send sign-in code" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send sign-in link" })).toHaveCount(0);
+    await expect(page.getByText("Sign in with your email to view your groups. New accounts are welcome.")).toHaveCount(0);
+    await expect(page.getByText(/Using the Home Screen app/)).toHaveCount(0);
+    await expectPhoneLayout(page);
+  });
+}
+
+test("login adapts when standalone display mode changes @mobile", async ({ page }) => {
+  await configure(page);
+  await page.addInitScript(() => {
+    const matchMedia = window.matchMedia.bind(window);
+    const standalone = matchMedia("(display-mode: standalone)");
+    window.matchMedia = (query) => query === standalone.media ? standalone : matchMedia(query);
+  });
+  await page.goto("/dashboard");
+  await expect(page.getByRole("button", { name: "Send sign-in link" })).toBeVisible();
+  await page.evaluate(() => {
+    const media = window.matchMedia("(display-mode: standalone)");
+    Object.defineProperty(media, "matches", { value: true, configurable: true });
+    media.dispatchEvent(new Event("change"));
+  });
+  await expect(page.getByRole("textbox", { name: "One-time code" })).toBeVisible();
+  await page.evaluate(() => {
+    const media = window.matchMedia("(display-mode: standalone)");
+    Object.defineProperty(media, "matches", { value: false, configurable: true });
+    media.dispatchEvent(new Event("change"));
+  });
+  await expect(page.getByRole("textbox", { name: "One-time code" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Send sign-in link" })).toBeVisible();
 });
 
 test("Auth email template points to app confirmation rather than a consuming verification URL", async ({ request }) => {
@@ -784,6 +964,112 @@ test("Auth email template points to app confirmation rather than a consuming ver
   expect(template).toContain('href="{{ .SiteURL }}/dashboard#token_hash={{ .TokenHash }}"');
   expect(template).not.toContain(".ConfirmationURL");
   expect(template).not.toContain("/auth/v1/verify");
+  expect(template).toContain("{{ .Token }}");
+  expect(template).toContain("Enter this code in the OpenJury app, or sign in using the link below.");
+});
+
+test("one-time codes sign in inside the app during the email resend cooldown @mobile", async ({ page }) => {
+  await configure(page);
+  await configureAppMode(page);
+  const verifications: unknown[] = [];
+  await page.route(`${supabaseURL}/auth/v1/verify`, (route) => {
+    verifications.push(route.request().postDataJSON());
+    return route.fulfill({ json: session() });
+  });
+  await page.goto("/dashboard");
+  await page.getByRole("textbox", { name: "Email address" }).fill("member@example.com");
+  await page.getByRole("button", { name: "Send sign-in code" }).click();
+  await expect(page.getByRole("status")).toHaveText("Check your email for a sign-in code.");
+  await expect(page.getByRole("button", { name: /Send a new code in/ })).toBeDisabled();
+  const code = page.getByRole("textbox", { name: "One-time code" });
+  await expect(code).toHaveAttribute("autocomplete", "one-time-code");
+  await expect(code).toHaveAttribute("inputmode", "numeric");
+  await code.fill("012345");
+  await expectPhoneLayout(page);
+  await page.getByRole("button", { name: "Sign in with code" }).click();
+  await expect(page.getByRole("button", { name: "Account (member@example.com)" })).toBeVisible();
+  expect(verifications).toMatchObject([{ email: "member@example.com", token: "012345", type: "email" }]);
+  await expect(page).toHaveURL(/\/dashboard$/);
+});
+
+for (const failure of ["incorrect", "expired", "used", "rate limited", "network"]) {
+  test(`one-time code ${failure} failures stay private and allow retry @mobile`, async ({ page }) => {
+    await configure(page);
+    await configureAppMode(page);
+    let fail = true;
+    const verifications: unknown[] = [];
+    await page.route(`${supabaseURL}/auth/v1/verify`, (route) => {
+      verifications.push(route.request().postDataJSON());
+      if (!fail) return route.fulfill({ json: session() });
+      if (failure === "network") return route.abort("failed");
+      return route.fulfill({
+        status: failure === "rate limited" ? 429 : 403,
+        json: { msg: `Private ${failure} code 012345`, error_code: failure === "rate limited" ? "over_request_rate_limit" : "otp_expired" },
+      });
+    });
+    const emails: unknown[] = [];
+    await page.route(`${supabaseURL}/auth/v1/otp**`, (route) => {
+      emails.push(route.request().postDataJSON());
+      return route.fulfill({ json: {} });
+    });
+    await page.goto("/dashboard#email=member%40example.com");
+    await page.getByRole("textbox", { name: "One-time code" }).fill("012345");
+    await page.getByRole("button", { name: "Sign in with code" }).click();
+    await expect(page.getByRole("main").getByRole("alert")).toContainText("This code is incorrect, expired, or could not be verified.");
+    await expect(page.getByRole("main")).not.toContainText("012345");
+    await expect(page.getByRole("textbox", { name: "One-time code" })).toHaveValue("");
+    await expect(page.getByRole("textbox", { name: "Email address" })).toHaveValue("member@example.com");
+    await expect(page.getByRole("button", { name: "Send sign-in code" })).toBeEnabled();
+    expect(emails).toEqual([]);
+    fail = false;
+    await page.getByRole("textbox", { name: "One-time code" }).fill("012345");
+    await page.getByRole("button", { name: "Sign in with code" }).click();
+    await expect(page.getByRole("button", { name: "Account (member@example.com)" })).toBeVisible();
+    expect(verifications).toHaveLength(2);
+  });
+}
+
+test("code entry validates email and digits, and clears when the address changes", async ({ page }) => {
+  await configure(page);
+  await configureAppMode(page);
+  const verifications: unknown[] = [];
+  await page.route(`${supabaseURL}/auth/v1/verify`, (route) => {
+    verifications.push(route.request().postDataJSON());
+    return route.fulfill({ json: session() });
+  });
+  await page.goto("/dashboard");
+  const email = page.getByRole("textbox", { name: "Email address" });
+  const code = page.getByRole("textbox", { name: "One-time code" });
+  const submit = page.getByRole("button", { name: "Sign in with code" });
+  await code.fill("012345");
+  await expect(submit).toBeDisabled();
+  await email.fill("invalid");
+  await expect(code).toHaveValue("");
+  await code.fill("012345");
+  await submit.click();
+  expect(verifications).toEqual([]);
+  await email.fill("member@example.com");
+  for (const invalid of ["123", "abcdef"]) {
+    await code.fill(invalid);
+    await submit.click();
+    expect(verifications).toEqual([]);
+  }
+});
+
+test("one-time code sign-in is localized in Finnish", async ({ page }) => {
+  await configure(page);
+  await configureAppMode(page, "ios");
+  await page.addInitScript(() => localStorage.setItem("openjury:locale", "fi"));
+  await page.route(`${supabaseURL}/auth/v1/verify`, (route) => route.fulfill({
+    status: 403, json: { msg: "Private expired code", error_code: "otp_expired" },
+  }));
+  await page.goto("/dashboard#email=member%40example.com");
+  await page.getByRole("button", { name: "Lähetä kirjautumiskoodi" }).click();
+  await expect(page.getByRole("status")).toHaveText("Tarkista kirjautumiskoodi sähköpostistasi.");
+  await expect(page.getByRole("button", { name: /Uusi koodi/ })).toBeDisabled();
+  await page.getByRole("textbox", { name: "Kertakäyttöinen koodi" }).fill("012345");
+  await page.getByRole("button", { name: "Kirjaudu koodilla" }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("Koodi on virheellinen, vanhentunut");
 });
 
 test("invitation email pre-fills the recipient without sending another email automatically @mobile", async ({ page }) => {
@@ -1790,7 +2076,7 @@ test("auth changes discard in-flight data from the previous user", async ({ page
 });
 
 for (const votingRole of ["audience", "participant"]) {
-test(`${votingRole} voting cards load a private ballot and save score revisions`, async ({ page }) => {
+test(`${votingRole} voting cards load a private ballot and save score revisions @mobile`, async ({ page }) => {
   const competitionId = "33333333-3333-4333-8333-333333333333";
   const tasteId = "44444444-4444-4444-8444-444444444444";
   const presentationId = "55555555-5555-4555-8555-555555555555";
@@ -1835,11 +2121,13 @@ test(`${votingRole} voting cards load a private ballot and save score revisions`
     await expect(page.getByText("Submit your own entry and vote on other entries. You cannot vote on your own entry.")).toBeVisible();
     await expect(page.getByText("Submit your own entry. Participants do not vote.")).toHaveCount(0);
   }
-  await expect(page.getByRole("slider", { name: "Taste" })).toHaveValue("2");
-  await expect(page.getByRole("slider", { name: "Presentation" })).toHaveValue("3");
+  const taste = page.getByRole("group", { name: "Taste 2 of 5 points" });
+  await expect(taste.getByRole("button", { name: "2 of 5 points" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("group", { name: "Presentation 3 of 3 points" })
+    .getByRole("button", { name: "3 of 3 points" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("Voted", { exact: true })).toBeVisible();
   await expectPhoneLayout(page);
-  await page.getByRole("slider", { name: "Taste" }).fill("4");
+  await taste.getByRole("button", { name: "4 of 5 points" }).click();
   await expect(page.getByRole("status")).toContainText("Vote recorded · Entry 7");
   expect(savedBallot).toEqual({
     p_competition_id: competitionId,
@@ -1853,7 +2141,104 @@ test(`${votingRole} voting cards load a private ballot and save score revisions`
 });
 }
 
-test("new ballots start unscored and save only after every category is rated", async ({ page }) => {
+for (const max of [1, 10, 11, 100]) {
+test(`adaptive vote points support a maximum of ${max} and autosave @mobile`, async ({ page }) => {
+  const competitionId = "33333333-3333-4333-8333-333333333333";
+  const categoryId = "44444444-4444-4444-8444-444444444444";
+  const categoryName = "A category with a long name that should remain fully readable";
+  const finnish = max === 1 || max === 100;
+  const pointLabel = (score: number) => finnish ? `${score} / ${max} pistettä` : `${score} of ${max} points`;
+  const saved: Array<{ p_scores: Array<{ category_id: string; score: number }> }> = [];
+  let rejectNextSave = max === 11;
+  await configure(page, true);
+  if (finnish) await page.addInitScript(() => localStorage.setItem("openjury:locale", "fi"));
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{
+      id: competitionId, name: "Adaptive voting", status: "voting",
+      voting_deadline: null, competition_participants: [{ role: "audience" }],
+    }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/categories**`, (route) =>
+    route.fulfill({ json: [{ id: categoryId, name: categoryName, max_score: max }] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_blind_voting_entries`, (route) =>
+    route.fulfill({ json: [{ entry_number: 7, media_keys: [] }] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_my_ballot`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/save_ballot`, async (route) => {
+    saved.push(route.request().postDataJSON());
+    if (rejectNextSave) {
+      rejectNextSave = false;
+      return route.fulfill({ status: 500, json: { message: "Save failed" } });
+    }
+    await route.fulfill({ status: 204 });
+  });
+  await page.goto(`/competition/${competitionId}`);
+  await expect(page.getByText(categoryName, { exact: true })).toBeVisible();
+  await expect(page.getByText(finnish
+    ? "Ei tallennettu. Äänestä valitsemalla pistemäärä jokaiseen kategoriaan."
+    : "Not recorded. Select a score for every category to vote.")).toBeVisible();
+  await page.clock.install();
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
+  expect(saved).toHaveLength(0);
+  await expectPhoneLayout(page);
+
+  if (max <= 10) {
+    const group = page.getByRole("group");
+    await expect(group.getByRole("button")).toHaveCount(max);
+    await expect(group.getByRole("button", { pressed: true })).toHaveCount(0);
+    await expect(group).toContainText(finnish ? "Ei arvioitu" : "Not scored");
+    await group.getByRole("button", { name: pointLabel(max), exact: true }).focus();
+    await page.keyboard.press("Enter");
+  } else {
+    const slider = page.getByRole("slider", { name: categoryName });
+    await expect(slider).toHaveAttribute("aria-valuetext", finnish ? "Ei arvioitu" : "Not scored");
+    await expect(slider).toHaveValue("0");
+    const decrease = page.getByRole("button", { name: finnish
+      ? `Vähennä kategorian ${categoryName} pisteitä` : `Decrease points for ${categoryName}` });
+    const increase = page.getByRole("button", { name: finnish
+      ? `Lisää kategorian ${categoryName} pisteitä` : `Increase points for ${categoryName}` });
+    await expect(decrease).toBeDisabled();
+    await increase.click();
+    await expect(slider).toHaveValue("1");
+    await expect(decrease).toBeDisabled();
+    await increase.click();
+    await expect(slider).toHaveValue("2");
+    await decrease.click();
+    await expect(slider).toHaveValue("1");
+    await slider.focus();
+    await page.keyboard.press("End");
+    await expect(slider).toHaveValue(String(max));
+    await expect(increase).toBeDisabled();
+    await expect(slider).toHaveAttribute("aria-valuetext", pointLabel(max));
+    const track = await slider.evaluate((element) => getComputedStyle(element).backgroundImage);
+    expect(track).toContain("100%");
+    await page.keyboard.press("Home");
+    await expect(slider).toHaveValue("0");
+    await page.clock.fastForward(400);
+    expect(saved).toHaveLength(0);
+    await page.keyboard.press("End");
+  }
+  await expect(page.getByText(finnish ? "Muutoksia ei ole vielä tallennettu." : "Changes not saved yet.")).toBeVisible();
+  await page.clock.fastForward(400);
+  if (max === 11) {
+    await expect(page.getByRole("status")).toContainText("Select a score to try again.");
+    await expect(page.getByText("Voted", { exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: `Decrease points for ${categoryName}` }).click();
+    await page.getByRole("slider", { name: categoryName }).focus();
+    await page.keyboard.press("End");
+    await page.clock.fastForward(400);
+  }
+  await expect(page.getByText(finnish ? "Äänestänyt" : "Voted", { exact: true })).toBeVisible();
+  expect(saved).toEqual(Array.from({ length: max === 11 ? 2 : 1 }, () => ({
+    p_competition_id: competitionId, p_entry_number: 7,
+    p_scores: [{ category_id: categoryId, score: max }],
+  })));
+  await expectPhoneLayout(page);
+  await page.screenshot({ path: `/tmp/openjury-vote-points-${max}-${finnish ? "fi" : "en"}.png`, fullPage: true });
+});
+}
+
+test("new ballots start unscored and save only after every category is rated @mobile", async ({ page }) => {
   const competitionId = "33333333-3333-4333-8333-333333333333";
   const tasteId = "44444444-4444-4444-8444-444444444444";
   const presentationId = "55555555-5555-4555-8555-555555555555";
@@ -1888,15 +2273,17 @@ test("new ballots start unscored and save only after every category is rated", a
 
   await page.goto(`/competition/${competitionId}`);
   await expect(page.getByRole("heading", { name: "Entry 7" })).toBeVisible();
-  await expect(page.getByRole("slider", { name: "Taste" })).toHaveValue("0");
-  await expect(page.getByRole("slider", { name: "Presentation" })).toHaveValue("0");
+  const taste = page.getByRole("group", { name: /^Taste / });
+  const presentation = page.getByRole("group", { name: /^Presentation / });
+  await expect(taste).toContainText("Not scored");
+  await expect(presentation).toContainText("Not scored");
+  await expect(page.getByRole("button", { pressed: true })).toHaveCount(0);
   await expect(page.getByText("Voted", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("—", { exact: true })).toHaveCount(2);
 
-  await page.getByRole("slider", { name: "Taste" }).fill("4");
+  await taste.getByRole("button", { name: "4 of 5 points" }).click();
   await page.waitForTimeout(500);
   expect(savedBallots).toEqual([]);
-  await page.getByRole("slider", { name: "Presentation" }).fill("2");
+  await presentation.getByRole("button", { name: "2 of 3 points" }).click();
   await expect(page.getByRole("status")).toContainText("Vote recorded · Entry 7");
   expect(savedBallots).toEqual([{
     p_competition_id: competitionId,
@@ -2623,6 +3010,47 @@ test("platform admins see every group in a table and can take one over @mobile",
   await expect(page).toHaveURL(new RegExp(`/group/${otherGroup}$`));
   expect(joined).toEqual({ p_group_id: otherGroup });
 });
+
+for (const locale of ["en", "fi"] as const) {
+  test(`platform group summaries show creator and lifecycle totals (${locale}) @mobile`, async ({ page }) => {
+    await configure(page, true);
+    await page.addInitScript((value) => localStorage.setItem("openjury:locale", value), locale);
+    await page.route(`${supabaseURL}/rest/v1/rpc/is_platform_admin`, (route) => route.fulfill({ json: true }));
+    await page.route(`${supabaseURL}/rest/v1/rpc/get_platform_groups`, (route) => route.fulfill({ json: [
+      {
+        id: groupId, name: "Summary club", member_count: 8, admin_count: 2, my_role: null,
+        creator_name: "Alex Creator", creator_email: `${"creator".repeat(20)}@example.invalid`,
+        created_at: "2026-01-02T03:04:00Z", competition_count: 6,
+        competition_status_counts: { draft: 2, submission: 1, voting: 1, review_pending: 1, results_published: 1 },
+      },
+      {
+        id: secondId, name: "Empty club", member_count: 0, admin_count: 0, my_role: null,
+        creator_name: null, creator_email: "unnamed@example.invalid",
+        created_at: "2026-01-02T03:04:00Z", competition_count: 0, competition_status_counts: {},
+      },
+    ] }));
+    await page.goto("/dashboard");
+    const table = page.getByRole("table", { name: locale === "fi" ? "Kaikki ryhmät (palvelun ylläpitäjä)" : "All groups (platform admin)" });
+    const summary = table.getByRole("row").filter({ hasText: "Summary club" });
+    await expect(summary).toContainText(locale === "fi" ? "Luonut: Alex Creator" : "Created by: Alex Creator");
+    await expect(summary).toContainText(`${"creator".repeat(20)}@example.invalid`);
+    await expect(summary.locator("time")).toHaveAttribute("datetime", "2026-01-02T03:04:00Z");
+    await expect(summary.locator("time")).toHaveText(new Intl.DateTimeFormat(locale === "fi" ? "fi-FI" : "en", {
+      dateStyle: "medium", timeStyle: "short",
+    }).format(new Date("2026-01-02T03:04:00Z")));
+    await expect(summary).toContainText(locale === "fi" ? "6 kilpailua" : "6 competitions");
+    const states = summary.getByRole("list", { name: locale === "fi" ? "Kilpailujen tilat" : "Competition states" });
+    await expect(states.getByRole("listitem")).toHaveText(locale === "fi"
+      ? ["Luonnos: 2", "Osallistuminen avoinna: 1", "Äänestys: 1", "Tarkistettavana: 1", "Tulokset julkaistu: 1"]
+      : ["Draft: 2", "Open for entries: 1", "Voting: 1", "In review: 1", "Results published: 1"]);
+    const empty = table.getByRole("row").filter({ hasText: "Empty club" });
+    await expect(empty).toContainText(locale === "fi" ? "Nimeä ei annettu" : "Name not provided");
+    await expect(empty).toContainText(locale === "fi" ? "0 kilpailua" : "0 competitions");
+    await expect(empty.getByRole("listitem")).toHaveCount(0);
+    await page.setViewportSize({ width: 320, height: 568 });
+    await expectPhoneLayout(page);
+  });
+}
 
 test("group tables fit narrow screens with long names @mobile", async ({ page }) => {
   const name = "Community".repeat(12);
