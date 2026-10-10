@@ -152,7 +152,8 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/29_unconfirmed_email_invites.sql`, and
 `supabase/migrations/30_admin_participation_progress.sql`, and
 `supabase/migrations/31_platform_group_summary.sql`, and
-`supabase/migrations/31_web_push.sql`, once each, in that order.
+`supabase/migrations/31_web_push.sql`, and
+`supabase/migrations/32_android_web_push.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
@@ -183,13 +184,17 @@ also appear in existing attendee and published-result projections.
 Migration 21 adds optional competition-start emails. Notifications are skipped
 by default; trusted servers need the [email configuration](deployment.md#optional-competition-start-emails)
 before admins can opt in when opening submissions. The browser-only demo never sends emails.
-Migration 31 adds optional iOS web push subscriptions and a private competition-phase
-outbox. Follow the [web push configuration](deployment.md#optional-ios-home-screen-web-push)
+Migration 31 adds optional web push subscriptions and a private competition-phase
+outbox; migration 32 enables Android's FCM endpoints without changing ownership,
+subscription limits, or private outbox access.
+Follow the [web push configuration](deployment.md#optional-ios-and-android-web-push)
 to enable delivery. Users opt in from Profile after installing OpenJury on the
 iPhone/iPad Home Screen (iOS/iPadOS 16.4+). Ordinary iOS browser tabs cannot subscribe.
 The service worker only displays notifications; it never caches authenticated
 pages, API responses, or private media. The demo cannot subscribe or send pushes.
-Android-specific support is deferred to a later phase.
+Android Chrome supports the same opt-in from both installed apps and browser tabs.
+The welcome page has English/Finnish step-by-step Home Screen installation guides
+for both platforms; installed Android apps also use the existing sign-in code flow.
 Migration 22 fixes photo upload authorization during Storage's preflight check,
 before completed file-size metadata is available. Existing deployments must
 apply it to resolve upload policy failures.

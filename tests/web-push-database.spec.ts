@@ -13,7 +13,7 @@ test("web push database ownership, lifecycle, leases, backoff and revocation", a
   const outsider = "00000000-0000-4000-8000-000000000003";
   const group = "00000000-0000-4000-8000-000000000010";
   const competition = "00000000-0000-4000-8000-000000000020";
-  const endpoint = "https://web.push.apple.com/first";
+  const endpoint = "https://fcm.googleapis.com/fcm/send/first";
   const actor = async (id: string, role = "authenticated") => {
     await db.exec("reset role");
     await db.query("select set_config('request.jwt.claim.sub', $1, false)", [id]);
@@ -36,6 +36,8 @@ test("web push database ownership, lifecycle, leases, backoff and revocation", a
     `);
     await actor(member);
     await save();
+    await save("https://fcm.googleapis.com/wp/second");
+    await db.query("select public.delete_my_push_subscription($1)", ["https://fcm.googleapis.com/wp/second"]);
     await expect(db.query("select * from public.web_push_subscriptions")).rejects.toThrow();
     await expect(claim()).rejects.toThrow();
     await expect(db.query("select * from public.pending_competition_push_dispatch()")).rejects.toThrow();
@@ -48,7 +50,9 @@ test("web push database ownership, lifecycle, leases, backoff and revocation", a
     for (let i = 2; i <= 5; i++) await save(`https://web.push.apple.com/${i}`);
     await expect(save("https://web.push.apple.com/6")).rejects.toThrow("Subscription limit");
     await save();
-    for (const url of ["https://evil.test/x", "https://web.push.apple.com:8443/x", "https://user@web.push.apple.com/x", "https://push.apple.com/x"]) {
+    for (const url of ["https://evil.test/x", "https://web.push.apple.com:8443/x", "https://user@web.push.apple.com/x", "https://push.apple.com/x",
+      "https://fcm.googleapis.com.evil.test/fcm/send/x", "https://fcm.googleapis.com:8443/fcm/send/x",
+      "https://user@fcm.googleapis.com/wp/x", "https://fcm.googleapis.com/other/x", "https://fcm.googleapis.com/wp/"]) {
       await expect(save(url)).rejects.toThrow("Invalid subscription");
     }
     await db.exec("reset role");

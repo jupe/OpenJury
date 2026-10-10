@@ -232,35 +232,50 @@ async function expectPhoneLayout(page: Page) {
   }
 }
 
-test("iOS Home Screen notifications request permission only on opt-in @mobile", async ({ page }) => {
+for (const platform of ["ios", "android-app", "android-browser"] as const) {
+test(`${platform} notifications request permission only on opt-in and can be disabled @mobile`, async ({ page }) => {
   await configure(page, true);
+  const endpoint = platform === "ios" ? "https://web.push.apple.com/test-device" : "https://fcm.googleapis.com/fcm/send/test-device";
   let saved = false;
+  let deleted = false;
   await page.route("**/api/push/subscriptions", (route) => {
+    if (route.request().method() === "DELETE") {
+      expect(route.request().postDataJSON().endpoint).toBe(endpoint);
+      deleted = true;
+      return route.fulfill({ json: { subscribed: false } });
+    }
     if (route.request().method() === "POST") {
       const payload = route.request().postDataJSON();
       expect(payload.locale).toBe("en");
-      expect(payload.subscription.endpoint).toBe("https://web.push.apple.com/test-device");
+      expect(payload.subscription.endpoint).toBe(endpoint);
       saved = true;
       return route.fulfill({ json: { saved: true } });
     }
     return route.fulfill({ json: { publicKey: Buffer.alloc(65, 1).toString("base64url") } });
   });
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, "userAgent", { value: "iPhone" });
-    Object.defineProperty(navigator, "standalone", { value: true });
+  if (platform === "android-app") await configureAppMode(page);
+  await page.addInitScript(({ platform, endpoint }) => {
+    Object.defineProperty(navigator, "userAgent", { value: platform === "ios" ? "iPhone" : "Android" });
+    Object.defineProperty(navigator, "platform", { value: platform === "ios" ? "iPhone" : "Linux armv8l" });
+    Object.defineProperty(navigator, "standalone", { value: platform === "ios" });
+    let subscribed = false;
     const subscription = {
-      endpoint: "https://web.push.apple.com/test-device",
-      toJSON: () => ({ endpoint: "https://web.push.apple.com/test-device", keys: { p256dh: "test", auth: "test" } }),
-      unsubscribe: async () => true,
+      endpoint,
+      toJSON: () => ({ endpoint, keys: { p256dh: "test", auth: "test" } }),
+      unsubscribe: async () => {
+        subscribed = false;
+        document.documentElement.dataset.unsubscribed = "true";
+        return true;
+      },
     };
     const worker = {
       pushManager: {
-        getSubscription: async () => null,
-        subscribe: async () => subscription,
+        getSubscription: async () => subscribed ? subscription : null,
+        subscribe: async () => { subscribed = true; return subscription; },
       },
     };
     Object.defineProperty(navigator, "serviceWorker", {
-      value: { register: async () => worker, ready: Promise.resolve(worker) },
+      value: { register: async () => worker, ready: Promise.resolve(worker), getRegistration: async () => worker },
     });
     Object.defineProperty(window, "PushManager", { value: class {} });
     Object.defineProperty(window, "Notification", { value: {
@@ -269,7 +284,7 @@ test("iOS Home Screen notifications request permission only on opt-in @mobile", 
         return "granted";
       },
     } });
-  });
+  }, { platform, endpoint });
   await page.goto("/profile");
   await expect(page.getByRole("button", { name: "Enable notifications", exact: true })).toBeVisible();
   expect(await page.locator("html").getAttribute("data-permission-requested")).toBeNull();
@@ -277,7 +292,28 @@ test("iOS Home Screen notifications request permission only on opt-in @mobile", 
   await expect(page.getByText("Notifications are enabled on this device.")).toBeVisible();
   expect(saved).toBe(true);
   expect(await page.locator("html").getAttribute("data-permission-requested")).toBe("true");
+  await page.getByRole("button", { name: "Disable notifications", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Enable notifications", exact: true })).toBeVisible();
+  expect(deleted).toBe(true);
+  expect(await page.locator("html").getAttribute("data-unsubscribed")).toBe("true");
 });
+}
+
+for (const locale of ["en", "fi"] as const) {
+  test(`welcome page explains both Home Screen installations (${locale}) @mobile`, async ({ page }) => {
+    await configure(page);
+    await page.addInitScript((locale) => localStorage.setItem("openjury:locale", locale), locale);
+    await page.goto("/");
+    const guide = page.getByRole("region", { name: locale === "en" ? "Add OpenJury to your Home Screen" : "Lisää OpenJury aloitusnäyttöön" });
+    await expect(guide).toBeVisible();
+    await expect(guide.getByRole("heading", { name: "iPhone / iPad" })).toBeVisible();
+    await expect(guide.getByRole("heading", { name: "Android" })).toBeVisible();
+    await expect(guide.getByRole("list")).toHaveCount(2);
+    await expect(guide.getByRole("listitem")).toHaveCount(8);
+    await expect(guide).toContainText(locale === "en" ? "Allow notifications" : "Salli ilmoitukset");
+    await expectPhoneLayout(page);
+  });
+}
 
 test("iOS browser explains Home Screen installation without requesting permission @mobile", async ({ page }) => {
   await configure(page, true);
@@ -290,16 +326,18 @@ test("iOS browser explains Home Screen installation without requesting permissio
   await expect(page.getByRole("button", { name: "Enable notifications", exact: true })).toHaveCount(0);
 });
 
-test("iOS notification denial does not register a subscription @mobile", async ({ page }) => {
+for (const platform of ["ios", "android"] as const) {
+test(`${platform} notification denial does not register a subscription @mobile`, async ({ page }) => {
   await configure(page, true);
   let posts = 0;
   await page.route("**/api/push/subscriptions", (route) => {
     if (route.request().method() === "POST") posts++;
     return route.fulfill({ json: { publicKey: Buffer.alloc(65, 1).toString("base64url") } });
   });
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, "userAgent", { value: "iPhone" });
-    Object.defineProperty(navigator, "standalone", { value: true });
+  await page.addInitScript((platform) => {
+    Object.defineProperty(navigator, "userAgent", { value: platform === "ios" ? "iPhone" : "Android" });
+    Object.defineProperty(navigator, "platform", { value: platform === "ios" ? "iPhone" : "Linux armv8l" });
+    Object.defineProperty(navigator, "standalone", { value: platform === "ios" });
     const worker = { pushManager: {
       getSubscription: async () => null,
       subscribe: async () => { throw new Error("Must not subscribe after denial"); },
@@ -309,11 +347,25 @@ test("iOS notification denial does not register a subscription @mobile", async (
     });
     Object.defineProperty(window, "PushManager", { value: class {} });
     Object.defineProperty(window, "Notification", { value: { requestPermission: async () => "denied" } });
-  });
+  }, platform);
   await page.goto("/profile");
   await page.getByRole("button", { name: "Enable notifications", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Notifications were not allowed" })).toBeVisible();
   expect(posts).toBe(0);
+});
+}
+
+test("Android without push APIs shows a supported-browser hint without requesting permission @mobile", async ({ page }) => {
+  await configure(page, true);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "userAgent", { value: "Android" });
+    Object.defineProperty(navigator, "platform", { value: "Linux armv8l" });
+    Reflect.deleteProperty(window, "PushManager");
+    Reflect.deleteProperty(window, "Notification");
+  });
+  await page.goto("/profile");
+  await expect(page.getByText(/Notifications require HTTPS and a supported browser/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Enable notifications", exact: true })).toHaveCount(0);
 });
 
 test("users save and clear only their own name from the profile page @mobile", async ({ page }) => {
