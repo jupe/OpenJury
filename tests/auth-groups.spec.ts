@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QRCodeSVG } from "qrcode.react";
@@ -1969,19 +1970,37 @@ test("certificate printing is admin-only except for each member's own published 
   await expect(page.locator(".template-certificates")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Award certificates" })).toHaveCount(0);
 
-  status = "results_published";
+  status = "review_pending";
   groupRole = "admin";
   await page.reload();
-  await expect(page.getByRole("button", { name: "Print blank certificate templates" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Print blank certificate templates" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Download blank certificate templates" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Award certificates" })).toHaveCount(0);
+
+  status = "results_published";
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Print blank certificate templates" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Download blank certificate templates" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Print published winner certificates" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Download published winner certificates" })).toBeVisible();
   await expect(page.locator(".winner-certificates .award-certificate")).toHaveCount(2);
   await expect(page.locator(".winner-certificates")).toContainText("Jordan Baker");
   await expect(page.locator(".winner-certificates .award-certificate-organizer-names").first()).toContainText("Olivia");
 
+  const winnerDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download published winner certificates" }).click();
+  const downloadedWinnerPdf = await winnerDownload;
+  expect(downloadedWinnerPdf.suggestedFilename()).toBe("openjury-Community-showcase-winner-certificates.pdf");
+  const winnerPdf = await readFile(await downloadedWinnerPdf.path());
+  expect(winnerPdf.toString("latin1", 0, 5)).toBe("%PDF-");
+  expect(winnerPdf.toString("latin1").match(/\/Type\s*\/Page\b/g)).toHaveLength(2);
+
   groupRole = "member";
   await page.reload();
   await expect(page.getByRole("button", { name: "Print blank certificate templates" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Download blank certificate templates" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Print my winner certificate" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Download my winner certificate" })).toBeVisible();
   await expect(page.locator(".template-certificates")).toHaveCount(0);
   await expect(page.locator(".winner-certificates .award-certificate")).toHaveCount(1);
   await expect(page.locator(".winner-certificates")).toContainText("Alex Baker");

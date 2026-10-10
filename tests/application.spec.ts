@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 // The demo runs Postgres in the browser, which is slow in WebKit and under parallel load.
 const demoExpect = expect.configure({ timeout: 30_000 });
@@ -50,6 +51,7 @@ async function checkLandingNavigation(page: Page) {
   await demoExpect(page.getByRole("heading", { level: 1 })).toHaveText("Competition");
   await demoExpect(page.getByRole("heading", { name: "Anonymous entries" })).toBeVisible();
   await demoExpect(page.getByRole("button", { name: "Print blank certificate templates" })).toBeVisible();
+  await demoExpect(page.getByRole("button", { name: "Download blank certificate templates" })).toBeVisible();
   await demoExpect(page.getByRole("button", { name: "Print published winner certificates" })).toHaveCount(0);
   await expect(page.locator(".template-certificates .award-certificate")).toHaveCount(3);
   await expect(page.locator(".template-certificates .award-certificate-organizer-names").first()).toContainText("Alex");
@@ -71,6 +73,12 @@ async function checkLandingNavigation(page: Page) {
   expect(Buffer.from(certificatePdf).toString("latin1").match(/\/Type\s*\/Page\b/g)).toHaveLength(3);
   await page.evaluate(() => document.body.classList.remove("print-award-certificates", "print-award-templates"));
   await page.emulateMedia({ media: "screen" });
+  const templateDownloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download blank certificate templates" }).click();
+  const templateDownload = await templateDownloadPromise;
+  expect(templateDownload.suggestedFilename()).toBe("openjury-Spring-Bake-off-certificate-templates.pdf");
+  const downloadedTemplatePdf = await readFile(await templateDownload.path());
+  expect(downloadedTemplatePdf.toString("latin1").match(/\/Type\s*\/Page\b/g)).toHaveLength(3);
   await page.getByRole("link", { name: "Manage competition" }).click();
   await demoExpect(page).toHaveURL(/\/competition\/[^/]+\/admin$/);
   await demoExpect(page.getByRole("heading", { level: 1 })).toHaveText("Competition admin");

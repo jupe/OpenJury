@@ -985,6 +985,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       )}
       <WinnerCertificates
         competitionName={competition.name}
+        competitionStatus={competition.status}
         published={competition.status === "results_published"}
         isAdmin={isAdmin}
         userId={session.user.id}

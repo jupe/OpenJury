@@ -3,6 +3,7 @@
 import Button from "@/components/Button";
 import Card from "@/components/Card";
 import { useLocale } from "@/lib/i18n";
+import { useState } from "react";
 
 type Winner = { rank: number; creator_id: string; creator_name: string; is_disqualified: boolean };
 
@@ -40,8 +41,43 @@ function printCertificates(type: "templates" | "winners") {
   }
 }
 
+async function downloadCertificates(type: "templates" | "winners", competitionName: string) {
+  document.body.classList.add(`download-award-${type}`);
+  try {
+    const { default: html2pdf } = await import("html2pdf.js");
+    const section = document.querySelector<HTMLElement>(`.${type === "templates" ? "template-certificates" : "winner-certificates"}`);
+    if (!section) return;
+    const safeName = competitionName.trim().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "").slice(0, 70) || "competition";
+    await html2pdf().set({
+      filename: `openjury-${safeName}-${type === "templates" ? "certificate-templates" : "winner-certificates"}.pdf`,
+      margin: 0,
+      image: { type: "jpeg", quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        onclone: (clonedDocument: Document) => {
+          const clonedSection = clonedDocument.querySelector<HTMLElement>(
+            `.${type === "templates" ? "template-certificates" : "winner-certificates"}`,
+          );
+          if (clonedSection) {
+            clonedSection.style.display = "block";
+            clonedSection.style.position = "static";
+            clonedSection.style.opacity = "1";
+            clonedSection.style.width = "210mm";
+          }
+        },
+      },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+    }).from(section).save();
+  } finally {
+    document.body.classList.remove("download-award-templates", "download-award-winners");
+  }
+}
+
 export default function WinnerCertificates({
   competitionName,
+  competitionStatus,
   published,
   isAdmin,
   userId,
@@ -49,6 +85,7 @@ export default function WinnerCertificates({
   winners,
 }: {
   competitionName: string;
+  competitionStatus: string;
   published: boolean;
   isAdmin: boolean;
   userId: string;
@@ -56,32 +93,58 @@ export default function WinnerCertificates({
   winners: Winner[];
 }) {
   const { t } = useLocale();
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
   const printableWinners = published
     ? winners.filter((winner) => winner.rank >= 1 && winner.rank <= 3
       && !winner.is_disqualified && (isAdmin || winner.creator_id === userId))
     : [];
-  const canPrint = isAdmin || printableWinners.length > 0;
+  const canPrintTemplates = isAdmin && ["draft", "submission", "voting"].includes(competitionStatus);
+  const canPrint = canPrintTemplates || printableWinners.length > 0;
+
+  async function download(type: "templates" | "winners") {
+    setDownloading(true);
+    setDownloadError("");
+    try {
+      await downloadCertificates(type, competitionName);
+    } catch {
+      setDownloadError(t("Unable to download certificate PDF. Please try again."));
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <>
       {canPrint && (
         <Card title={t("Award certificates")}>
           <div className="flex flex-wrap gap-3">
-            {isAdmin && (
-              <Button variant="secondary" onClick={() => printCertificates("templates")}>
-                {t("Print blank certificate templates")}
-              </Button>
+            {canPrintTemplates && (
+              <>
+                <Button variant="secondary" onClick={() => printCertificates("templates")}>
+                  {t("Print blank certificate templates")}
+                </Button>
+                <Button variant="secondary" disabled={downloading} onClick={() => void download("templates")}>
+                  {t("Download blank certificate templates")}
+                </Button>
+              </>
             )}
             {printableWinners.length > 0 && (
-              <Button onClick={() => printCertificates("winners")}>
-                {t(isAdmin ? "Print published winner certificates" : "Print my winner certificate")}
-              </Button>
+              <>
+                <Button onClick={() => printCertificates("winners")}>
+                  {t(isAdmin ? "Print published winner certificates" : "Print my winner certificate")}
+                </Button>
+                <Button variant="secondary" disabled={downloading} onClick={() => void download("winners")}>
+                  {t(isAdmin ? "Download published winner certificates" : "Download my winner certificate")}
+                </Button>
+              </>
             )}
           </div>
-          <p className="mt-3 text-sm text-slate-600">{t("Use your browser’s print dialog to print or save the certificates as PDF.")}</p>
+          <p className="mt-3 text-sm text-slate-600">{t("Download a PDF or use your browser’s print dialog.")}</p>
+          {downloadError && <p role="alert" className="mt-2 text-sm text-red-700">{downloadError}</p>}
         </Card>
       )}
-      {isAdmin && (
+      {canPrintTemplates && (
         <section className="certificate-print template-certificates" aria-label={t("Print blank certificate templates")}>
           {places.map((rank) => (
             <article className="award-certificate" key={rank}>

@@ -355,24 +355,36 @@ html[data-theme="dark"] .category-winner {
   body.print-award-winners .winner-certificates {
     display: block;
   }
+}
 
-  .award-certificate {
-    box-sizing: border-box;
-    display: flex;
-    width: 210mm;
-    height: 297mm;
-    padding: 8mm;
-    background: #f8f1df;
-    color: #352d35;
-    font-family: Georgia, "Times New Roman", serif;
-  }
+body.download-award-templates .template-certificates,
+body.download-award-winners .winner-certificates {
+  position: fixed;
+  z-index: -1;
+  top: 0;
+  left: 0;
+  display: block;
+  opacity: 0;
+  pointer-events: none;
+}
 
-  .award-certificate + .award-certificate {
-    page-break-before: always;
-    break-before: page;
-  }
+.award-certificate {
+  box-sizing: border-box;
+  display: flex;
+  width: 210mm;
+  height: 297mm;
+  padding: 8mm;
+  background: #f8f1df;
+  color: #352d35;
+  font-family: Georgia, "Times New Roman", serif;
+}
 
-  .award-certificate-frame {
+.award-certificate + .award-certificate {
+  page-break-before: always;
+  break-before: page;
+}
+
+.award-certificate-frame {
     position: relative;
     display: flex;
     flex: 1;
@@ -391,58 +403,58 @@ html[data-theme="dark"] .category-winner {
       radial-gradient(circle at calc(100% - 9mm) calc(100% - 9mm), #a45858 0 1mm, transparent 1.2mm),
       linear-gradient(#f8f1df, #f8f1df);
     text-align: center;
-  }
+}
 
-  .award-certificate-corner {
+.award-certificate-corner {
     position: absolute;
     z-index: 1;
     color: #762b37;
     font-size: 42pt;
     line-height: 1;
-  }
+}
 
-  .award-certificate-corner-top-left {
+.award-certificate-corner-top-left {
     top: 4mm;
     left: 4mm;
-  }
+}
 
-  .award-certificate-corner-top-right {
+.award-certificate-corner-top-right {
     top: 4mm;
     right: 4mm;
     transform: rotate(90deg);
-  }
+}
 
-  .award-certificate-corner-bottom-left {
+.award-certificate-corner-bottom-left {
     bottom: 4mm;
     left: 4mm;
     transform: rotate(-90deg);
-  }
+}
 
-  .award-certificate-corner-bottom-right {
+.award-certificate-corner-bottom-right {
     right: 4mm;
     bottom: 4mm;
     transform: rotate(180deg);
-  }
+}
 
-  .award-certificate-brand {
+.award-certificate-brand {
     margin: 0 0 18mm;
     color: #762b37;
     font-family: Arial, sans-serif;
     font-size: 10pt;
     font-weight: 700;
     letter-spacing: 0.38em;
-  }
+}
 
-  .award-certificate-kicker {
+.award-certificate-kicker {
     margin: 0 0 2mm;
     color: #762b37;
     font-family: Arial, sans-serif;
     font-size: 12pt;
     letter-spacing: 0.22em;
     text-transform: uppercase;
-  }
+}
 
-  .award-certificate h1 {
+.award-certificate h1 {
     max-width: 150mm;
     margin: 2mm 0 15mm;
     color: #352d35;
@@ -451,17 +463,17 @@ html[data-theme="dark"] .category-winner {
     letter-spacing: 0.035em;
     line-height: 1.12;
     text-transform: uppercase;
-  }
+}
 
-  .award-certificate-intro {
+.award-certificate-intro {
     margin: 0 0 4mm;
     color: #51464b;
     font-size: 13pt;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-  }
+}
 
-  .award-certificate-recipient {
+.award-certificate-recipient {
     width: 145mm;
     max-width: 100%;
     margin: 0 0 10mm;
@@ -472,34 +484,34 @@ html[data-theme="dark"] .category-winner {
     font-style: italic;
     font-weight: 600;
     overflow-wrap: anywhere;
-  }
+}
 
-  .award-certificate-description {
+.award-certificate-description {
     max-width: 135mm;
     margin: 0 0 8mm;
     color: #51464b;
     font-size: 15pt;
     line-height: 1.6;
-  }
+}
 
-  .award-certificate-place {
+.award-certificate-place {
     margin: 0 0 5mm;
     color: #762b37;
     font-size: 22pt;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-  }
+}
 
-  .award-certificate-place-2 {
+.award-certificate-place-2 {
     color: #596374;
-  }
+}
 
-  .award-certificate-place-3 {
+.award-certificate-place-3 {
     color: #98603d;
-  }
+}
 
-  .award-certificate-competition {
+.award-certificate-competition {
     max-width: 145mm;
     margin: 0;
     color: #352d35;
@@ -509,9 +521,9 @@ html[data-theme="dark"] .category-winner {
     font-weight: 700;
     line-height: 1.35;
     overflow-wrap: anywhere;
-  }
+}
 
-  .award-certificate-signatures {
+.award-certificate-signatures {
     display: flex;
     width: 100%;
     align-items: flex-end;
@@ -520,24 +532,24 @@ html[data-theme="dark"] .category-winner {
     margin-top: auto;
     font-family: Arial, sans-serif;
     font-size: 9pt;
-  }
+}
 
-  .award-certificate-signature,
-  .award-certificate-date {
+.award-certificate-signature,
+.award-certificate-date {
     position: relative;
     width: 62mm;
     min-height: 32mm;
     color: #51464b;
     text-align: center;
-  }
+}
 
-  .award-certificate-signature p {
+.award-certificate-signature p {
     min-height: 19mm;
     margin: 0;
     border-bottom: 1px solid #762b37;
-  }
+}
 
-  .award-certificate-signature .award-certificate-organizer-names {
+.award-certificate-signature .award-certificate-organizer-names {
     display: flex;
     flex-wrap: wrap;
     align-content: end;
@@ -551,31 +563,31 @@ html[data-theme="dark"] .category-winner {
     font-style: italic;
     line-height: 1.1;
     overflow-wrap: anywhere;
-  }
+}
 
-  .award-certificate-signature .award-certificate-organizer-names span {
+.award-certificate-signature .award-certificate-organizer-names span {
     display: inline;
     margin: 0;
     color: inherit;
     font-size: inherit;
     letter-spacing: 0;
     white-space: nowrap;
-  }
+}
 
-  .award-certificate-signature span,
-  .award-certificate-date p {
+.award-certificate-signature span,
+.award-certificate-date p {
     display: block;
     margin: 2mm 0 0;
     color: #51464b;
     font-size: 9pt;
     letter-spacing: 0.04em;
-  }
+}
 
-  .award-certificate-date p {
+.award-certificate-date p {
     text-align: left;
-  }
+}
 
-  .award-certificate-seal {
+.award-certificate-seal {
     display: block;
     width: 31mm;
     height: 31mm;
@@ -585,18 +597,24 @@ html[data-theme="dark"] .category-winner {
     background: #762b37;
     color: #f8f1df;
     filter: drop-shadow(0 1mm 1mm rgb(53 45 53 / 20%));
-  }
+}
 
-  .award-certificate-place-1 ~ .award-certificate-signatures .award-certificate-seal {
+.award-certificate-place-1 ~ .award-certificate-signatures .award-certificate-seal {
     background: #762b37;
-  }
+}
 
-  .award-certificate-place-2 ~ .award-certificate-signatures .award-certificate-seal {
+.award-certificate-place-2 ~ .award-certificate-signatures .award-certificate-seal {
     background: #596374;
-  }
+}
 
-  .award-certificate-place-3 ~ .award-certificate-signatures .award-certificate-seal {
+.award-certificate-place-3 ~ .award-certificate-signatures .award-certificate-seal {
     background: #98603d;
+}
+
+@media print {
+  .award-certificate {
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
 }
 
