@@ -1,12 +1,24 @@
 import { expect, test, type Page } from "@playwright/test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { crc32 } from "node:zlib";
 import { QRCodeSVG } from "qrcode.react";
 
 const supabaseURL = "https://foundation.supabase.co";
 const groupId = "11111111-1111-4111-8111-111111111111";
 const secondId = "22222222-2222-4222-8222-222222222222";
 const userId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+function addPngMetadata(png: Buffer, value: string): Buffer {
+  const type = Buffer.from("tEXt");
+  const metadata = Buffer.from(`CameraModel\0${value}`);
+  const chunk = Buffer.alloc(12 + metadata.length);
+  chunk.writeUInt32BE(metadata.length, 0);
+  type.copy(chunk, 4);
+  metadata.copy(chunk, 8);
+  chunk.writeUInt32BE(crc32(Buffer.concat([type, metadata])), 8 + metadata.length);
+  return Buffer.concat([png.subarray(0, 33), chunk, png.subarray(33)]);
+}
 
 function session(user = userId, email = "member@example.com") {
   return {
@@ -307,6 +319,7 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
   const saves: Array<{ p_title: string; p_media_keys: string[] }> = [];
   const deletions: string[][] = [];
+  let uploadContentType: string | undefined;
   await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
     json: [{ id: secondId, group_id: groupId, name: "Phone photos", max_submission_images: 2, status: "submission", submission_deadline: null, voting_deadline: null, competition_participants: [{ role: "participant" }] }],
   }));
@@ -316,7 +329,10 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
     return route.fulfill({ json: groupId });
   });
   await page.route(`${supabaseURL}/storage/v1/object/**`, (route) => {
-    if (route.request().method() === "POST") return route.fulfill({ json: { Key: "uploaded.png" } });
+    if (route.request().method() === "POST") {
+      uploadContentType = route.request().headers()["content-type"];
+      return route.fulfill({ json: { Key: "uploaded.jpg" } });
+    }
     if (route.request().method() === "DELETE") {
       deletions.push(route.request().postDataJSON().prefixes);
       return route.fulfill({ json: [] });
@@ -324,6 +340,19 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
     return route.fulfill({ contentType: "image/png", body: png });
   });
   await page.goto(`/competition/${secondId}`);
+  const largePng = addPngMetadata(Buffer.from(await page.evaluate(async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 3000;
+    canvas.height = 1500;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas is unavailable");
+    context.fillStyle = "#d97706";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((result) => result ? resolve(result) : reject(new Error("PNG creation failed")), "image/png");
+    });
+    return Array.from(new Uint8Array(await blob.arrayBuffer()));
+  })), "GPSLatitude=37.7749;GPSLongitude=-122.4194");
   await page.getByRole("textbox", { name: "Entry title" }).fill("My phone photo");
   await expect(page.getByRole("button", { name: "Take a photo" })).toBeVisible();
   const cameraInput = page.locator('input[type="file"][capture="environment"]');
@@ -333,9 +362,9 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   const pendingPreview = page.getByRole("img", { name: "Your submission image 1", exact: true });
   await expect(pendingPreview).toBeVisible();
   await expect.poll(() => pendingPreview.evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBe(1);
-  await page.locator('input[type="file"][multiple]').setInputFiles({ name: "phone.heic", mimeType: "image/heic", buffer: png });
+  await page.locator('input[type="file"][multiple]').setInputFiles({ name: "phone.heic", mimeType: "image/heic", buffer: largePng });
   await expect(page.getByText("2 new image(s) selected.")).toBeVisible();
-  await expect(page.getByText("JPEG, PNG, WebP, HEIC, or HEIF · up to 2 images, 10 MB each")).toBeVisible();
+  await expect(page.getByText("JPEG, PNG, WebP, HEIC, or HEIF · up to 2 images, 10 MB each · maximum 2048 px")).toBeVisible();
   await page.locator('input[type="file"][multiple]').setInputFiles({ name: "extra.png", mimeType: "image/png", buffer: png });
   await expect(page.locator("form").filter({ has: page.getByRole("textbox", { name: "Entry title" }) })
     .getByRole("alert")).toContainText("An entry may contain up to 2 images.");
@@ -344,6 +373,22 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   await expect(page.getByText("1 new image(s) selected.")).toBeVisible();
   await expect(page.getByRole("img", { name: "Your submission image 1", exact: true })).toBeVisible();
   await expectPhoneLayout(page);
+  await page.evaluate(() => {
+    const originalFetch = window.fetch.bind(window);
+    Object.assign(window, { __openJuryUploadedImage: null as null | { type: string; bytes: number[] } });
+    window.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof Request ? input.url : input.toString();
+      const body = init?.body;
+      const candidate = body instanceof Blob ? body
+        : body instanceof FormData ? Array.from(body.values()).find((value) => value instanceof Blob)
+          : undefined;
+      if (url.includes("/storage/v1/object/") && candidate instanceof Blob) {
+        const bytes = Array.from(new Uint8Array(await candidate.arrayBuffer()));
+        Object.assign(window, { __openJuryUploadedImage: { type: candidate.type, bytes } });
+      }
+      return originalFetch(input, init);
+    };
+  });
   const saveSubmission = page.getByRole("button", { name: "Save submission" });
   await expect(saveSubmission).toHaveAttribute("title", "Save submission");
   await expect(saveSubmission).toHaveText("");
@@ -355,7 +400,25 @@ test("phone image upload, uncropped preview and removal work @mobile", async ({ 
   await expect(page.getByRole("status")).toContainText("Thanks for taking part! Your entry has been saved.");
   expect(saves[1].p_title).toBe("My phone photo");
   expect(saves[1].p_media_keys).toHaveLength(1);
-  expect(saves[1].p_media_keys[0]).toMatch(/\.heic$/);
+  expect(saves[1].p_media_keys[0]).toMatch(/\.jpg$/);
+  expect(uploadContentType).toContain("multipart/form-data");
+  expect(largePng.includes(Buffer.from("GPSLatitude"))).toBe(true);
+  const uploadedImage = await page.evaluate(() => (window as Window & {
+    __openJuryUploadedImage?: { type: string; bytes: number[] } | null;
+  }).__openJuryUploadedImage);
+  expect(uploadedImage?.type).toBe("image/jpeg");
+  const uploadedBytes = Buffer.from(uploadedImage?.bytes || []);
+  expect(uploadedBytes.length).toBeGreaterThan(0);
+  expect(uploadedBytes.includes(Buffer.from("CameraModel"))).toBe(false);
+  expect(uploadedBytes.includes(Buffer.from("GPSLatitude"))).toBe(false);
+  expect(uploadedBytes.includes(Buffer.from("GPSLongitude"))).toBe(false);
+  const uploadedDimensions = await page.evaluate(async (bytes) => {
+    const bitmap = await createImageBitmap(new Blob([Uint8Array.from(bytes)], { type: "image/jpeg" }));
+    const dimensions = { width: bitmap.width, height: bitmap.height };
+    bitmap.close();
+    return dimensions;
+  }, Array.from(uploadedBytes));
+  expect(uploadedDimensions).toEqual({ width: 2048, height: 1024 });
   const preview = page.getByRole("img", { name: "Your submission image 1", exact: true });
   await preview.scrollIntoViewIfNeeded();
   await expect(preview).toBeVisible();

@@ -15,6 +15,7 @@ import Toast, { type ToastMessage } from "@/components/Toast";
 import { StatusBadge, nextTransition, previousTransition } from "@/components/CompetitionStatus";
 import { CompetitionRole, type CompetitionRoleName } from "@/components/Membership";
 import { useLocale } from "@/lib/i18n";
+import { sanitizeImage } from "@/lib/sanitize-image";
 
 type LocalizedError = { message: string; error?: string };
 
@@ -580,14 +581,16 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       entryId = savedEntryId;
 
       for (const file of newFiles) {
-        const extension = MEDIA_TYPES.get(file.type);
+        const sanitizedFile = await sanitizeImage(file);
+        if (sanitizedFile.size > MAX_MEDIA_SIZE) throw new Error(t("The processed image exceeds the 10 MB limit."));
+        const extension = MEDIA_TYPES.get(sanitizedFile.type);
         if (!extension) throw new Error(t("Choose a supported image type."));
         const key = `${competitionId}/${savedEntryId}/${crypto.randomUUID()}.${extension}`;
         const { error: uploadError } = await client.storage
           .from("competition-submissions")
-          .upload(key, file, {
+          .upload(key, sanitizedFile, {
             cacheControl: "0",
-            contentType: file.type,
+            contentType: sanitizedFile.type,
             upsert: false,
           });
         if (uploadError) throw uploadError;
@@ -786,7 +789,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                 <div className="flex items-center gap-1">
                   <IconButton icon="camera" aria-label={t("Take a photo")} onClick={() => captureInput.current?.click()} />
                   <IconButton icon="addImage" aria-label={t("Add images")} onClick={() => fileInput.current?.click()} />
-                  <p className="ml-2 text-xs text-slate-500">{t("JPEG, PNG, WebP, HEIC, or HEIF · up to {count} images, 10 MB each", { count: maxSubmissionImages })}</p>
+                  <p className="ml-2 text-xs text-slate-500">{t("JPEG, PNG, WebP, HEIC, or HEIF · up to {count} images, 10 MB each · maximum 2048 px", { count: maxSubmissionImages })}</p>
                 </div>
                 <input
                   ref={fileInput}
