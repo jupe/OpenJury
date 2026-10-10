@@ -52,6 +52,7 @@ async function checkLandingNavigation(page: Page) {
   await demoExpect(page.getByRole("button", { name: "Print blank certificate templates" })).toBeVisible();
   await demoExpect(page.getByRole("button", { name: "Print published winner certificates" })).toHaveCount(0);
   await expect(page.locator(".template-certificates .award-certificate")).toHaveCount(3);
+  await expect(page.locator(".template-certificates .award-certificate-organizer-names").first()).toContainText("Alex");
   await page.emulateMedia({ media: "print" });
   await page.evaluate(() => document.body.classList.add("print-award-certificates", "print-award-templates"));
   await expect(page.locator(".template-certificates")).toHaveCSS("display", "block");
