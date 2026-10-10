@@ -8,6 +8,7 @@ import { failureMessage } from "@/lib/errors";
 import Breadcrumbs, { type Crumb } from "@/components/Breadcrumbs";
 import Button, { ButtonLink } from "@/components/Button";
 import Card from "@/components/Card";
+import Podium, { type PodiumPlace } from "@/components/Podium";
 import IconButton, { Icon, IconLink } from "@/components/IconButton";
 import ImageLightbox from "@/components/ImageLightbox";
 import Toast, { type ToastMessage } from "@/components/Toast";
@@ -91,13 +92,13 @@ function CompetitionDetails({ competition }: { competition: Competition }) {
   return (
     <>
       {competition.description && (
-        <section className="mt-4">
+        <section>
           <h3 className="font-semibold">{t("Description")}</h3>
           <p className="whitespace-pre-wrap break-words">{competition.description}</p>
         </section>
       )}
       {competition.rules && (
-        <section className="mt-4">
+        <section>
           <h3 className="font-semibold">{t("Rules")}</h3>
           <p className="whitespace-pre-wrap break-words">{competition.rules}</p>
         </section>
@@ -689,6 +690,12 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
     pending.set(entryNumber, { timer: window.setTimeout(save, 400), save });
   }
 
+  // Ties share a rank, so the podium is the first three placed entries in rank order.
+  const podium = publishedResults
+    .filter((result) => !result.is_disqualified && result.rank >= 1 && result.rank <= 3)
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, 3);
+
   if (loading) return <p role="status">{t("Loading competition…")}</p>;
   if (!competition) return <p role="alert"><ErrorText error={error || { message: "Competition is unavailable." }} /></p>;
 
@@ -698,14 +705,24 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         index === all.length - 1 ? { label: crumb.label } : crumb)} />
       <Card
         title={competition.name}
-        action={isAdmin && <IconLink icon="manage" href={`/competition/${encodeURIComponent(competitionId)}/admin`} aria-label={t("Manage competition")} />}
+        action={
+          <div className="flex shrink-0 items-center gap-1">
+            <p><span className="sr-only">{t("Status:")} </span><StatusBadge status={competition.status} /></p>
+            {isAdmin && <IconLink icon="edit" href={`/competition/${encodeURIComponent(competitionId)}/admin`} aria-label={t("Manage competition")} />}
+          </div>
+        }
       >
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-          <p><span className="sr-only">{t("Status:")} </span><StatusBadge status={competition.status} /></p>
-          {competition.submission_deadline && <p>{t("Submissions close {date}", { date: formatDateTime(competition.submission_deadline) })}</p>}
-          {competition.voting_deadline && <p>{t("Voting closes {date}", { date: formatDateTime(competition.voting_deadline) })}</p>}
-        </div>
-        <CompetitionDetails competition={competition} />
+        {(competition.submission_deadline || competition.voting_deadline || competition.description || competition.rules) && (
+          <>
+            {(competition.submission_deadline || competition.voting_deadline) && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                {competition.submission_deadline && <p>{t("Submissions close {date}", { date: formatDateTime(competition.submission_deadline) })}</p>}
+                {competition.voting_deadline && <p>{t("Voting closes {date}", { date: formatDateTime(competition.voting_deadline) })}</p>}
+              </div>
+            )}
+            <CompetitionDetails competition={competition} />
+          </>
+        )}
       </Card>
 
       {["draft", "submission", "voting"].includes(competition.status) && (
@@ -903,6 +920,20 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       )}
       {competition.status === "results_published" && (
         <Card title={t("Published results")}>
+          {podium.length > 0 && (
+            <section className="mb-6">
+              <h2 className="sr-only">{t("Top 3 winners")}</h2>
+              <Podium label={t("Top 3 winners")} spots={podium.map((result) => ({
+                key: `${result.rank}:${result.creator_id}`,
+                place: result.rank as PodiumPlace,
+                name: result.title,
+                detail: <>
+                  <span className="block">{result.creator_name || t("Participant")}</span>
+                  {result.score !== null && <span className="block">{formatPoints(result.score, locale)} {t("points")}</span>}
+                </>,
+              }))} />
+            </section>
+          )}
           {publishedResults.length ? (
             <ol className="space-y-3">
               {publishedResults.map((result) => (

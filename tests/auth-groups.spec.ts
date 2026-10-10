@@ -1454,6 +1454,48 @@ test("competition admins can create a text-entry draft", async ({ page }) => {
   });
 });
 
+test("published results lead with a top 3 podium that shares tied places @mobile", async ({ page }) => {
+  const competitionId = "55555555-5555-4555-8555-555555555551";
+  await mockRealtime(page);
+  await configure(page, true);
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{
+      id: competitionId, group_id: groupId, name: "Podium bake-off", status: "results_published",
+      submission_deadline: null, voting_deadline: null, competition_participants: [{ role: "audience" }],
+    }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/categories**`, (route) => route.fulfill({ json: [] }));
+  for (const rpc of ["get_my_submission", "get_blind_voting_entries", "get_my_ballot", "get_published_competition_category_results"]) {
+    await page.route(`${supabaseURL}/rest/v1/rpc/${rpc}`, (route) => route.fulfill({ json: [] }));
+  }
+  const result = (rank: number, title: string, name: string, score: number | null, disqualified = false) => ({
+    rank, score, vote_count: 2, title, creator_id: `${title}-id`, creator_name: name, is_disqualified: disqualified, media_keys: [],
+  });
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_published_competition_results`, (route) => route.fulfill({
+    json: [
+      result(1, "Lemon tart", "Alex Baker", 9),
+      result(1, "Apple pie", "Sam Lee", 9),
+      result(3, "Rye bread", "Robin Park", 7.5),
+      result(4, "Scones", "Kai Moreno", 6),
+      result(5, "Copied cake", "Pat Quinn", null, true),
+    ],
+  }));
+
+  await page.goto(`/competition/${competitionId}`);
+  const podium = page.getByRole("list", { name: "Top 3 winners" });
+  await expect(podium.getByRole("listitem")).toHaveCount(3);
+  // Shown left to right as 2nd, 1st, 3rd; the tied entry keeps its 1st place.
+  await expect(podium.getByRole("listitem").nth(0)).toContainText("Apple pie");
+  await expect(podium.getByRole("listitem").nth(0)).toContainText("1st place");
+  await expect(podium.getByRole("listitem").nth(1)).toContainText("Lemon tart");
+  await expect(podium.getByRole("listitem").nth(1)).toContainText("Alex Baker");
+  await expect(podium.getByRole("listitem").nth(1)).toContainText("9 points");
+  await expect(podium.getByRole("listitem").nth(2)).toContainText("3rd place");
+  await expect(podium).not.toContainText("Scones");
+  await expect(page.getByRole("heading", { name: "Rank 4: Scones" })).toBeVisible();
+  await expectPhoneLayout(page);
+});
+
 test("participants refetch authorized competition data after reconnect", async ({ page }) => {
   const competitionId = "33333333-3333-4333-8333-333333333333";
   const tasteId = "44444444-4444-4444-8444-444444444444";
