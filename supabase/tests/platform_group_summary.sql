@@ -6,6 +6,8 @@ insert into auth.users (id, email, raw_user_meta_data) values
   ('00000000-0000-0000-0000-000000003102', 'creator@example.invalid', '{"display_name":"  Creator Name  ","full_name":"Ignored"}'),
   ('00000000-0000-0000-0000-000000003103', 'unnamed@example.invalid', '{}'),
   ('00000000-0000-0000-0000-000000003104', 'fallback@example.invalid', '{"display_name":" ","full_name":" Full Name "}');
+update auth.users set email_confirmed_at = now()
+where id = '00000000-0000-0000-0000-000000003101';
 insert into public.platform_admins (email) values ('platform@example.invalid');
 insert into public.groups (id, name, created_by, created_at) values
   ('00000000-0000-0000-0000-000000003111', 'Summary group', '00000000-0000-0000-0000-000000003102', '2026-01-02T03:04:00Z'),
