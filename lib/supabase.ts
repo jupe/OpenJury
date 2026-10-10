@@ -6,11 +6,27 @@ declare global {
       SUPABASE_URL?: string;
       SUPABASE_ANON_KEY?: string;
       PASSWORD_SIGN_IN?: boolean;
+      AUTH_GOOGLE_ENABLED?: boolean;
+      AUTH_FACEBOOK_ENABLED?: boolean;
+      AUTH_GITHUB_ENABLED?: boolean;
     };
   }
 }
 
 let client: SupabaseClient | undefined;
+
+const socialProviders = [
+  { id: "google", name: "Google", flag: "AUTH_GOOGLE_ENABLED" },
+  { id: "facebook", name: "Facebook", flag: "AUTH_FACEBOOK_ENABLED" },
+  { id: "github", name: "GitHub", flag: "AUTH_GITHUB_ENABLED" },
+] as const;
+
+export type SocialProvider = (typeof socialProviders)[number];
+
+export function getEnabledSocialProviders(): SocialProvider[] {
+  const config = typeof window !== "undefined" ? window.__OPENJURY_CONFIG__ : undefined;
+  return socialProviders.filter((provider) => config?.[provider.flag] === true);
+}
 
 /** Password sign-in is only enabled for disposable dev previews with a seeded account. */
 export function passwordSignInEnabled(): boolean {

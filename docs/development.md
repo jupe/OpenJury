@@ -85,6 +85,13 @@ the templates.
 Configure production email delivery and rate limits in Supabase. Do not allow
 untrusted preview origins against a production Auth project.
 
+Google, Facebook, and GitHub login are optional. Set the runtime
+`AUTH_*_ENABLED` flags in `.env.local` and configure the corresponding Supabase
+providers, manual identity linking, and `/profile` redirect in addition to
+`/dashboard`. Follow the [social login setup and account-linking checks](deployment.md#optional-google-facebook-and-github-login).
+Use the same verified email to reuse an account automatically; for a different
+provider email, sign in to the existing account and link it from Profile first.
+
 ## 3. Apply the schema
 
 In the Supabase dashboard SQL Editor, run
