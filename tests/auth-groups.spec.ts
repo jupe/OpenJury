@@ -825,6 +825,105 @@ test("Auth email template points to app confirmation rather than a consuming ver
   expect(template).toContain('href="{{ .SiteURL }}/dashboard#token_hash={{ .TokenHash }}"');
   expect(template).not.toContain(".ConfirmationURL");
   expect(template).not.toContain("/auth/v1/verify");
+  expect(template).toContain("{{ .Token }}");
+  expect(template).toContain("Using the Home Screen app? Open OpenJury and enter this code.");
+});
+
+test("one-time codes sign in inside the app during the email resend cooldown @mobile", async ({ page }) => {
+  await configure(page);
+  const verifications: unknown[] = [];
+  await page.route(`${supabaseURL}/auth/v1/verify`, (route) => {
+    verifications.push(route.request().postDataJSON());
+    return route.fulfill({ json: session() });
+  });
+  await page.goto("/dashboard");
+  await page.getByRole("textbox", { name: "Email address" }).fill("member@example.com");
+  await page.getByRole("button", { name: "Send sign-in link" }).click();
+  await expect(page.getByRole("status")).toContainText("one-time code");
+  await expect(page.getByRole("button", { name: /Send a new link in/ })).toBeDisabled();
+  const code = page.getByRole("textbox", { name: "One-time code" });
+  await expect(code).toHaveAttribute("autocomplete", "one-time-code");
+  await expect(code).toHaveAttribute("inputmode", "numeric");
+  await code.fill("012345");
+  await expectPhoneLayout(page);
+  await page.getByRole("button", { name: "Sign in with code" }).click();
+  await expect(page.getByRole("button", { name: "Account (member@example.com)" })).toBeVisible();
+  expect(verifications).toMatchObject([{ email: "member@example.com", token: "012345", type: "email" }]);
+  await expect(page).toHaveURL(/\/dashboard$/);
+});
+
+for (const failure of ["incorrect", "expired", "used", "rate limited", "network"]) {
+  test(`one-time code ${failure} failures stay private and allow retry @mobile`, async ({ page }) => {
+    await configure(page);
+    let fail = true;
+    const verifications: unknown[] = [];
+    await page.route(`${supabaseURL}/auth/v1/verify`, (route) => {
+      verifications.push(route.request().postDataJSON());
+      if (!fail) return route.fulfill({ json: session() });
+      if (failure === "network") return route.abort("failed");
+      return route.fulfill({
+        status: failure === "rate limited" ? 429 : 403,
+        json: { msg: `Private ${failure} code 012345`, error_code: failure === "rate limited" ? "over_request_rate_limit" : "otp_expired" },
+      });
+    });
+    const emails: unknown[] = [];
+    await page.route(`${supabaseURL}/auth/v1/otp**`, (route) => {
+      emails.push(route.request().postDataJSON());
+      return route.fulfill({ json: {} });
+    });
+    await page.goto("/dashboard#email=member%40example.com");
+    await page.getByRole("textbox", { name: "One-time code" }).fill("012345");
+    await page.getByRole("button", { name: "Sign in with code" }).click();
+    await expect(page.getByRole("main").getByRole("alert")).toContainText("This code is incorrect, expired, or could not be verified.");
+    await expect(page.getByRole("main")).not.toContainText("012345");
+    await expect(page.getByRole("textbox", { name: "One-time code" })).toHaveValue("");
+    await expect(page.getByRole("textbox", { name: "Email address" })).toHaveValue("member@example.com");
+    await expect(page.getByRole("button", { name: "Send sign-in link" })).toBeEnabled();
+    expect(emails).toEqual([]);
+    fail = false;
+    await page.getByRole("textbox", { name: "One-time code" }).fill("012345");
+    await page.getByRole("button", { name: "Sign in with code" }).click();
+    await expect(page.getByRole("button", { name: "Account (member@example.com)" })).toBeVisible();
+    expect(verifications).toHaveLength(2);
+  });
+}
+
+test("code entry validates email and digits, and clears when the address changes", async ({ page }) => {
+  await configure(page);
+  const verifications: unknown[] = [];
+  await page.route(`${supabaseURL}/auth/v1/verify`, (route) => {
+    verifications.push(route.request().postDataJSON());
+    return route.fulfill({ json: session() });
+  });
+  await page.goto("/dashboard");
+  const email = page.getByRole("textbox", { name: "Email address" });
+  const code = page.getByRole("textbox", { name: "One-time code" });
+  const submit = page.getByRole("button", { name: "Sign in with code" });
+  await code.fill("012345");
+  await expect(submit).toBeDisabled();
+  await email.fill("invalid");
+  await expect(code).toHaveValue("");
+  await code.fill("012345");
+  await submit.click();
+  expect(verifications).toEqual([]);
+  await email.fill("member@example.com");
+  for (const invalid of ["123", "abcdef"]) {
+    await code.fill(invalid);
+    await submit.click();
+    expect(verifications).toEqual([]);
+  }
+});
+
+test("one-time code sign-in is localized in Finnish", async ({ page }) => {
+  await configure(page);
+  await page.addInitScript(() => localStorage.setItem("openjury:locale", "fi"));
+  await page.route(`${supabaseURL}/auth/v1/verify`, (route) => route.fulfill({
+    status: 403, json: { msg: "Private expired code", error_code: "otp_expired" },
+  }));
+  await page.goto("/dashboard#email=member%40example.com");
+  await page.getByRole("textbox", { name: "Kertakäyttöinen koodi" }).fill("012345");
+  await page.getByRole("button", { name: "Kirjaudu koodilla" }).click();
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("Koodi on virheellinen, vanhentunut");
 });
 
 test("invitation email pre-fills the recipient without sending another email automatically @mobile", async ({ page }) => {

@@ -72,14 +72,20 @@ as `http://localhost:3000/dashboard` locally and your production
 `/dashboard`. For preview-safe links, set the **Magic Link**, **Confirm signup**,
 and **Invite user** email templates in Supabase Auth to the contents of
 `public/auth-email.html`. Set Site URL to the app origin without a trailing slash.
-The template links directly to the app with `{{ .TokenHash }}` in the URL fragment,
+The template includes the Supabase sign-in code (`{{ .Token }}`) so recipients can
+open the installed Home Screen app and enter it with the same email address.
+Updating the file in this repository does not update a hosted Supabase project:
+copy it into all three hosted Auth email templates and configure Site URL,
+allowed redirects, and production SMTP delivery there.
+The template also links directly to the app with `{{ .TokenHash }}` in the URL fragment,
 not to `{{ .ConfirmationURL }}` (which consumes the token on a GET).
 The app calls `verifyOtp` only after the recipient selects **Continue to OpenJury**.
 Fragments are not sent in HTTP requests or referrer headers. Gmail long-press
 previews and email scanners can load the page without spending the token, even
 when they execute JavaScript. The recipient can reopen the original email link.
-Keep tokens single-use and retain Supabase's normal expiration (one hour by
-default); extending expiration alone does not fix premature consumption.
+Codes and links use the same Supabase Auth verification flow. Keep them single-use
+and retain Supabase's normal expiration (one hour by default) and rate limits;
+extending expiration alone does not fix premature consumption.
 Previously sent links still use the old flow; request a fresh link after updating
 the templates.
 Configure production email delivery and rate limits in Supabase. Do not allow
@@ -91,6 +97,17 @@ providers, manual identity linking, and `/profile` redirect in addition to
 `/dashboard`. Follow the [social login setup and account-linking checks](deployment.md#optional-google-facebook-and-github-login).
 Use the same verified email to reuse an account automatically; for a different
 provider email, sign in to the existing account and link it from Profile first.
+
+Group invitation emails retain their dashboard links. With the server-only
+`SUPABASE_SERVICE_ROLE_KEY` and the invitation SMTP settings configured, the API
+also includes Supabase's generated `email_otp` in the plain-text email, addressed
+only to the recipient. Both the code and token hash must be generated successfully
+before sending; neither is returned to the inviting administrator or logged.
+Use the invitation's email address when entering its code in the Home Screen app.
+Without the service-role key, the invitation instead explains how to request a
+sign-in code inside OpenJury with that address; the resulting Auth email requires
+the configured templates above. Do not bypass Supabase's normal verification,
+expiration, single-use protections, or sign-in email rate limits.
 
 ## 3. Apply the schema
 

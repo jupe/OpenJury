@@ -39,6 +39,8 @@ export default function AuthBoundary({ children, signedOut }: {
   const [message, setMessage] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [verifyingCode, setVerifyingCode] = useState(false);
   const [pending, setPending] = useState(false);
   const [oauthProvider, setOauthProvider] = useState<SocialProvider["id"] | null>(null);
   const [cooldown, setCooldown] = useState(0);
@@ -48,6 +50,7 @@ export default function AuthBoundary({ children, signedOut }: {
   const currentSession = useRef<Session | null>(null);
   const confirmingLink = useRef(false);
   const translate = useRef(t);
+  const emailInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     translate.current = t;
@@ -184,12 +187,37 @@ export default function AuthBoundary({ children, signedOut }: {
       } else if (error) setActionError(t("Unable to send sign-in link: {error}", { error: t(error.message) }));
       else {
         setCooldown(LINK_COOLDOWN_SECONDS);
-        setMessage(t("Check your email for a sign-in link. You can close this tab."));
+        setMessage(t("Check your email for a sign-in link or one-time code. Enter the code here to sign in inside this app."));
       }
     } catch {
       if (mounted.current && revision.current === requestRevision) setActionError(t("Unable to send sign-in link. Please try again."));
     } finally {
       if (mounted.current) setPending(false);
+    }
+  }
+
+  async function verifyCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!client || pending || !emailInput.current?.reportValidity()) return;
+    const requestRevision = revision.current;
+    setPending(true);
+    setVerifyingCode(true);
+    setActionError("");
+    setMessage("");
+    try {
+      const { error } = await client.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: "email" });
+      if (!mounted.current || revision.current !== requestRevision) return;
+      if (error) setActionError(t("This code is incorrect, expired, or could not be verified. Try again or request a new sign-in email."));
+    } catch {
+      if (mounted.current && revision.current === requestRevision) {
+        setActionError(t("Unable to verify the code. Please try again."));
+      }
+    } finally {
+      if (mounted.current) {
+        setCode("");
+        setPending(false);
+        setVerifyingCode(false);
+      }
     }
   }
 
@@ -309,16 +337,24 @@ export default function AuthBoundary({ children, signedOut }: {
           )}
           <form onSubmit={requestLink} className="space-y-4" aria-busy={pending}>
             <label className="block">{t("Email address")}
-              <input type="email" autoComplete="email" autoCapitalize="none" spellCheck={false} enterKeyHint="send" required value={email} onChange={(event) => {
+              <input ref={emailInput} type="email" autoComplete="email" autoCapitalize="none" spellCheck={false} enterKeyHint="send" required disabled={pending} value={email} onChange={(event) => {
                 setEmail(event.target.value);
+                setCode("");
                 // The limit is per address, so a corrected address may be sent at once.
                 setCooldown(0);
               }} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
-            <Button type="submit" disabled={pending || cooldown > 0}>{pending && !oauthProvider ? t("Sending link…")
+            <Button type="submit" disabled={pending || cooldown > 0}>{pending && !oauthProvider && !verifyingCode ? t("Sending link…")
               : cooldown > 0 ? t("Send a new link in {seconds} s", { seconds: cooldown }) : t("Send sign-in link")}</Button>
           </form>
-          {(pending || message) && <p role="status">{pending ? t(oauthProvider ? "Redirecting to sign-in…" : "Sending your sign-in link…") : message}</p>}
+          {(pending || message) && <p role="status">{pending ? t(oauthProvider ? "Redirecting to sign-in…" : verifyingCode ? "Signing in…" : "Sending your sign-in link…") : message}</p>}
+          {!demo && <form onSubmit={verifyCode} className="mt-6 space-y-4 border-t border-slate-200 pt-4" aria-busy={verifyingCode}>
+            <p>{t("Using the Home Screen app? Request a sign-in email above, or use your invitation email. Enter its code below with the email address above.")}</p>
+            <label className="block">{t("One-time code")}
+              <input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6,10}" minLength={6} maxLength={10} required disabled={pending} value={code} onChange={(event) => setCode(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2" />
+            </label>
+            <Button type="submit" disabled={pending || !email.trim() || !code.trim()}>{t(verifyingCode ? "Signing in…" : "Sign in with code")}</Button>
+          </form>}
           {passwordSignInEnabled() && (
             <form onSubmit={signInWithPassword} className="mt-6 space-y-4 border-t border-slate-200 pt-4" aria-busy={pending}>
               <p>{t("Preview environment: sign in with the seeded account instead.")}</p>
