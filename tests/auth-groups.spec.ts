@@ -1492,6 +1492,10 @@ test("group admins create and edit draft competitions with scoring criteria", as
     p_submission_type: "photo",
     p_categories: [{ name: "Creativity", max_score: 5 }],
   });
+
+  await page.goto(`/group/${groupId}?editCompetition=${competitionId}#competitions`);
+  await expect(page.getByRole("dialog", { name: "Edit draft competition" })).toBeVisible();
+  await expect(page.getByLabel("Competition name")).toHaveValue("Autumn bake-off");
 });
 
 test("admins can create a new competition from a past template without copying competition data", async ({ page }) => {
@@ -2633,8 +2637,9 @@ test("admins move a competition through its lifecycle after confirming", async (
 
   await page.goto(`/competition/${competitionId}/admin`);
   await expect(page.getByText("Status: Draft")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Edit full draft competition" }))
-    .toHaveAttribute("href", `/group/${groupId}#competitions`);
+  await expect(page.getByRole("link", { name: "Edit full draft competition" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Edit draft" }))
+    .toHaveAttribute("href", `/group/${groupId}?editCompetition=${competitionId}#competitions`);
   await expect(page.getByRole("checkbox", { name: "Email existing group members when submissions open" })).not.toBeChecked();
   await expectPhoneLayout(page);
 
