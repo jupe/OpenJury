@@ -40,7 +40,7 @@ uploads, email-link handoff, on-screen keyboards, and low-memory performance.
 
 - **Next.js App Router**, React, and TypeScript for pages and application structure.
 - **Tailwind CSS** for styling shared UI components.
-- **Supabase**: PostgreSQL database, Auth (magic links; OAuth planned), Storage
+- **Supabase**: PostgreSQL database, Auth (magic links; optional Google, Facebook, and GitHub login with identity linking), Storage
   (planned entry media), and Realtime (planned state updates).
 - **Deployment**: Docker images with optional GitHub Actions deployments to
   self-hosted Docker hosts, plus optional Vercel hosting; Supabase Cloud for the
