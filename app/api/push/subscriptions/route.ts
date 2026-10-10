@@ -4,14 +4,15 @@ export const runtime = "nodejs";
 
 export function GET() {
   const config = vapidConfiguration();
-  return config ? json({ publicKey: config.publicKey }) : json({ error: "Web push is not configured" }, 503);
+  return config && backendConfiguration(true) ? json({ publicKey: config.publicKey })
+    : json({ error: "Web push is not configured" }, 503);
 }
 
 async function mutate(request: Request, remove: boolean) {
   const token = bearer(request);
   if (!token) return json({ error: "Authentication required" }, 401);
-  const config = backendConfiguration();
-  if (!config) return json({ error: "Web push is not configured" }, 503);
+  const config = backendConfiguration(!remove);
+  if (!config || (!remove && !vapidConfiguration())) return json({ error: "Web push is not configured" }, 503);
   let body: { subscription?: unknown; locale?: unknown; endpoint?: unknown };
   try {
     const parsed = await boundedBody(request);

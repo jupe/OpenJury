@@ -80,17 +80,40 @@ test("web push database ownership, lifecycle, leases, backoff and revocation", a
     await actor(member);
     await save();
     await actor(admin, "service_role");
-    expect((await db.query("select public.competition_push_claim_active($1,$2) ok", [second.id, second.claim_token])).rows[0]).toEqual({ ok: true });
-    await db.query("select public.finish_competition_push($1,$2,'expired')", [second.id, second.claim_token]);
+    expect((await db.query("select public.competition_push_claim_active($1,$2) ok", [second.id, second.claim_token])).rows[0]).toEqual({ ok: false });
+    await db.query("select public.finish_competition_push($1,$2,'skipped')", [second.id, second.claim_token]);
+    await db.exec("reset role");
+    expect((await db.query("select count(*)::int n from public.web_push_subscriptions")).rows[0]).toEqual({ n: 1 });
+    expect((await db.query("select finished_at is null pending from public.competition_push_outbox where id=$1",
+      [second.id])).rows[0]).toEqual({ pending: true });
+    await db.exec("update public.competition_push_outbox set next_attempt_at = now() - interval '1 second'");
+    await actor(admin, "service_role");
+    const third = await claim();
+    expect(third.event_id).toBe(second.event_id);
+    await actor(member);
+    const refreshedAuth = Buffer.alloc(16, 2).toString("base64url");
+    await db.query("select public.save_my_push_subscription($1,$2,$3,'fi')", [endpoint, keys.publicKey, refreshedAuth]);
+    await actor(admin, "service_role");
+    await db.query("select public.finish_competition_push($1,$2,'sent')", [third.id, third.claim_token]);
+    expect((await db.query("select public.competition_push_sent($1) ok", [competition])).rows[0]).toEqual({ ok: false });
+    await db.exec("reset role");
+    await db.exec("update public.competition_push_outbox set next_attempt_at = now() - interval '1 second'");
+    await actor(admin, "service_role");
+    const refreshed = await claim();
+    expect(refreshed.subscription).toEqual({ endpoint, keys: { p256dh: keys.publicKey, auth: refreshedAuth } });
+    await actor(member);
+    await save();
+    await actor(admin, "service_role");
+    await db.query("select public.finish_competition_push($1,$2,'expired')", [refreshed.id, refreshed.claim_token]);
     await db.exec("reset role");
     expect((await db.query("select count(*)::int n from public.web_push_subscriptions")).rows[0]).toEqual({ n: 1 });
     await db.exec("update public.competition_push_outbox set next_attempt_at = now() - interval '1 second'");
     await actor(admin, "service_role");
-    const third = await claim();
+    const revoked = await claim();
     await db.exec("reset role");
     await db.exec(`delete from public.group_members where user_id = '${member}'`);
     await actor(admin, "service_role");
-    expect((await db.query("select public.competition_push_claim_active($1,$2) ok", [third.id, third.claim_token])).rows[0]).toEqual({ ok: false });
+    expect((await db.query("select public.competition_push_claim_active($1,$2) ok", [revoked.id, revoked.claim_token])).rows[0]).toEqual({ ok: false });
     expect(await claim()).toBeUndefined();
     expect((await db.query("select public.competition_push_sent($1) ok", [competition])).rows[0]).toEqual({ ok: true });
     await db.exec("reset role");
@@ -135,6 +158,29 @@ test("web push database ownership, lifecycle, leases, backoff and revocation", a
     await db.query("select public.process_remote_competition_deadlines()");
     expect((await claim()).phase).toBe("voting");
     expect((await db.query("select public.all_competition_push_sent() ok")).rows[0]).toEqual({ ok: false });
+    await db.exec("reset role");
+    await db.exec(`update public.competitions set status = 'results_published' where id = '${competition}'`);
+    await actor(admin, "service_role");
+    const withdrawn = await claim();
+    expect(withdrawn.phase).toBe("results_published");
+    await db.exec("reset role");
+    await db.exec(`update public.competitions set status = 'review_pending' where id = '${competition}'`);
+    await actor(admin, "service_role");
+    expect((await db.query("select public.competition_push_claim_active($1,$2) ok",
+      [withdrawn.id, withdrawn.claim_token])).rows[0]).toEqual({ ok: false });
+    expect((await db.query("select public.finish_competition_push($1,$2,'sent') ok",
+      [withdrawn.id, withdrawn.claim_token])).rows[0]).toEqual({ ok: false });
+    expect(await claim()).toBeUndefined();
+    await db.exec("reset role");
+    await db.exec(`update public.competitions set status = 'results_published' where id = '${competition}'`);
+    await actor(admin, "service_role");
+    const reopened = await claim();
+    expect(reopened.event_id).not.toBe(withdrawn.event_id);
+    expect(reopened.phase).toBe("results_published");
+    await db.exec("reset role");
+    await db.exec(`update public.competitions set status = 'submission' where id = '${competition}'`);
+    await actor(admin, "service_role");
+    expect((await claim()).phase).toBe("submission");
   } finally {
     await db.close();
   }

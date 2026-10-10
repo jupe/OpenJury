@@ -125,13 +125,24 @@ test("public key response is no-store and never exposes private configuration", 
   process.env.WEB_PUSH_PUBLIC_KEY = "invalid";
   expect(GET().status).toBe(503);
   process.env.WEB_PUSH_PUBLIC_KEY = keys.publicKey;
-  for (const name of ["WEB_PUSH_PRIVATE_KEY", "WEB_PUSH_SUBJECT"]) {
+  for (const name of ["WEB_PUSH_PRIVATE_KEY", "WEB_PUSH_SUBJECT", "SUPABASE_SERVICE_ROLE_KEY"]) {
     const value = process.env[name];
     delete process.env[name];
     expect(GET().status).toBe(503);
     process.env[name] = value;
   }
   expect(calls).toEqual([]);
+});
+
+test("registration requires delivery configuration but disabling remains available", async () => {
+  for (const name of ["WEB_PUSH_PRIVATE_KEY", "WEB_PUSH_SUBJECT", "SUPABASE_SERVICE_ROLE_KEY"]) {
+    const value = process.env[name];
+    delete process.env[name];
+    expect(GET().status).toBe(503);
+    expect((await subscribe(request({ subscription, locale: "en" }))).status).toBe(503);
+    expect(await (await DELETE(request({ endpoint: subscription.endpoint }))).json()).toEqual({ subscribed: false });
+    process.env[name] = value;
+  }
 });
 
 test("rejects SSRF destinations, URL tricks, and invalid or noncanonical keys", () => {

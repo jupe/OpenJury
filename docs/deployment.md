@@ -187,14 +187,18 @@ worker. This backend does not change email delivery.
 API contracts (all responses have `Cache-Control: no-store`):
 
 - `GET /api/push/subscriptions`: `{publicKey:string}`; HTTP 503 when the VAPID
-  public/private pair or subject is absent or invalid. No authentication or
+  public/private pair, subject, or backend/service-role configuration is absent
+  or invalid. No authentication or
   private values are returned.
 - Bearer-authenticated `POST /api/push/subscriptions`: JSON
   `{subscription:{endpoint,keys:{p256dh,auth}},locale:"en"|"fi"}`. Returns
-  `{subscribed:true}`. Stores only the caller's subscription, capped at five.
+  `{subscribed:true}`. Requires delivery configuration and stores only the
+  caller's subscription, capped at five.
 - Bearer-authenticated `DELETE /api/push/subscriptions`: JSON
   `{endpoint}` or `{subscription:{endpoint}}` (the POST body also works); returns
   `{subscribed:false}`, even when the caller has no matching endpoint.
+  Disabling requires only public backend authentication configuration, not
+  VAPID or service-role credentials.
 - Bodyless bearer-authenticated `POST /api/competitions/<uuid>/push`: current
   group admins only. Returns `{notificationsSent:boolean}` after authorization.
   `true` means no eligible queue items remain, not proof of device display.
@@ -216,6 +220,10 @@ Once authorized, delivery/claim/ack failures return HTTP 200 with
 A database status-change trigger atomically snapshots subscribed current group
 members on entry to submission, voting, or results_published, independently of emails.
 Every actual transition (including reopening) has its own event and stable tag.
+Every status change retires unfinished notifications from previous phase
+occurrences, including active leases; claims recheck the current phase before
+delivery. Withdrawing results or closing voting therefore cancels pending
+announcements, rather than delivering stale availability messages.
 Names, entries, and other private details never enter notification payloads.
 Payloads contain `{title:"OpenJury",body:<generic localized phase message>,
 url:"/competition/<uuid>",tag:<stable event tag>}`. Unsubscriptions cascade away
@@ -230,6 +238,9 @@ subscriptions, but never a concurrently refreshed subscription. Malformed
 RPC-registered subscriptions are also pruned before any network request. Other provider
 failures are preserved, not exposed or silently discarded. Large groups or
 outages are retried automatically by the configured dispatcher.
+Claims check the subscription revision immediately before sending. Refreshing
+keys before delivery or acknowledgment preserves the event for a retry with the
+current encryption keys, even if an old-key provider request was accepted.
 Call the drain endpoint after each successful phase transition, and offer retry
 when false. On admin reload, authenticated
 `get_my_pending_competition_push(p_competition_id)` returns whether eligible

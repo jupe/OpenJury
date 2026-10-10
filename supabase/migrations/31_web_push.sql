@@ -107,6 +107,14 @@ returns trigger language plpgsql security definer set search_path = ''
 as $$
 declare event uuid;
 begin
+  if new.status is distinct from old.status then
+    -- Retire even leased work before opening a new occurrence of a phase.
+    update public.competition_push_outbox outbox
+      set finished_at = clock_timestamp(), claim_token = null, claimed_until = null
+      from public.competition_push_events event
+      where outbox.event_id = event.id and event.competition_id = new.id
+        and outbox.finished_at is null;
+  end if;
   if new.status is distinct from old.status and new.status in ('submission', 'voting', 'results_published') then
     insert into public.competition_push_events(competition_id, phase)
       values (new.id, new.status)
@@ -148,15 +156,17 @@ begin
       public.web_push_subscriptions subscription
     where outbox.event_id = event.id and event.competition_id = competition.id
       and competition.id = p_competition_id and subscription.id = outbox.subscription_id
-      and outbox.finished_at is null and not exists (
+      and outbox.finished_at is null and (competition.status <> event.phase or not exists (
         select 1 from public.group_members member
         where member.group_id = competition.group_id and member.user_id = subscription.user_id
-      );
+      ));
   return query
     with candidate as (
       select outbox.id from public.competition_push_outbox outbox
       join public.competition_push_events event on event.id = outbox.event_id
-      where event.competition_id = p_competition_id and outbox.finished_at is null
+      join public.competitions competition on competition.id = event.competition_id
+      where event.competition_id = p_competition_id and competition.status = event.phase
+        and outbox.finished_at is null
         and outbox.next_attempt_at <= clock_timestamp()
         and (outbox.claimed_until is null or outbox.claimed_until < clock_timestamp())
       order by event.created_at, outbox.id limit 1 for update of outbox skip locked
@@ -203,6 +213,8 @@ as $$
     join public.web_push_subscriptions subscription on subscription.id = outbox.subscription_id
     join public.group_members member on member.group_id = competition.group_id and member.user_id = subscription.user_id
     where outbox.id = p_id and outbox.claim_token = p_claim_token and outbox.finished_at is null
+      and competition.status = event.phase
+      and subscription.revision = outbox.claimed_revision
       and outbox.claimed_until > clock_timestamp()
   );
 $$;
@@ -219,6 +231,17 @@ begin
     where id = p_id and claim_token = p_claim_token and finished_at is null
       and claimed_until > clock_timestamp() for update;
   if not found then return false; end if;
+  if p_outcome in ('sent', 'skipped') and exists (
+    select 1 from public.web_push_subscriptions subscription
+    join public.competition_push_events event on event.id = target.event_id
+    join public.competitions competition on competition.id = event.competition_id
+    join public.group_members member on member.group_id = competition.group_id and member.user_id = subscription.user_id
+    where subscription.id = target.subscription_id
+      and subscription.revision <> target.claimed_revision and competition.status = event.phase
+  ) then
+    -- Neither a stale pre-send snapshot nor an accepted old-key payload is final.
+    p_outcome := 'retry';
+  end if;
   if p_outcome = 'expired' then
     -- A stale 410 must never delete a concurrently refreshed subscription.
     delete from public.web_push_subscriptions
