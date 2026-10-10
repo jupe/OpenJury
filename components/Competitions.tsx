@@ -184,6 +184,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
   const formDialog = useRef<HTMLDialogElement>(null);
   const removeDialog = useRef<HTMLDialogElement>(null);
   const templateRequest = useRef(0);
+  const autoEditCompetition = useRef<string | null>(null);
   const refresh = useCallback(() => {
     setLoading(true);
     setError(null);
@@ -311,7 +312,7 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
     setSaveError(null);
   }
 
-  async function editCompetition(competition: Competition) {
+  const editCompetition = useCallback(async (competition: Competition) => {
     setLoadingEdit(true);
     setEditError(null);
     setSaveError(null);
@@ -348,7 +349,17 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
     } finally {
       setLoadingEdit(false);
     }
-  }
+  }, [client]);
+
+  useEffect(() => {
+    if (loading || !isAdmin) return;
+    const competitionId = new URLSearchParams(window.location.search).get("editCompetition");
+    if (!competitionId || autoEditCompetition.current === competitionId) return;
+    const competition = competitions.find((item) => item.id === competitionId && item.status === "draft");
+    if (!competition) return;
+    autoEditCompetition.current = competitionId;
+    queueMicrotask(() => void editCompetition(competition));
+  }, [competitions, editCompetition, isAdmin, loading]);
 
   async function saveCompetition(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

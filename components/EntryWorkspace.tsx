@@ -1457,14 +1457,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
           <p className="flex flex-wrap items-center gap-2">{t("Status:")} <StatusBadge status={competitionStatus} /></p>
           {competition && <Deadlines competition={competition} />}
           {competitionStatus === "draft" && (
-            <div className="space-y-2">
-              <p>{t("Edit scoring categories, event type, and deadlines before opening submissions.")}</p>
-              {groupId && (
-                <ButtonLink href={`/group/${encodeURIComponent(groupId)}#competitions`}>
-                  {t("Edit full draft competition")}
-                </ButtonLink>
-              )}
-            </div>
+            <p>{t("Edit scoring categories, event type, and deadlines before opening submissions.")}</p>
           )}
           {competitionStatus === "review_pending" && (
             <>
@@ -1529,7 +1522,13 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
         {competition && (
           <Card
             title={t("Competition details")}
-            action={!detailsDraft && (
+            action={!detailsDraft && competition.status === "draft" && groupId ? (
+              <IconLink
+                icon="edit"
+                aria-label={t("Edit draft")}
+                href={`/group/${encodeURIComponent(groupId)}?editCompetition=${encodeURIComponent(competitionId)}#competitions`}
+              />
+            ) : !detailsDraft && (
               <IconButton icon="edit" aria-label={t("Edit competition details")} onClick={() => {
                 setDetailsDraft({ name: competition.name, description: competition.description ?? "", rules: competition.rules ?? "", maxSubmissionImages: competition.max_submission_images ?? MAX_MEDIA_FILES });
                 setDetailsError(null);
