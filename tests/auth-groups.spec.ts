@@ -100,6 +100,20 @@ test("deployments can enable a subset of social login providers @mobile", async 
   await expect(page.getByRole("button", { name: "Sign in with GitHub", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign in with Facebook", exact: true })).toHaveCount(0);
   await expect(page.getByText(/If your service uses a different email/)).toBeVisible();
+  const google = page.getByRole("button", { name: "Sign in with Google", exact: true });
+  const github = page.getByRole("button", { name: "Sign in with GitHub", exact: true });
+  for (const button of [google, github]) {
+    await expect(button.locator('svg[aria-hidden="true"]')).toBeVisible();
+    await expect(button).toHaveAttribute("type", "button");
+  }
+  const googleBox = (await google.boundingBox())!;
+  const githubBox = (await github.boundingBox())!;
+  const emailBox = (await page.getByLabel("Email address", { exact: true }).boundingBox())!;
+  expect(githubBox.y).toBeGreaterThanOrEqual(googleBox.y + googleBox.height);
+  expect(githubBox.x).toBe(googleBox.x);
+  expect(githubBox.width).toBe(googleBox.width);
+  expect(googleBox.width).toBe(emailBox.width);
+  expect(googleBox.height).toBeGreaterThanOrEqual(48);
   await expectPhoneLayout(page);
 });
 
