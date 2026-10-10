@@ -179,6 +179,9 @@ Migration `12_roles_and_invites.sql` adds the [roles](architecture.md#roles):
 - `platform_admins` holds the deployment's `PLATFORM_ADMIN_EMAILS`, replaced on
   every self-hosted deploy. `is_platform_admin()` matches the signed-in user's
   confirmed email. Platform admins list every group with `get_platform_groups()`
+  including the creator's metadata name and email, creation time, member/admin
+  counts, and competition totals by lifecycle state (migration 31). Creator
+  identity is not exposed to ordinary members by this RPC.
   and become a group admin with `platform_admin_join_group()`; all other admin
   checks are unchanged.
 - `group_invites` holds revocable link tokens; `accept_group_invite(token)` joins
