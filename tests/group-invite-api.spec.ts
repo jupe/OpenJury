@@ -8,6 +8,7 @@ const groupId = "11111111-1111-4111-8111-111111111111";
 const env = {
   SUPABASE_URL: "https://backend.example.com",
   SUPABASE_ANON_KEY: "public-test-key",
+  SUPABASE_SERVICE_ROLE_KEY: "",
   SMTP_HOST: "smtp.example.com",
   SMTP_PORT: "587",
   SMTP_USER: "jury@example.com",
@@ -25,6 +26,10 @@ let rpcError: string | null;
 let providerStatus: number;
 let providerThrows: boolean;
 let groupFails: boolean;
+let linkStatus: number;
+let missingLinkToken: boolean;
+const serviceKey = "private-service-test-key";
+const linkToken = "private-invitation-test-token";
 
 test.beforeEach(() => {
   previous = Object.fromEntries(Object.keys(env).map((name) => [name, process.env[name]]));
@@ -35,6 +40,8 @@ test.beforeEach(() => {
   providerStatus = 200;
   providerThrows = false;
   groupFails = false;
+  linkStatus = 200;
+  missingLinkToken = false;
   originalCreateTransport = mailer.createTransport;
   transportsClosed = 0;
   mailer.createTransport = (config) => ({
@@ -66,6 +73,14 @@ test.beforeEach(() => {
     if (path === "/rest/v1/groups") {
       return groupFails ? Response.json({ message: "Private group failure" }, { status: 500 })
         : Response.json({ name: "Baking club" });
+    }
+    if (path === "/auth/v1/admin/generate_link") {
+      return Response.json(linkStatus === 200 ? {
+        id: "recipient", email: "new@example.com",
+        hashed_token: missingLinkToken ? undefined : linkToken,
+        verification_type: "signup",
+        action_link: "https://attacker.example/never-use-provider-link",
+      } : { message: `Private failure: ${linkToken}` }, { status: linkStatus });
     }
     throw new Error(`Unexpected upstream: ${url}`);
   };
@@ -118,6 +133,7 @@ test("missing or unsafe configuration fails before saving a pending invite", asy
 });
 
 test("authentication and RPC permissions gate email delivery without leaking errors", async () => {
+  process.env.SUPABASE_SERVICE_ROLE_KEY = serviceKey;
   authStatus = 401;
   expect((await request()).status).toBe(401);
   authStatus = 200;
@@ -134,6 +150,7 @@ test("authentication and RPC permissions gate email delivery without leaking err
     expect(await response.text()).not.toContain("Private");
   }
   expect(calls.some((call) => call.url === "smtp://send")).toBe(false);
+  expect(calls.some((call) => new URL(call.url).pathname === "/auth/v1/admin/generate_link")).toBe(false);
 });
 
 test("saves under the user's permissions and sends a private invitation to the trusted dashboard URL", async () => {
@@ -152,10 +169,52 @@ test("saves under the user's permissions and sends a private invitation to the t
     from: { name: "OpenJury", address: env.SMTP_ADMIN_EMAIL },
     to: ["new@example.com"],
     subject: "You have been invited to an OpenJury group",
-    text: 'You have been invited to "Baking club" on OpenJury.\nSign in with new@example.com to join the group:\nhttps://jury.example.com/dashboard',
+    text: 'You have been invited to "Baking club" on OpenJury.\nSign in with new@example.com to join the group:\nhttps://jury.example.com/dashboard#email=new%40example.com',
   });
   expect(email.body).not.toHaveProperty("html");
   expect(JSON.stringify(email.body)).not.toContain("attacker.example");
+});
+
+test("authorized invitations embed a recipient sign-in token without returning it to the admin", async () => {
+  process.env.SUPABASE_SERVICE_ROLE_KEY = serviceKey;
+  const response = await request(" Person+invite@example.com ");
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ invited: true, emailSent: true });
+  const generated = calls.find((call) => new URL(call.url).pathname === "/auth/v1/admin/generate_link")!;
+  expect(generated.body).toMatchObject({
+    type: "magiclink", email: "person+invite@example.com",
+  });
+  expect(new URL(generated.url).searchParams.get("redirect_to")).toBe("https://jury.example.com/dashboard");
+  expect(generated.headers.get("apikey")).toBe(serviceKey);
+  expect(generated.headers.get("authorization")).toBe(["Bearer", serviceKey].join(" "));
+  expect(calls.findIndex((call) => call === generated)).toBeGreaterThan(
+    calls.findIndex((call) => call.url.endsWith("/invite_group_member_by_email")),
+  );
+  const email = calls.find((call) => call.url === "smtp://send")!;
+  const link = new URL(String(email.body.text).split("\n").at(-1)!);
+  expect(link.origin).toBe(env.APP_URL);
+  expect(link.pathname).toBe("/dashboard");
+  expect(link.search).toBe("");
+  expect(new URLSearchParams(link.hash.slice(1)).get("email")).toBe("person+invite@example.com");
+  expect(new URLSearchParams(link.hash.slice(1)).get("token_hash")).toBe(linkToken);
+  expect(JSON.stringify(email.body)).not.toContain(serviceKey);
+  expect(JSON.stringify(email.body)).not.toContain("attacker.example");
+});
+
+test("link generation failures preserve the pending invite without sending a broken link or leaking tokens", async () => {
+  process.env.SUPABASE_SERVICE_ROLE_KEY = serviceKey;
+  for (const failure of ["provider", "missing-token"]) {
+    linkStatus = failure === "provider" ? 500 : 200;
+    missingLinkToken = failure === "missing-token";
+    const response = await request();
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      invited: true, error: "Invitation saved, but email delivery failed. Please retry.",
+    });
+    expect(calls.some((call) => call.url === "smtp://send")).toBe(false);
+  }
+  missingLinkToken = false;
+  expect((await request()).status).toBe(200);
 });
 
 test("provider and network failures report pending state and allow explicit resends", async () => {
@@ -175,6 +234,7 @@ test("provider and network failures report pending state and allow explicit rese
 });
 
 test("logs one diagnostic line per outcome without secrets, tokens, or full addresses", async () => {
+  process.env.SUPABASE_SERVICE_ROLE_KEY = serviceKey;
   const lines: string[] = [];
   const { info, error } = console;
   console.info = (line: string) => lines.push(line);
@@ -189,6 +249,7 @@ test("logs one diagnostic line per outcome without secrets, tokens, or full addr
       reason: "missing APP_URL; missing SMTP_HOST",
     });
     Object.assign(process.env, env);
+    process.env.SUPABASE_SERVICE_ROLE_KEY = serviceKey;
 
     rpcError = "42501";
     await request();
@@ -218,7 +279,7 @@ test("logs one diagnostic line per outcome without secrets, tokens, or full addr
     console.error = error;
   }
   const output = lines.join("\n");
-  for (const secret of [env.SMTP_PASS, env.SUPABASE_ANON_KEY, "test-session-token", "new@example.com"]) {
+  for (const secret of [env.SMTP_PASS, env.SUPABASE_ANON_KEY, serviceKey, linkToken, "test-session-token", "new@example.com"]) {
     expect(output).not.toContain(secret);
   }
 });

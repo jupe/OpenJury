@@ -117,8 +117,10 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/26_own_entry_voting_gallery.sql`,
 `supabase/migrations/27_absolute_point_scoring.sql`,
 `supabase/migrations/27_text_submissions.sql`,
-`supabase/migrations/28_draft_publication_schedule.sql`, and
-`supabase/migrations/28_reopen_competition_phases.sql`, once each, in that order.
+`supabase/migrations/28_draft_publication_schedule.sql`,
+`supabase/migrations/28_reopen_competition_phases.sql`, and
+`supabase/migrations/29_unconfirmed_email_invites.sql`, and
+`supabase/migrations/30_admin_participation_progress.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing

@@ -47,10 +47,18 @@ insert into public.competitions (id, group_id, name, event_type, status) values
   ('00000000-0000-0000-0000-000000000222', '00000000-0000-0000-0000-000000000231', 'Other group competition', 'live', 'voting'),
   ('00000000-0000-0000-0000-000000000223', '00000000-0000-0000-0000-000000000232', 'Other tenant competition', 'live', 'results_published'),
   ('00000000-0000-0000-0000-000000000224', '00000000-0000-0000-0000-000000000231', 'Empty draft competition', 'live', 'draft');
+insert into public.competitions (id, group_id, name, event_type, status, allow_participant_voting) values
+  ('00000000-0000-0000-0000-000000000225', '00000000-0000-0000-0000-000000000231', 'Participation progress', 'live', 'voting', true);
 insert into public.categories (id, competition_id, name) values
   ('00000000-0000-0000-0000-000000000241', '00000000-0000-0000-0000-000000000221', 'Quality'),
   ('00000000-0000-0000-0000-000000000242', '00000000-0000-0000-0000-000000000221', 'Style'),
-  ('00000000-0000-0000-0000-000000000243', '00000000-0000-0000-0000-000000000222', 'Quality');
+  ('00000000-0000-0000-0000-000000000243', '00000000-0000-0000-0000-000000000222', 'Quality'),
+  ('00000000-0000-0000-0000-000000000245', '00000000-0000-0000-0000-000000000225', 'Quality'),
+  ('00000000-0000-0000-0000-000000000246', '00000000-0000-0000-0000-000000000225', 'Style');
+insert into public.competition_participants (competition_id, user_id, role) values
+  ('00000000-0000-0000-0000-000000000225', '00000000-0000-0000-0000-000000000202', 'participant'),
+  ('00000000-0000-0000-0000-000000000225', '00000000-0000-0000-0000-000000000204', 'participant'),
+  ('00000000-0000-0000-0000-000000000225', '00000000-0000-0000-0000-000000000209', 'audience');
 insert into public.entries (id, competition_id, creator_id, title, is_disqualified) values
   ('00000000-0000-0000-0000-000000000251', '00000000-0000-0000-0000-000000000221', '00000000-0000-0000-0000-000000000202', 'Full name entry', false),
   ('00000000-0000-0000-0000-000000000252', '00000000-0000-0000-0000-000000000221', '00000000-0000-0000-0000-000000000204', 'Short name entry', false),
@@ -60,11 +68,21 @@ insert into public.entries (id, competition_id, creator_id, title, is_disqualifi
   ('00000000-0000-0000-0000-000000000256', '00000000-0000-0000-0000-000000000221', '00000000-0000-0000-0000-000000000209', 'Dual entry', false),
   ('00000000-0000-0000-0000-000000000257', '00000000-0000-0000-0000-000000000222', '00000000-0000-0000-0000-000000000212', 'Other event entry', false),
   ('00000000-0000-0000-0000-000000000258', '00000000-0000-0000-0000-000000000223', '00000000-0000-0000-0000-000000000210', 'Other tenant entry', false);
+insert into public.entries (id, competition_id, creator_id, title, random_number, is_disqualified) values
+  ('00000000-0000-0000-0000-000000000259', '00000000-0000-0000-0000-000000000225', '00000000-0000-0000-0000-000000000202', 'Progress entry one', 1, false),
+  ('00000000-0000-0000-0000-000000000260', '00000000-0000-0000-0000-000000000225', '00000000-0000-0000-0000-000000000204', 'Progress entry two', 2, false);
 insert into public.votes (entry_id, voter_id, category_id, score) values
   ('00000000-0000-0000-0000-000000000251', '00000000-0000-0000-0000-000000000208', '00000000-0000-0000-0000-000000000241', 5),
   ('00000000-0000-0000-0000-000000000251', '00000000-0000-0000-0000-000000000208', '00000000-0000-0000-0000-000000000242', 4),
   ('00000000-0000-0000-0000-000000000255', '00000000-0000-0000-0000-000000000209', '00000000-0000-0000-0000-000000000241', 3),
-  ('00000000-0000-0000-0000-000000000257', '00000000-0000-0000-0000-000000000212', '00000000-0000-0000-0000-000000000243', 2);
+  ('00000000-0000-0000-0000-000000000257', '00000000-0000-0000-0000-000000000209', '00000000-0000-0000-0000-000000000243', 2);
+insert into public.votes (entry_id, voter_id, category_id, score) values
+  ('00000000-0000-0000-0000-000000000260', '00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000245', 4),
+  ('00000000-0000-0000-0000-000000000260', '00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000246', 3),
+  ('00000000-0000-0000-0000-000000000259', '00000000-0000-0000-0000-000000000209', '00000000-0000-0000-0000-000000000245', 5),
+  ('00000000-0000-0000-0000-000000000259', '00000000-0000-0000-0000-000000000209', '00000000-0000-0000-0000-000000000246', 2),
+  ('00000000-0000-0000-0000-000000000260', '00000000-0000-0000-0000-000000000209', '00000000-0000-0000-0000-000000000245', 4),
+  ('00000000-0000-0000-0000-000000000260', '00000000-0000-0000-0000-000000000209', '00000000-0000-0000-0000-000000000246', 3);
 insert into public.entry_disqualification_events (entry_id, actor_id, reason) values
   ('00000000-0000-0000-0000-000000000255', '00000000-0000-0000-0000-000000000211', 'Audit-only administrator');
 delete from public.group_members
@@ -111,6 +129,11 @@ begin
     where has_submission or has_voted or role = 'former member'
   ) then
     raise exception 'An empty draft must include every current member, without other-event activity';
+  end if;
+  if (select row(joined_count, participant_count, submitted_count, complete_ballot_count, eligible_voter_count)
+      from public.get_admin_competition_participation_progress('00000000-0000-0000-0000-000000000225'))
+      is distinct from row(3, 2, 2, 2, 3) then
+    raise exception 'Participation progress must aggregate joined, submitted, and complete eligible ballots only';
   end if;
 
   begin
@@ -159,6 +182,11 @@ begin
     raise exception 'Member accessed attendees';
   exception when insufficient_privilege then null;
   end;
+  begin
+    perform public.get_admin_competition_participation_progress('00000000-0000-0000-0000-000000000225');
+    raise exception 'Member accessed participation progress';
+  exception when insufficient_privilege then null;
+  end;
   if exists (
     with expected(rank, score, vote_count, title, creator_id, creator_name) as (values
       (1, 80::numeric, 1, 'Full name entry', '00000000-0000-0000-0000-000000000202'::uuid, 'Full Name'),
@@ -193,6 +221,11 @@ begin
   exception when insufficient_privilege then null;
   end;
   begin
+    perform public.get_admin_competition_participation_progress('00000000-0000-0000-0000-000000000225');
+    raise exception 'Other tenant admin accessed participation progress';
+  exception when insufficient_privilege then null;
+  end;
+  begin
     perform public.get_published_competition_results('00000000-0000-0000-0000-000000000221');
     raise exception 'Other tenant admin accessed published results';
   exception when insufficient_privilege then null;
@@ -206,6 +239,11 @@ begin
   begin
     perform public.get_admin_competition_attendees('00000000-0000-0000-0000-000000000221');
     raise exception 'Missing auth identity accessed attendees';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.get_admin_competition_participation_progress('00000000-0000-0000-0000-000000000225');
+    raise exception 'Missing auth identity accessed participation progress';
   exception when insufficient_privilege then null;
   end;
   begin
@@ -225,6 +263,11 @@ begin
   exception when insufficient_privilege then null;
   end;
   begin
+    perform public.get_admin_competition_participation_progress('00000000-0000-0000-0000-000000000225');
+    raise exception 'Anonymous client accessed participation progress';
+  exception when insufficient_privilege then null;
+  end;
+  begin
     perform public.get_published_competition_results('00000000-0000-0000-0000-000000000221');
     raise exception 'Anonymous client accessed published results';
   exception when insufficient_privilege then null;
@@ -239,6 +282,7 @@ declare
 begin
   foreach rpc in array array[
     'public.get_admin_competition_attendees(uuid)'::regprocedure,
+    'public.get_admin_competition_participation_progress(uuid)'::regprocedure,
     'public.get_published_competition_results(uuid)'::regprocedure
   ] loop
     if has_function_privilege('anon', rpc, 'execute')
@@ -256,6 +300,12 @@ begin
      <> array['p_competition_id', 'user_id', 'display_name', 'role', 'has_submission', 'has_voted'] then
     raise exception 'Attendee projection must expose participation only, not ballot contents';
   end if;
+  if (select proargnames from pg_proc
+    where oid = 'public.get_admin_competition_participation_progress(uuid)'::regprocedure)
+   <> array['p_competition_id', 'joined_count', 'participant_count', 'submitted_count',
+            'complete_ballot_count', 'eligible_voter_count'] then
+  raise exception 'Participation progress must return aggregate counts only';
+  end if;
 end;
 $$;
 
@@ -269,6 +319,11 @@ begin
   begin
     perform public.get_admin_competition_attendees('00000000-0000-0000-0000-000000000221');
     raise exception 'Revoked administrator accessed attendees';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.get_admin_competition_participation_progress('00000000-0000-0000-0000-000000000225');
+    raise exception 'Revoked administrator accessed participation progress';
   exception when insufficient_privilege then null;
   end;
   begin

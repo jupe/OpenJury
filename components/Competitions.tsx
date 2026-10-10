@@ -176,10 +176,14 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
   const [editing, setEditing] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
   const [editError, setEditError] = useState<CompetitionError | null>(null);
+  const [templateError, setTemplateError] = useState<CompetitionError | null>(null);
+  const [templateId, setTemplateId] = useState("");
+  const [loadingTemplate, setLoadingTemplate] = useState(false);
   const [draft, setDraft] = useState<CompetitionDraft>(emptyDraft);
   const [attempt, setAttempt] = useState(0);
   const formDialog = useRef<HTMLDialogElement>(null);
   const removeDialog = useRef<HTMLDialogElement>(null);
+  const templateRequest = useRef(0);
   const refresh = useCallback(() => {
     setLoading(true);
     setError(null);
@@ -234,15 +238,74 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
   }, [loading]);
 
   function newCompetition() {
+    templateRequest.current += 1;
     setEditError(null);
+    setTemplateError(null);
+    setTemplateId("");
+    setLoadingTemplate(false);
     setDraft(emptyDraft());
     setEditing(false);
     setSaveError(null);
     formDialog.current?.showModal();
   }
 
+  async function selectTemplate(id: string) {
+    const request = ++templateRequest.current;
+    setTemplateId(id);
+    setTemplateError(null);
+    if (!id) {
+      setDraft(emptyDraft());
+      return;
+    }
+
+    const template = competitions.find((competition) =>
+      competition.id === id && competition.status === "results_published",
+    );
+    if (!template) return;
+
+    setLoadingTemplate(true);
+    try {
+      const { data, error: queryError } = await client.from("categories")
+        .select("name,max_score")
+        .eq("competition_id", template.id)
+        .order("name");
+      if (request !== templateRequest.current) return;
+      if (queryError) {
+        setTemplateError({ message: "Unable to load competition template: {error}", error: queryError.message });
+        setTemplateId("");
+        return;
+      }
+      setDraft({
+        ...emptyDraft(),
+        description: template.description ?? "",
+        rules: template.rules ?? "",
+        allowParticipantVoting: template.allow_participant_voting ?? false,
+        eventType: template.event_type,
+        maxSubmissionImages: template.max_submission_images ?? 5,
+        submissionType: template.submission_type ?? "photo",
+        categories: (data || []).length
+          ? (data || []).map((category) => ({
+              name: category.name,
+              max_score: category.max_score,
+            }))
+          : [{ name: "", max_score: 5 }],
+      });
+    } catch {
+      if (request === templateRequest.current) {
+        setTemplateError({ message: "Unable to load competition template. Please try again." });
+        setTemplateId("");
+      }
+    } finally {
+      if (request === templateRequest.current) setLoadingTemplate(false);
+    }
+  }
+
   // Closing by Cancel, Escape, or a successful save discards the unsaved form.
   function resetForm() {
+    templateRequest.current += 1;
+    setTemplateId("");
+    setTemplateError(null);
+    setLoadingTemplate(false);
     setDraft(emptyDraft());
     setEditing(false);
     setSaveError(null);
@@ -458,6 +521,26 @@ export function CompetitionManager({ groupId }: { groupId: string }) {
               <h2 id="competition-form-title" className="text-lg font-semibold">{t(editing ? "Edit draft competition" : "Create a draft competition")}</h2>
               <IconButton icon="cancel" aria-label={t("Close")} disabled={saving} onClick={() => formDialog.current?.close()} />
             </div>
+            {!editing && (
+              <div>
+                <label htmlFor="competition-template" className="block">{t("Use a past competition as a template")}</label>
+                <select
+                  id="competition-template"
+                  value={templateId}
+                  disabled={loadingTemplate}
+                  onChange={(event) => void selectTemplate(event.target.value)}
+                  className="mt-1 block w-full rounded border border-slate-300 p-2"
+                >
+                  <option value="">{t("Start from scratch")}</option>
+                  {competitions.filter((competition) => competition.status === "results_published").map((competition) => (
+                    <option key={competition.id} value={competition.id}>{competition.name}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-sm text-slate-600">{t("Copies rules, categories, and settings. Dates, entrants, submissions, and ballots are not copied.")}</p>
+                {loadingTemplate && <p role="status">{t("Loading template…")}</p>}
+                {templateError && <p role="alert">{t(templateError.message, { error: t(templateError.error ?? "") })}</p>}
+              </div>
+            )}
             <label className="block">{t("Competition name")}
               <input required maxLength={100} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>

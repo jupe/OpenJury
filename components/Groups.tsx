@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthBoundary";
 import { useRealtimeUpdates } from "@/lib/useRealtimeUpdates";
 import { CompetitionManager } from "@/components/Competitions";
+import GroupPodium from "@/components/GroupPodium";
 import { GroupMembers } from "@/components/Membership";
 import AddButton from "@/components/AddButton";
 import Button from "@/components/Button";
@@ -355,6 +356,7 @@ export function GroupDetails({ id }: { id: string }) {
           </dialog>
         </>
       )}
+      <GroupPodium groupId={id} />
       {isAdmin && <GroupMembers groupId={id} />}
       <CompetitionManager groupId={id} />
     </>
