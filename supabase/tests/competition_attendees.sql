@@ -205,7 +205,8 @@ begin
       (1, 80::numeric, 1, 'Dual entry', '00000000-0000-0000-0000-000000000209'::uuid, 'Dual')
     ),
     actual as (
-      select * from public.get_published_competition_results('00000000-0000-0000-0000-000000000221')
+      select rank, score, vote_count, title, creator_id, creator_name
+      from public.get_published_competition_results('00000000-0000-0000-0000-000000000221')
     )
     (select * from actual except all select * from expected)
     union all
@@ -238,6 +239,11 @@ begin
     raise exception 'Unpublished results were accessible';
   exception when insufficient_privilege then null;
   end;
+  begin
+    perform public.get_published_competition_category_results('00000000-0000-0000-0000-000000000222');
+    raise exception 'Unpublished category results were accessible';
+  exception when insufficient_privilege then null;
+  end;
 end;
 $$;
 
@@ -257,6 +263,11 @@ begin
   begin
     perform public.get_published_competition_results('00000000-0000-0000-0000-000000000221');
     raise exception 'Other tenant admin accessed published results';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.get_published_competition_category_results('00000000-0000-0000-0000-000000000221');
+    raise exception 'Other tenant admin accessed published category results';
   exception when insufficient_privilege then null;
   end;
 end;
@@ -280,6 +291,11 @@ begin
     raise exception 'Missing auth identity accessed published results';
   exception when insufficient_privilege then null;
   end;
+  begin
+    perform public.get_published_competition_category_results('00000000-0000-0000-0000-000000000221');
+    raise exception 'Missing auth identity accessed published category results';
+  exception when insufficient_privilege then null;
+  end;
 end;
 $$;
 
@@ -301,6 +317,11 @@ begin
     raise exception 'Anonymous client accessed published results';
   exception when insufficient_privilege then null;
   end;
+  begin
+    perform public.get_published_competition_category_results('00000000-0000-0000-0000-000000000221');
+    raise exception 'Anonymous client accessed published category results';
+  exception when insufficient_privilege then null;
+  end;
 end;
 $$;
 
@@ -312,7 +333,8 @@ begin
   foreach rpc in array array[
     'public.get_admin_competition_attendees(uuid)'::regprocedure,
     'public.get_admin_competition_participation_progress(uuid)'::regprocedure,
-    'public.get_published_competition_results(uuid)'::regprocedure
+    'public.get_published_competition_results(uuid)'::regprocedure,
+    'public.get_published_competition_category_results(uuid)'::regprocedure
   ] loop
     if has_function_privilege('anon', rpc, 'execute')
        or has_function_privilege('service_role', rpc, 'execute')
@@ -358,6 +380,11 @@ begin
   begin
     perform public.get_published_competition_results('00000000-0000-0000-0000-000000000221');
     raise exception 'Revoked administrator accessed published results';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.get_published_competition_category_results('00000000-0000-0000-0000-000000000221');
+    raise exception 'Revoked administrator accessed published category results';
   exception when insufficient_privilege then null;
   end;
 end;
