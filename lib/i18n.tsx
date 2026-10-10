@@ -227,6 +227,7 @@ const finnish: Record<string, string> = {
   "Award certificates": "Kunniakirjat",
   "Print blank certificate templates": "Tulosta tyhjät kunniakirjapohjat",
   "Print published winner certificates": "Tulosta julkaistujen tulosten kunniakirjat",
+  "Print my winner certificate": "Tulosta oma kunniakirjani",
   "Use your browser’s print dialog to print or save the certificates as PDF.": "Tulosta kunniakirjat tai tallenna ne PDF-tiedostoina selaimen tulostusvalikosta.",
   "Certificate of achievement": "Saavutustodistus",
   "Certificate of Honor": "Kunniakirja",

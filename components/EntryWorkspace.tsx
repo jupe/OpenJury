@@ -981,6 +981,8 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
       <WinnerCertificates
         competitionName={competition.name}
         published={competition.status === "results_published"}
+        isAdmin={isAdmin}
+        userId={session.user.id}
         winners={publishedResults}
       />
       {error && !editable && <p role="alert"><ErrorText error={error} /></p>}
