@@ -15,7 +15,7 @@ docker run --rm -p 3000:3000 openjury:local
 The image runs as non-root and includes `/api/health`. `.env` files and build
 credentials are excluded from the Docker context. Configure **runtime**
 `SUPABASE_URL` and `SUPABASE_ANON_KEY` when starting a persistent deployment.
-Only these public client values are served by `/runtime-config.js`, with caching
+Only public client values and authentication feature flags are served by `/runtime-config.js`, with caching
 disabled. Never expose a service-role key in public configuration. This allows staging and production
 to use different Supabase projects without rebuilding the image. The original
 `NEXT_PUBLIC_*` variables remain available for local development.
@@ -38,6 +38,70 @@ schema migrations are managed separately; this frontend deployment does not
 reset or migrate them, unless an environment opts into the
 [self-hosted stack](proxmox.md#quick-start-lan-staging-and-production-vms).
 Preserve deny-by-default access for competition data.
+
+### Optional Google, Facebook, and GitHub login
+
+Social login is disabled by default. Set any combination of
+`AUTH_GOOGLE_ENABLED=true`, `AUTH_FACEBOOK_ENABLED=true`, and
+`AUTH_GITHUB_ENABLED=true` at runtime. Only the literal `true` enables a provider.
+Leaving all three unset or `false` preserves email-only sign-in. The same image
+can enable different providers in different deployments without rebuilding.
+
+For **hosted Supabase**, enable each selected provider in Authentication →
+Providers and enter its client ID and secret there. Enable **manual identity
+linking** in the project's Auth settings. Disable unused providers in Supabase
+too: frontend flags control the UI, not access to Supabase's public Auth API.
+
+For **self-hosted Supabase**, `deploy/compose.supabase.yml` uses the same flags
+to enable the Auth providers and enables authenticated manual linking. Set
+`AUTH_GOOGLE_CLIENT_ID` / `AUTH_GOOGLE_SECRET`,
+`AUTH_FACEBOOK_CLIENT_ID` / `AUTH_FACEBOOK_SECRET`, and/or
+`AUTH_GITHUB_CLIENT_ID` / `AUTH_GITHUB_SECRET` for enabled providers. Credentials
+go only to the Auth container, never the frontend container or runtime script.
+For automated staging/production deployments, use GitHub Environment **variables**
+for the flags/client IDs and **secrets** for the three `AUTH_*_SECRET` values.
+When running Compose directly, provide these values in its environment or a
+private env file; Next.js `.env.local` is not automatically read by Compose.
+Do not configure real OAuth credentials in untrusted PR previews.
+
+Create a Google OAuth web client, a Meta/Facebook Login app, and/or a GitHub
+OAuth App. Register the **Supabase Auth callback**, not the frontend page, as
+the provider's authorized redirect URI: `https://<project>.supabase.co/auth/v1/callback`
+for hosted Supabase, or `https://<app-host>/auth/v1/callback` for this self-hosted
+stack. Configure the app's trusted domain/origin in each provider console as
+required, and grant email access (including GitHub's private email permission).
+Facebook apps need the appropriate live mode/access for users beyond app testers.
+Keep email required; do not enable anonymous/email-optional provider accounts.
+
+In Supabase Auth, set Site URL to the app origin and allow the exact frontend
+redirects `https://<app-host>/dashboard` and `https://<app-host>/profile` (also
+their localhost equivalents when developing). The first is for login, the second
+for linking. Self-hosted Compose configures both automatically.
+
+**One account across providers:** Supabase automatically links identities with
+the same verified email to the existing Auth user. OpenJury keeps using that
+user's UUID for groups, entries, and votes; it does not create a separate social
+account table or match accounts using browser-supplied metadata.
+Keep email autoconfirm disabled and these providers in Supabase's default
+account-linking domain. If provider emails differ, sign in to the **existing**
+OpenJury account first, then use **Profile → Linked sign-in services → Link**
+before signing out. This proves control of both identities and attaches the new
+service to the same user even with a different email.
+No system can safely infer that unrelated email addresses belong to one person;
+independent first sign-ins with different emails can still create separate
+accounts. An identity already attached to another user must fail linking, not
+silently merge their private data. Existing duplicate accounts are not merged.
+
+After configuring a deployment, verify with real provider test accounts:
+1. Sign in by email, note the Auth user UUID, then log out and sign in with each
+   enabled provider sharing that verified email. Confirm the UUID, memberships,
+   and submissions remain unchanged and only one Auth user exists.
+2. While signed in, link a provider with a different email from Profile. Confirm
+   the UUID is unchanged and later sign-in with that provider returns the same user.
+3. Confirm cancellation and already-linked-to-another-user errors are displayed,
+   and disabled providers reject direct Auth API login as well as disappearing
+   from the UI. Browser regression tests mock Auth; they cannot validate provider
+   credentials or Supabase's server-side linking policy.
 
 ## Supplemental Vercel hosting
 

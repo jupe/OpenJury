@@ -10,6 +10,15 @@ const envNames = [
   "NEXT_PUBLIC_SUPABASE_ANON_KEY",
   "SUPABASE_SERVICE_ROLE_KEY",
   "PASSWORD_SIGN_IN",
+  "AUTH_GOOGLE_ENABLED",
+  "AUTH_FACEBOOK_ENABLED",
+  "AUTH_GITHUB_ENABLED",
+  "AUTH_GOOGLE_CLIENT_ID",
+  "AUTH_FACEBOOK_CLIENT_ID",
+  "AUTH_GITHUB_CLIENT_ID",
+  "AUTH_GOOGLE_SECRET",
+  "AUTH_FACEBOOK_SECRET",
+  "AUTH_GITHUB_SECRET",
 ] as const;
 let previous: Record<string, string | undefined>;
 
@@ -42,9 +51,42 @@ test("runtime script exposes only public fields and escapes script delimiters", 
     SUPABASE_URL: "https://example.supabase.co",
     SUPABASE_ANON_KEY: value,
     PASSWORD_SIGN_IN: false,
+    AUTH_GOOGLE_ENABLED: false,
+    AUTH_FACEBOOK_ENABLED: false,
+    AUTH_GITHUB_ENABLED: false,
   });
   process.env.SUPABASE_URL = "https://changed.supabase.co";
   expect(await GET().text()).toContain("https://changed.supabase.co");
+});
+
+test("social provider flags are independently opt-in and credentials stay server-only", async () => {
+  for (const name of envNames.filter((name) => name.startsWith("AUTH_") && !name.endsWith("_ENABLED"))) {
+    process.env[name] = "server-only-test-value";
+  }
+  for (const [google, facebook, github] of [
+    ["true", "false", "TRUE"],
+    ["false", "true", "true"],
+    ["true", "true", "true"],
+    ["1", "", "false"],
+  ]) {
+    process.env.AUTH_GOOGLE_ENABLED = google;
+    process.env.AUTH_FACEBOOK_ENABLED = facebook;
+    process.env.AUTH_GITHUB_ENABLED = github;
+    const response = GET();
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const body = await response.text();
+    expect(body).not.toContain("server-only-test-value");
+    const context = { window: {} as Window };
+    runInNewContext(body, context);
+    expect(context.window.__OPENJURY_CONFIG__).toEqual({
+      SUPABASE_URL: "",
+      SUPABASE_ANON_KEY: "",
+      PASSWORD_SIGN_IN: false,
+      AUTH_GOOGLE_ENABLED: google === "true",
+      AUTH_FACEBOOK_ENABLED: facebook === "true",
+      AUTH_GITHUB_ENABLED: github === "true",
+    });
+  }
 });
 
 test("password sign-in is exposed only when explicitly enabled", async () => {
@@ -63,6 +105,9 @@ test("missing configuration fails closed; server client uses runtime public conf
     SUPABASE_URL: "",
     SUPABASE_ANON_KEY: "",
     PASSWORD_SIGN_IN: false,
+    AUTH_GOOGLE_ENABLED: false,
+    AUTH_FACEBOOK_ENABLED: false,
+    AUTH_GITHUB_ENABLED: false,
   });
   expect(() => getSupabase()).toThrow("Supabase is not configured");
   process.env.SUPABASE_URL = "https://runtime.supabase.co";

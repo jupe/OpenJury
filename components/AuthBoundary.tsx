@@ -3,7 +3,7 @@
 import { createPortal } from "react-dom";
 import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
-import { getSupabase, passwordSignInEnabled } from "@/lib/supabase";
+import { getEnabledSocialProviders, getSupabase, passwordSignInEnabled, type SocialProvider } from "@/lib/supabase";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
 import AccountMenu from "@/components/AccountMenu";
@@ -29,7 +29,7 @@ function getServerAppMode() {
   return false;
 }
 
-const AuthContext = createContext<{ client: SupabaseClient; session: Session } | null>(null);
+const AuthContext = createContext<{ client: SupabaseClient; session: Session; demo: boolean } | null>(null);
 
 export function useAuth() {
   const auth = useContext(AuthContext);
@@ -58,6 +58,7 @@ export default function AuthBoundary({ children, signedOut }: {
   const [code, setCode] = useState("");
   const [verifyingCode, setVerifyingCode] = useState(false);
   const [pending, setPending] = useState(false);
+  const [oauthProvider, setOauthProvider] = useState<SocialProvider["id"] | null>(null);
   const [cooldown, setCooldown] = useState(0);
   const [signingOut, setSigningOut] = useState(false);
   const mounted = useRef(false);
@@ -98,7 +99,7 @@ export default function AuthBoundary({ children, signedOut }: {
       if (token) setLinkToken(token);
       const error = hash.get("error_description") || query.get("error_description") || hash.get("error") || query.get("error");
       if (error) {
-        setLinkError(translate.current("Sign-in link failed: {error}. Request a new link below.", { error }));
+        setLinkError(translate.current("Sign-in failed: {error}. Please try again.", { error }));
         for (const key of ["error", "error_code", "error_description"]) {
           hash.delete(key);
           query.delete(key);
@@ -131,7 +132,7 @@ export default function AuthBoundary({ children, signedOut }: {
         });
         unsubscribe = () => data.subscription.unsubscribe();
         const initialized = await supabase.auth.initialize();
-        if (initialized.error) throw initialized.error;
+        if (initialized.error && !error) throw initialized.error;
         const result = await supabase.auth.getSession();
         if (active && revision.current === initialRevision) {
           if (result.error) {
@@ -255,6 +256,30 @@ export default function AuthBoundary({ children, signedOut }: {
     }
   }
 
+  async function signInWithProvider(provider: SocialProvider) {
+    if (!client || pending || demo || !getEnabledSocialProviders().some(({ id }) => id === provider.id)) return;
+    const requestRevision = revision.current;
+    setPending(true);
+    setOauthProvider(provider.id);
+    setActionError("");
+    setMessage("");
+    try {
+      const { error } = await client.auth.signInWithOAuth({
+        provider: provider.id,
+        options: { redirectTo: `${window.location.origin}/dashboard` },
+      });
+      if (error) throw error;
+    } catch (error) {
+      if (!mounted.current || revision.current !== requestRevision) return;
+      setActionError(t("Unable to sign in with {provider}: {error}", {
+        provider: provider.name,
+        error: error instanceof Error ? t(error.message) : t("Please try again."),
+      }));
+      setPending(false);
+      setOauthProvider(null);
+    }
+  }
+
   async function signOut() {
     if (!client || signingOut) return;
     const requestRevision = revision.current;
@@ -304,7 +329,7 @@ export default function AuthBoundary({ children, signedOut }: {
             accountSlot,
           )}
           {signingOut ? <p role="status">{t("Signing out…")}</p> : (
-            <AuthContext.Provider value={{ client, session }}>
+            <AuthContext.Provider value={{ client, session, demo }}>
               <div key={`${session.user.id}:${session.access_token}`} className="space-y-6">{children}</div>
             </AuthContext.Provider>
           )}
@@ -315,6 +340,18 @@ export default function AuthBoundary({ children, signedOut }: {
         <Card title={t("Sign in to OpenJury")}>
           {!appMode && <p>{t("Sign in with your email to view your groups. New accounts are welcome.")}</p>}
           {demo && <p>{t("In the demo, any email signs in instantly as a new account, or pick a demo person in the toolbar below.")}</p>}
+          {!demo && getEnabledSocialProviders().length > 0 && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {getEnabledSocialProviders().map((provider) => (
+                  <Button key={provider.id} disabled={pending} onClick={() => signInWithProvider(provider)}>
+                    {t("Sign in with {provider}", { provider: provider.name })}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-sm text-slate-600">{t("Use the same verified email to keep one account. If your service uses a different email, sign in to your existing account first and link it in Profile.")}</p>
+            </div>
+          )}
           <form onSubmit={requestLink} className="space-y-4" aria-busy={pending}>
             <label className="block">{t("Email address")}
               <input ref={emailInput} type="email" autoComplete="email" autoCapitalize="none" spellCheck={false} enterKeyHint="send" required disabled={pending} value={email} onChange={(event) => {
@@ -324,11 +361,11 @@ export default function AuthBoundary({ children, signedOut }: {
                 setCooldown(0);
               }} className="mt-1 block w-full rounded border border-slate-300 p-2" />
             </label>
-            <Button type="submit" disabled={pending || cooldown > 0}>{pending && !verifyingCode ? t(appMode ? "Sending code…" : "Sending link…")
+            <Button type="submit" disabled={pending || cooldown > 0}>{pending && !oauthProvider && !verifyingCode ? t(appMode ? "Sending code…" : "Sending link…")
               : cooldown > 0 ? t(appMode ? "Send a new code in {seconds} s" : "Send a new link in {seconds} s", { seconds: cooldown })
                 : t(appMode ? "Send sign-in code" : "Send sign-in link")}</Button>
           </form>
-          {(pending || message) && <p role="status">{pending ? t(verifyingCode ? "Signing in…" : appMode ? "Sending code…" : "Sending your sign-in link…") : message}</p>}
+          {(pending || message) && <p role="status">{pending ? t(oauthProvider ? "Redirecting to sign-in…" : verifyingCode ? "Signing in…" : appMode ? "Sending code…" : "Sending your sign-in link…") : message}</p>}
           {!demo && appMode && <form onSubmit={verifyCode} className="mt-6 space-y-4 border-t border-slate-200 pt-4" aria-busy={verifyingCode}>
             <label className="block">{t("One-time code")}
               <input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6,10}" minLength={6} maxLength={10} required disabled={pending} value={code} onChange={(event) => setCode(event.target.value)} className="mt-1 block w-full rounded border border-slate-300 p-2" />

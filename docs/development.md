@@ -97,6 +97,13 @@ the templates.
 Configure production email delivery and rate limits in Supabase. Do not allow
 untrusted preview origins against a production Auth project.
 
+Google, Facebook, and GitHub login are optional. Set the runtime
+`AUTH_*_ENABLED` flags in `.env.local` and configure the corresponding Supabase
+providers, manual identity linking, and `/profile` redirect in addition to
+`/dashboard`. Follow the [social login setup and account-linking checks](deployment.md#optional-google-facebook-and-github-login).
+Use the same verified email to reuse an account automatically; for a different
+provider email, sign in to the existing account and link it from Profile first.
+
 Group invitation emails retain their dashboard links. With the server-only
 `SUPABASE_SERVICE_ROLE_KEY` and the invitation SMTP settings configured, the API
 also includes Supabase's generated `email_otp` in the plain-text email, addressed
@@ -143,7 +150,8 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/28_draft_publication_schedule.sql`,
 `supabase/migrations/28_reopen_competition_phases.sql`, and
 `supabase/migrations/29_unconfirmed_email_invites.sql`, and
-`supabase/migrations/30_admin_participation_progress.sql`, once each, in that order.
+`supabase/migrations/30_admin_participation_progress.sql`, and
+`supabase/migrations/31_platform_group_summary.sql`, once each, in that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
 for a plain PostgreSQL database without that infrastructure. For existing
@@ -165,6 +173,9 @@ Migration 18 adds HEIC/HEIF support for private submission media.
 Migration 19 adds a read-only group overview RPC with member and competition counts.
 Without it, groups still list but show no counts.
 Migration 20 adds metadata names to the admin-only group member list.
+Migration 31 extends the platform-admin group list with creator name/email,
+creation time, and competition totals by lifecycle state. These details are
+available without joining the group and remain restricted to platform admins.
 Signed-in users can set or clear their optional name in the account menu.
 The form updates only their own Supabase Auth `display_name` metadata; names
 also appear in existing attendee and published-result projections.

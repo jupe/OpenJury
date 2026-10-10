@@ -76,6 +76,15 @@ jobs:
           # Supabase supplies its own service-role key, so this one is for hosted Supabase.
           APP_URL: ${{ vars.APP_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          AUTH_GOOGLE_ENABLED: ${{ vars.AUTH_GOOGLE_ENABLED }}
+          AUTH_GOOGLE_CLIENT_ID: ${{ vars.AUTH_GOOGLE_CLIENT_ID }}
+          AUTH_GOOGLE_SECRET: ${{ secrets.AUTH_GOOGLE_SECRET }}
+          AUTH_FACEBOOK_ENABLED: ${{ vars.AUTH_FACEBOOK_ENABLED }}
+          AUTH_FACEBOOK_CLIENT_ID: ${{ vars.AUTH_FACEBOOK_CLIENT_ID }}
+          AUTH_FACEBOOK_SECRET: ${{ secrets.AUTH_FACEBOOK_SECRET }}
+          AUTH_GITHUB_ENABLED: ${{ vars.AUTH_GITHUB_ENABLED }}
+          AUTH_GITHUB_CLIENT_ID: ${{ vars.AUTH_GITHUB_CLIENT_ID }}
+          AUTH_GITHUB_SECRET: ${{ secrets.AUTH_GITHUB_SECRET }}
           GH_TOKEN: ${{ github.token }}
           DOCKER_CONFIG: ${{ runner.temp }}/registry-auth
         shell: bash

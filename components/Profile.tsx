@@ -5,13 +5,15 @@ import { useAuth } from "@/components/AuthBoundary";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import Card from "@/components/Card";
 import IconButton from "@/components/IconButton";
+import Button from "@/components/Button";
 import { failureMessage } from "@/lib/errors";
 import { useLocale } from "@/lib/i18n";
+import { getEnabledSocialProviders, type SocialProvider } from "@/lib/supabase";
 
 /** The signed-in user's own profile: their email and optional display name. */
 export function ProfileSettings() {
   const { t } = useLocale();
-  const { client, session } = useAuth();
+  const { client, session, demo } = useAuth();
   const initialName = typeof session.user.user_metadata.display_name === "string" ? session.user.user_metadata.display_name.trim() : "";
   const [savedName, setSavedName] = useState(initialName);
   const [name, setName] = useState(initialName);
@@ -19,6 +21,25 @@ export function ProfileSettings() {
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const [linkError, setLinkError] = useState("");
+  const providers = demo ? [] : getEnabledSocialProviders();
+
+  async function linkProvider(provider: SocialProvider) {
+    if (linking || !providers.some(({ id }) => id === provider.id)) return;
+    setLinking(true);
+    setLinkError("");
+    try {
+      const { error } = await client.auth.linkIdentity({
+        provider: provider.id,
+        options: { redirectTo: `${window.location.origin}/profile` },
+      });
+      if (error) throw error;
+    } catch (failure) {
+      setLinkError(t("Unable to link {provider}: {error}", { provider: provider.name, error: t(failureMessage(failure)) }));
+      setLinking(false);
+    }
+  }
 
   function startEditing() {
     setName(savedName);
@@ -92,6 +113,26 @@ export function ProfileSettings() {
           {saved && <p role="status" className="mt-2 text-sm">{t("Your name has been saved.")}</p>}
         </div>
       </Card>
+      {providers.length > 0 && (
+        <Card title={t("Linked sign-in services")}>
+          <p>{t("Link another service while signed in to keep your groups, entries, and votes in this account, even if its email is different.")}</p>
+          <ul className="space-y-3">
+            {providers.map((provider) => {
+              const linked = session.user.identities?.some((identity) => identity.provider === provider.id) === true;
+              return <li key={provider.id} className="flex flex-wrap items-center justify-between gap-2">
+                <span>{provider.name}</span>
+                {linked ? <span>{t("Linked")}</span> : (
+                  <Button disabled={linking} onClick={() => linkProvider(provider)}>
+                    {t("Link {provider}", { provider: provider.name })}
+                  </Button>
+                )}
+              </li>;
+            })}
+          </ul>
+          {linking && <p role="status">{t("Redirecting to sign-in…")}</p>}
+          {linkError && <p role="alert">{linkError}</p>}
+        </Card>
+      )}
     </>
   );
 }
