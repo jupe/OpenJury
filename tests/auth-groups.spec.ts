@@ -2518,6 +2518,18 @@ test("platform admins see every group in a table and can take one over @mobile",
   await expect(adminGroups.getByRole("row").filter({ hasText: "Book club" })).toContainText("You are a member");
   await expect(adminGroups.getByRole("link", { name: "Open Baking club" })).toHaveAttribute("href", `/group/${groupId}`);
   await expect(adminGroups.getByRole("button", { name: "Manage Book club as admin" })).toBeEnabled();
+  const openGroup = adminGroups.getByRole("link", { name: "Open Baking club" });
+  const manageGroup = adminGroups.getByRole("button", { name: "Manage Chess club as admin" });
+  for (const action of [openGroup, manageGroup]) {
+    await expect(action).toHaveText("");
+    await expect(action.locator("svg")).toHaveAttribute("aria-hidden", "true");
+    await expect(action).toHaveAttribute("title", await action.getAttribute("aria-label") as string);
+    const bounds = await action.boundingBox();
+    expect(bounds?.width).toBe(48);
+    expect(bounds?.height).toBe(48);
+  }
+  const compactRow = await adminGroups.getByRole("row").filter({ hasText: "Chess club" }).boundingBox();
+  expect(compactRow?.height).toBeLessThanOrEqual(60);
   page.once("dialog", (dialog) => void dialog.dismiss());
   await adminGroups.getByRole("button", { name: "Manage Chess club as admin" }).click();
   expect(joined).toBeUndefined();

@@ -9,7 +9,7 @@ import { failureMessage } from "@/lib/errors";
 import { useLocale } from "@/lib/i18n";
 import Button, { ButtonLink } from "@/components/Button";
 import Card from "@/components/Card";
-import IconButton, { Icon } from "@/components/IconButton";
+import IconButton, { Icon, IconLink } from "@/components/IconButton";
 
 // Sign-in links always return to /dashboard, so an invite opened while signed
 // out is remembered here and resumed from the dashboard.
@@ -424,7 +424,7 @@ export function PlatformGroups() {
           <thead className="text-sm text-slate-500">
             <tr className="border-b border-slate-200">
               <th scope="col" className="pb-2 font-medium">{t("Group name")}</th>
-              <th scope="col" className="w-36 pb-2 text-right font-medium"><span className="sr-only">{t("Actions")}</span></th>
+              <th scope="col" className="w-12 pb-2 text-right font-medium"><span className="sr-only">{t("Actions")}</span></th>
             </tr>
           </thead>
           <tbody>
@@ -436,11 +436,9 @@ export function PlatformGroups() {
                 </td>
                 <td className="py-1 text-right">
                   {group.my_role === "admin" ? (
-                    <ButtonLink href={`/group/${encodeURIComponent(group.id)}`} aria-label={t("Open {group}", { group: group.name })}>{t("Open")}</ButtonLink>
+                    <IconLink icon="chevronRight" href={`/group/${encodeURIComponent(group.id)}`} aria-label={t("Open {group}", { group: group.name })} />
                   ) : (
-                    <Button disabled={!!working} aria-label={t("Manage {group} as admin", { group: group.name })} onClick={() => void manage(group)}>
-                      {t(working === group.id ? "Joining…" : "Manage as admin")}
-                    </Button>
+                    <IconButton icon="manage" disabled={!!working} aria-label={t("Manage {group} as admin", { group: group.name })} title={working === group.id ? t("Joining…") : undefined} onClick={() => void manage(group)} />
                   )}
                 </td>
               </tr>
