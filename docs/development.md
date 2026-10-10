@@ -74,6 +74,12 @@ and **Invite user** email templates in Supabase Auth to the contents of
 `public/auth-email.html`. Set Site URL to the app origin without a trailing slash.
 The template includes the Supabase sign-in code (`{{ .Token }}`) so recipients can
 open the installed Home Screen app and enter it with the same email address.
+The login view detects standalone display mode (including iOS's
+`navigator.standalone`): installed apps show code entry and **Send sign-in code**
+without the browser's introductory text; browser tabs show **Send sign-in link**
+and no code entry. This is an authentication code, not a group invitation code.
+The shared Supabase email template retains both the code and the preview-safe link:
+email rendering cannot detect whether the recipient is using the installed app.
 Updating the file in this repository does not update a hosted Supabase project:
 copy it into all three hosted Auth email templates and configure Site URL,
 allowed redirects, and production SMTP delivery there.
