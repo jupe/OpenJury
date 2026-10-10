@@ -1457,7 +1457,14 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
           <p className="flex flex-wrap items-center gap-2">{t("Status:")} <StatusBadge status={competitionStatus} /></p>
           {competition && <Deadlines competition={competition} />}
           {competitionStatus === "draft" && (
-            <p>{t("Edit scoring categories, event type, and deadlines from the group page before opening submissions. Competition details remain editable.")}</p>
+            <div className="space-y-2">
+              <p>{t("Edit scoring categories, event type, and deadlines before opening submissions.")}</p>
+              {groupId && (
+                <ButtonLink href={`/group/${encodeURIComponent(groupId)}#competitions`}>
+                  {t("Edit full draft competition")}
+                </ButtonLink>
+              )}
+            </div>
           )}
           {competitionStatus === "review_pending" && (
             <>
