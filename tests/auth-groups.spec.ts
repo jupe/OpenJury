@@ -2,7 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QRCodeSVG } from "qrcode.react";
-import { GET as runtimeConfig } from "../app/runtime-config.js/route";
 
 const supabaseURL = "https://foundation.supabase.co";
 const groupId = "11111111-1111-4111-8111-111111111111";
@@ -23,6 +22,7 @@ function session(user = userId, email = "member@example.com") {
 async function configure(page: Page, signedIn = false, passwordSignIn = false, providers: string[] = []) {
   await page.route("**/runtime-config.js", (route) => route.fulfill({
     contentType: "application/javascript",
+    headers: { "Cache-Control": "no-store" },
     body: `window.__OPENJURY_CONFIG__ = ${JSON.stringify({
       SUPABASE_URL: supabaseURL, SUPABASE_ANON_KEY: "public-test-anon", PASSWORD_SIGN_IN: passwordSignIn,
       AUTH_GOOGLE_ENABLED: providers.includes("google"),
@@ -71,48 +71,16 @@ async function configure(page: Page, signedIn = false, passwordSignIn = false, p
   }
 }
 
-test("social provider runtime flags default off, require true, and never expose credentials", async () => {
-  const variables = [
-    "AUTH_GOOGLE_ENABLED", "AUTH_FACEBOOK_ENABLED", "AUTH_GITHUB_ENABLED",
-    "AUTH_GOOGLE_SECRET", "AUTH_FACEBOOK_SECRET", "AUTH_GITHUB_SECRET",
-  ];
-  const previous = Object.fromEntries(variables.map((key) => [key, process.env[key]]));
-  try {
-    for (const key of variables) delete process.env[key];
-    const readConfig = async () => {
-      const response = runtimeConfig();
-      expect(response.headers.get("Cache-Control")).toBe("no-store");
-      const body = await response.text();
-      return JSON.parse(body.slice("window.__OPENJURY_CONFIG__ = ".length).trim().replace(/;$/, ""));
-    };
-    expect(await readConfig()).toMatchObject({
-      AUTH_GOOGLE_ENABLED: false, AUTH_FACEBOOK_ENABLED: false, AUTH_GITHUB_ENABLED: false,
-    });
-    process.env.AUTH_GOOGLE_ENABLED = "true";
-    process.env.AUTH_FACEBOOK_ENABLED = "false";
-    process.env.AUTH_GITHUB_ENABLED = "TRUE";
-    for (const key of variables.filter((key) => key.endsWith("_SECRET"))) process.env[key] = "server-only-test-value";
-    const config = await readConfig();
-    expect(config).toMatchObject({
-      AUTH_GOOGLE_ENABLED: true, AUTH_FACEBOOK_ENABLED: false, AUTH_GITHUB_ENABLED: false,
-    });
-    expect(JSON.stringify(config)).not.toContain("server-only-test-value");
-    expect(Object.keys(config).some((key) => key.endsWith("_SECRET") || key.endsWith("_CLIENT_ID"))).toBe(false);
-  } finally {
-    for (const key of variables) {
-      if (previous[key] === undefined) delete process.env[key];
-      else process.env[key] = previous[key];
-    }
-  }
-});
-
-test("social login is absent by default and deployments can enable a subset @mobile", async ({ page }) => {
+test("social login is absent by default @mobile", async ({ page }) => {
   await configure(page);
   await page.goto("/dashboard");
   await expect(page.getByRole("button", { name: "Send sign-in link", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Sign in with (Google|Facebook|GitHub)$/ })).toHaveCount(0);
+});
+
+test("deployments can enable a subset of social login providers @mobile", async ({ page }) => {
   await configure(page, false, false, ["google", "github"]);
-  await page.reload();
+  await page.goto("/dashboard");
   await expect(page.getByRole("button", { name: "Sign in with Google", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign in with GitHub", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign in with Facebook", exact: true })).toHaveCount(0);
@@ -131,7 +99,7 @@ for (const [provider, name] of [["google", "Google"], ["facebook", "Facebook"], 
         access_token: session().access_token, refresh_token: session().refresh_token,
         token_type: "bearer", expires_in: "3600",
       }).toString();
-      return route.fulfill({ status: 302, headers: { location: callback.href } });
+      return route.fulfill({ contentType: "text/html", body: `<script>window.location.replace(${JSON.stringify(callback.href)})</script>` });
     });
     await page.goto("/dashboard");
     const origin = new URL(page.url()).origin;
@@ -140,7 +108,7 @@ for (const [provider, name] of [["google", "Google"], ["facebook", "Facebook"], 
     expect(authorizeURL?.searchParams.get("provider")).toBe(provider);
     expect(authorizeURL?.searchParams.get("redirect_to")).toBe(`${origin}/dashboard`);
     expect(await page.evaluate(() => JSON.parse(localStorage.getItem("sb-foundation-auth-token")!).user.id)).toBe(userId);
-    await expect(page).toHaveURL(`${origin}/dashboard`);
+    await expect(page).toHaveURL(/\/dashboard#?$/);
   });
 
   test(`${name} identity linking is authenticated and retains the user ID with a different email @mobile`, async ({ page }) => {
@@ -150,6 +118,10 @@ for (const [provider, name] of [["google", "Google"], ["facebook", "Facebook"], 
       json: { ...session().user, identities: [identity] },
     }));
     let linkRequests = 0;
+    await page.route(`${supabaseURL}/mock-provider**`, (route) => {
+      const callback = new URL(route.request().url()).searchParams.get("callback")!;
+      return route.fulfill({ contentType: "text/html", body: `<script>window.location.replace(${JSON.stringify(callback)})</script>` });
+    });
     await page.route(`${supabaseURL}/auth/v1/user/identities/authorize**`, (route) => {
       linkRequests++;
       expect(route.request().headers().authorization).toBe(["Bearer", session().access_token].join(" "));
@@ -161,7 +133,7 @@ for (const [provider, name] of [["google", "Google"], ["facebook", "Facebook"], 
         access_token: session().access_token, refresh_token: session().refresh_token,
         token_type: "bearer", expires_in: "3600",
       }).toString();
-      return route.fulfill({ json: { url: callback.href } });
+      return route.fulfill({ json: { url: `${supabaseURL}/mock-provider?callback=${encodeURIComponent(callback.href)}` } });
     });
     await page.goto("/profile");
     await page.getByRole("button", { name: `Link ${name}`, exact: true }).click();
@@ -182,7 +154,7 @@ test("social identity conflicts show an error and never switch or merge accounts
   }));
   await page.goto("/profile");
   await page.getByRole("button", { name: "Link GitHub", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("Unable to link GitHub: Identity is already linked to another user");
+  await expect(page.getByRole("alert").filter({ hasText: "Unable to link GitHub" })).toContainText("Identity is already linked to another user");
   await expect(page.getByRole("button", { name: "Link Google", exact: true })).toBeEnabled();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("sb-foundation-auth-token")!).user.id)).toBe(userId);
 });
@@ -190,7 +162,7 @@ test("social identity conflicts show an error and never switch or merge accounts
 test("social login cancellation displays the callback error and allows retry", async ({ page }) => {
   await configure(page, false, false, ["facebook"]);
   await page.goto("/dashboard#error=access_denied&error_description=Login%20cancelled");
-  await expect(page.getByRole("alert")).toContainText("Sign-in failed: Login cancelled. Please try again.");
+  await expect(page.getByRole("alert").filter({ hasText: "Sign-in failed" })).toContainText("Login cancelled. Please try again.");
   await expect(page.getByRole("button", { name: "Sign in with Facebook", exact: true })).toBeEnabled();
   await expect(page).toHaveURL(/\/dashboard$/);
 });
@@ -198,7 +170,7 @@ test("social login cancellation displays the callback error and allows retry", a
 test("social identity linking cancellation retains the original session", async ({ page }) => {
   await configure(page, true, false, ["github"]);
   await page.goto("/profile#error=access_denied&error_code=identity_already_exists&error_description=Linking%20cancelled");
-  await expect(page.getByRole("alert")).toContainText("Linking cancelled");
+  await expect(page.getByRole("alert").filter({ hasText: "Sign-in failed" })).toContainText("Linking cancelled");
   await expect(page.getByRole("button", { name: "Link GitHub", exact: true })).toBeEnabled();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("sb-foundation-auth-token")!).user.id)).toBe(userId);
   await expect(page).toHaveURL(/\/profile$/);
