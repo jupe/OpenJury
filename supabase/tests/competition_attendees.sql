@@ -96,6 +96,15 @@ where group_id = '00000000-0000-0000-0000-000000000231'
 insert into public.published_competition_results (competition_id, entry_id, rank, score, vote_count)
 select competition_id, id, 1, 80, 1 from public.entries
 where competition_id = '00000000-0000-0000-0000-000000000221' and not is_disqualified;
+insert into public.published_competition_category_results (
+  competition_id, category_id, entry_id, rank, score
+) values
+  ('00000000-0000-0000-0000-000000000221', '00000000-0000-0000-0000-000000000241',
+   '00000000-0000-0000-0000-000000000251', 1, 80),
+  ('00000000-0000-0000-0000-000000000221', '00000000-0000-0000-0000-000000000241',
+   '00000000-0000-0000-0000-000000000253', 2, 75),
+  ('00000000-0000-0000-0000-000000000221', '00000000-0000-0000-0000-000000000241',
+   '00000000-0000-0000-0000-000000000254', 3, 70);
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000201', true);
@@ -191,22 +200,48 @@ begin
     with expected(rank, score, vote_count, title, creator_id, creator_name) as (values
       (1, 80::numeric, 1, 'Full name entry', '00000000-0000-0000-0000-000000000202'::uuid, 'Full Name'),
       (1, 80::numeric, 1, 'Short name entry', '00000000-0000-0000-0000-000000000204'::uuid, 'Short Name'),
-      (1, 80::numeric, 1, 'Email fallback entry', '00000000-0000-0000-0000-000000000205'::uuid, 'Participant'),
+      (1, 80::numeric, 1, 'Email fallback entry', '00000000-0000-0000-0000-000000000205'::uuid, 'email@example.invalid'),
       (1, 80::numeric, 1, 'Participant entry', '00000000-0000-0000-0000-000000000206'::uuid, 'Participant'),
       (1, 80::numeric, 1, 'Dual entry', '00000000-0000-0000-0000-000000000209'::uuid, 'Dual')
     ),
     actual as (
-      select * from public.get_published_competition_results('00000000-0000-0000-0000-000000000221')
+      select rank, score, vote_count, title, creator_id, creator_name
+      from public.get_published_competition_results('00000000-0000-0000-0000-000000000221')
     )
     (select * from actual except all select * from expected)
     union all
     (select * from expected except all select * from actual)
   ) then
-    raise exception 'Published projection changed or disclosed an email/UUID name fallback';
+    raise exception 'Published result creator labels or projection differ';
+  end if;
+  if exists (
+    with expected(category_id, category_name, rank, score, title, creator_name) as (values
+      ('00000000-0000-0000-0000-000000000241'::uuid, 'Quality', 1, 80::numeric,
+       'Full name entry', 'Full Name'),
+      ('00000000-0000-0000-0000-000000000241'::uuid, 'Quality', 2, 75::numeric,
+       'Email fallback entry', 'email@example.invalid'),
+      ('00000000-0000-0000-0000-000000000241'::uuid, 'Quality', 3, 70::numeric,
+       'Participant entry', 'Participant')
+    ),
+    actual as (
+      select * from public.get_published_competition_category_results(
+        '00000000-0000-0000-0000-000000000221'
+      )
+    )
+    (select * from actual except all select * from expected)
+    union all
+    (select * from expected except all select * from actual)
+  ) then
+    raise exception 'Published category creator labels differ';
   end if;
   begin
     perform public.get_published_competition_results('00000000-0000-0000-0000-000000000222');
     raise exception 'Unpublished results were accessible';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.get_published_competition_category_results('00000000-0000-0000-0000-000000000222');
+    raise exception 'Unpublished category results were accessible';
   exception when insufficient_privilege then null;
   end;
 end;
@@ -230,6 +265,11 @@ begin
     raise exception 'Other tenant admin accessed published results';
   exception when insufficient_privilege then null;
   end;
+  begin
+    perform public.get_published_competition_category_results('00000000-0000-0000-0000-000000000221');
+    raise exception 'Other tenant admin accessed published category results';
+  exception when insufficient_privilege then null;
+  end;
 end;
 $$;
 
@@ -249,6 +289,11 @@ begin
   begin
     perform public.get_published_competition_results('00000000-0000-0000-0000-000000000221');
     raise exception 'Missing auth identity accessed published results';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.get_published_competition_category_results('00000000-0000-0000-0000-000000000221');
+    raise exception 'Missing auth identity accessed published category results';
   exception when insufficient_privilege then null;
   end;
 end;
@@ -272,6 +317,11 @@ begin
     raise exception 'Anonymous client accessed published results';
   exception when insufficient_privilege then null;
   end;
+  begin
+    perform public.get_published_competition_category_results('00000000-0000-0000-0000-000000000221');
+    raise exception 'Anonymous client accessed published category results';
+  exception when insufficient_privilege then null;
+  end;
 end;
 $$;
 
@@ -283,7 +333,8 @@ begin
   foreach rpc in array array[
     'public.get_admin_competition_attendees(uuid)'::regprocedure,
     'public.get_admin_competition_participation_progress(uuid)'::regprocedure,
-    'public.get_published_competition_results(uuid)'::regprocedure
+    'public.get_published_competition_results(uuid)'::regprocedure,
+    'public.get_published_competition_category_results(uuid)'::regprocedure
   ] loop
     if has_function_privilege('anon', rpc, 'execute')
        or has_function_privilege('service_role', rpc, 'execute')
@@ -329,6 +380,11 @@ begin
   begin
     perform public.get_published_competition_results('00000000-0000-0000-0000-000000000221');
     raise exception 'Revoked administrator accessed published results';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    perform public.get_published_competition_category_results('00000000-0000-0000-0000-000000000221');
+    raise exception 'Revoked administrator accessed published category results';
   exception when insufficient_privilege then null;
   end;
 end;
