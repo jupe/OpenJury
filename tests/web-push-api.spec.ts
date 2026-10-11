@@ -246,34 +246,35 @@ test("authorized drain delivers competition-specific localized payload and ackno
     p_id: id, p_claim_token: id, p_outcome: "sent",
   });
 
-  test("all phase messages identify the competition and preserve localization and navigation", () => {
-    const messages = {
-      submission: { en: "Submissions are now open.", fi: "Osallistuminen on nyt avoinna." },
-      voting: { en: "Voting is now open.", fi: "Äänestys on nyt avoinna." },
-      results_published: { en: "Competition results are now available.", fi: "Kilpailun tulokset ovat nyt saatavilla." },
-    };
-    for (const [phase, translations] of Object.entries(messages)) {
-      for (const locale of ["en", "fi"] as const) {
-        expect(notification(competitionId, id, phase, locale, "Kesäkuvat")).toEqual({
-          title: "OpenJury", body: `Kesäkuvat: ${translations[locale]}`,
-          url: `/competition/${competitionId}`, tag: `openjury-${competitionId}-${id}`,
-        });
-      }
-    }
-  });
+});
 
-  test("notification names are concise single-line text with safe legacy fallbacks", () => {
-    expect(notification(competitionId, id, "submission", "en", "  Summer\n Photo\t Contest  ").body)
-      .toBe("Summer Photo Contest: Submissions are now open.");
-    expect(notification(competitionId, id, "submission", "en", "📷".repeat(81)).body)
-      .toBe(`${"📷".repeat(79)}…: Submissions are now open.`);
-    for (const name of [undefined, "", " \n\t "]) {
-      expect(notification(competitionId, id, "voting", "en", name).body).toBe("Voting is now open.");
+test("all phase messages identify the competition and preserve localization and navigation", () => {
+  const messages = {
+    submission: { en: "Submissions are now open.", fi: "Osallistuminen on nyt avoinna." },
+    voting: { en: "Voting is now open.", fi: "Äänestys on nyt avoinna." },
+    results_published: { en: "Competition results are now available.", fi: "Kilpailun tulokset ovat nyt saatavilla." },
+  };
+  for (const [phase, translations] of Object.entries(messages)) {
+    for (const locale of ["en", "fi"] as const) {
+      expect(notification(competitionId, id, phase, locale, "Kesäkuvat")).toEqual({
+        title: "OpenJury", body: `Kesäkuvat: ${translations[locale]}`,
+        url: `/competition/${competitionId}`, tag: `openjury-${competitionId}-${id}`,
+      });
     }
-    expect(notification(competitionId, id, "voting", "sv", "Contest").body).toBe("Contest: Voting is now open.");
-    expect(() => notification("invalid", id, "voting", "en", "Contest")).toThrow("Invalid notification");
-    expect(() => notification(competitionId, id, "draft", "en", "Contest")).toThrow("Invalid notification");
-  });
+  }
+});
+
+test("notification names are concise single-line text with safe legacy fallbacks", () => {
+  expect(notification(competitionId, id, "submission", "en", "  Summer\n Photo\t Contest  ").body)
+    .toBe("Summer Photo Contest: Submissions are now open.");
+  expect(notification(competitionId, id, "submission", "en", "📷".repeat(81)).body)
+    .toBe(`${"📷".repeat(79)}…: Submissions are now open.`);
+  for (const name of [undefined, "", " \n\t "]) {
+    expect(notification(competitionId, id, "voting", "en", name).body).toBe("Voting is now open.");
+  }
+  expect(notification(competitionId, id, "voting", "sv", "Contest").body).toBe("Contest: Voting is now open.");
+  expect(() => notification("invalid", id, "voting", "en", "Contest")).toThrow("Invalid notification");
+  expect(() => notification(competitionId, id, "draft", "en", "Contest")).toThrow("Invalid notification");
 });
 
 test("expired devices prune, transient provider failures retry, and revoked membership skips delivery", async () => {
