@@ -121,7 +121,7 @@ test("platform users list shows group roles dates and refreshes after deletion @
     removed = true;
     return route.fulfill({ json: { success: true } });
   });
-  await page.goto("/dashboard");
+  await page.goto("/platform/users");
   const table = page.getByRole("table", { name: "All users (platform admin)" });
   await expect(table).toContainText("robin@example.com");
   await expect(table).toContainText("Baking club · Admin");
@@ -139,12 +139,142 @@ test("ordinary accounts cannot see or request the platform users list", async ({
   await configure(page);
   let listRequests = 0;
   page.on("request", (request) => {
-    if (request.url().includes("/rpc/get_platform_users")) listRequests++;
+    if (/\/rpc\/get_platform_(users|groups)/.test(request.url())) listRequests++;
   });
   await page.goto("/dashboard");
   await expect(page.getByRole("button", { name: "Account (alex@example.com)" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "All users (platform admin)" })).toHaveCount(0);
+  await expect(page.getByLabel("Platform administration", { exact: true })).toHaveCount(0);
+  for (const path of ["/platform/users", "/platform/groups"]) {
+    await page.goto(path);
+    await expect(page.getByRole("heading", { name: "Access denied" })).toBeVisible();
+    await expect(page.getByRole("table")).toHaveCount(0);
+    await expect(page.getByLabel("Platform administration", { exact: true })).toHaveCount(0);
+  }
   expect(listRequests).toBe(0);
+});
+
+for (const locale of ["en", "fi"] as const) {
+  test(`platform administration has its own menu and separate views (${locale}) @mobile`, async ({ page }) => {
+    await configure(page, true);
+    await page.addInitScript((value) => localStorage.setItem("openjury:locale", value), locale);
+    const menuLabel = locale === "fi" ? "Alustan ylläpito" : "Platform administration";
+    const groupsLabel = locale === "fi" ? "Ryhmät" : "Groups";
+    const usersLabel = locale === "fi" ? "Käyttäjät" : "Users";
+    let groupsRequested = 0;
+    let usersRequested = 0;
+    page.on("request", (request) => {
+      if (request.url().includes("/rpc/get_platform_groups")) groupsRequested++;
+      if (request.url().includes("/rpc/get_platform_users")) usersRequested++;
+    });
+    await page.goto("/dashboard");
+    const trigger = page.getByTitle(menuLabel, { exact: true });
+    await expect(trigger).toBeVisible();
+    await expect(page.getByRole("table", { name: /platform admin|alustan ylläpitäjä|palvelun ylläpitäjä/ })).toHaveCount(0);
+    expect(groupsRequested).toBe(0);
+    expect(usersRequested).toBe(0);
+    await trigger.click();
+    const menu = page.getByRole("navigation", { name: menuLabel });
+    await expect(menu.getByRole("link", { name: groupsLabel, exact: true })).toHaveAttribute("href", "/platform/groups");
+    await expect(menu.getByRole("link", { name: usersLabel, exact: true })).toHaveAttribute("href", "/platform/users");
+    await page.keyboard.press("Escape");
+    await expect(menu).not.toBeVisible();
+    await expect(trigger).toBeFocused();
+    await trigger.click();
+    await menu.getByRole("link", { name: usersLabel, exact: true }).click();
+    await expect(page).toHaveURL(/\/platform\/users$/);
+    await expect(page.getByRole("heading", { name: usersLabel, exact: true })).toBeVisible();
+    await expect(page.getByRole("table")).toContainText("robin@example.com");
+    await expect(page.getByRole("table")).toHaveCount(1);
+    expect(groupsRequested).toBe(0);
+    expect(usersRequested).toBe(1);
+    await trigger.click();
+    await expect(menu.getByRole("link", { name: usersLabel, exact: true })).toHaveAttribute("aria-current", "page");
+    await menu.getByRole("link", { name: groupsLabel, exact: true }).click();
+    await expect(page).toHaveURL(/\/platform\/groups$/);
+    await expect(page.getByRole("heading", { name: groupsLabel, exact: true })).toBeVisible();
+    await expect(page.getByText(locale === "fi" ? "Ryhmiä ei ole vielä olemassa." : "No groups exist yet.")).toBeVisible();
+    await expect(page.getByText("robin@example.com")).toHaveCount(0);
+    expect(groupsRequested).toBe(1);
+    expect(usersRequested).toBe(1);
+    await trigger.click();
+    await page.getByRole("button", { name: locale === "fi" ? "Tili (alex@example.com)" : "Account (alex@example.com)" }).click();
+    await expect(menu).not.toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+}
+
+test("platform access checks fail closed without requesting either list", async ({ page }) => {
+  await configure(page, true);
+  let listRequests = 0;
+  page.on("request", (request) => {
+    if (/\/rpc\/get_platform_(users|groups)/.test(request.url())) listRequests++;
+  });
+  for (const failure of ["error", "invalid", "network"]) {
+    await page.route(`${supabaseURL}/rest/v1/rpc/is_platform_admin`, (route) =>
+      failure === "network" ? route.abort() : route.fulfill({
+        status: failure === "error" ? 500 : 200,
+        json: failure === "error" ? { message: "Unavailable" } : "true",
+      }));
+    for (const path of ["/platform/groups", "/platform/users"]) {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { name: "Access denied" })).toBeVisible();
+      await expect(page.getByLabel("Platform administration", { exact: true })).toHaveCount(0);
+      await expect(page.getByRole("table")).toHaveCount(0);
+    }
+  }
+  expect(listRequests).toBe(0);
+});
+
+test("platform views do not load private data while authorization is pending", async ({ page }) => {
+  await configure(page, true);
+  let release: (() => void) | undefined;
+  let listRequests = 0;
+  await page.route(`${supabaseURL}/rest/v1/rpc/is_platform_admin`, async (route) => {
+    await new Promise<void>((resolve) => { release = resolve; });
+    await route.fulfill({ json: false });
+  });
+  page.on("request", (request) => {
+    if (/\/rpc\/get_platform_(users|groups)/.test(request.url())) listRequests++;
+  });
+  await page.goto("/platform/users");
+  await expect(page.getByRole("status")).toHaveText("Checking access…");
+  await expect(page.getByLabel("Platform administration", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("table")).toHaveCount(0);
+  expect(listRequests).toBe(0);
+  await expect.poll(() => !!release).toBe(true);
+  release!();
+  await expect(page.getByRole("heading", { name: "Access denied" })).toBeVisible();
+  expect(listRequests).toBe(0);
+});
+
+test("signed-out visitors cannot see platform views or request their data", async ({ page }) => {
+  await configure(page, true);
+  await page.addInitScript(() => localStorage.removeItem("sb-foundation-auth-token"));
+  let platformRequests = 0;
+  page.on("request", (request) => {
+    if (/\/rpc\/(is_platform_admin|get_platform_users|get_platform_groups)/.test(request.url())) platformRequests++;
+  });
+  for (const path of ["/platform/groups", "/platform/users"]) {
+    await page.goto(path);
+    await expect(page.getByRole("heading", { name: "Sign in to OpenJury" })).toBeVisible();
+    await expect(page.getByRole("table")).toHaveCount(0);
+    await expect(page.getByLabel("Platform administration", { exact: true })).toHaveCount(0);
+  }
+  expect(platformRequests).toBe(0);
+});
+
+test("revoking platform access removes the menu and current view on focus", async ({ page }) => {
+  await configure(page, true);
+  let admin = true;
+  await page.route(`${supabaseURL}/rest/v1/rpc/is_platform_admin`, (route) => route.fulfill({ json: admin }));
+  await page.goto("/platform/users");
+  await expect(page.getByRole("table")).toContainText("robin@example.com");
+  admin = false;
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.getByRole("heading", { name: "Access denied" })).toBeVisible();
+  await expect(page.getByLabel("Platform administration", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("robin@example.com")).toHaveCount(0);
 });
 
 test("platform users pagination requests batches of 100 and allows returning to previous users", async ({ page }) => {
@@ -158,7 +288,7 @@ test("platform users pagination requests batches of 100 and allows returning to 
       created_at: createdAt, last_active_at: null, groups: [],
     })) });
   });
-  await page.goto("/dashboard");
+  await page.goto("/platform/users");
   await expect(page.getByRole("table", { name: "All users (platform admin)" }).getByRole("row")).toHaveCount(101);
   await page.getByRole("button", { name: "Next users" }).click();
   await expect(page.getByText("Page 2", { exact: true })).toBeVisible();
@@ -201,7 +331,7 @@ test("revoked platform administration clears users and hides the list", async ({
       created_at: createdAt, last_active_at: null, groups: [],
     })) });
   });
-  await page.goto("/dashboard");
+  await page.goto("/platform/users");
   await expect(page.getByRole("table", { name: "All users (platform admin)" })).toContainText("person0@example.com");
   admin = false;
   await page.getByRole("button", { name: "Next users" }).click();

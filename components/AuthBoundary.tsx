@@ -8,6 +8,7 @@ import { getEnabledSocialProviders, getSupabase, passwordSignInEnabled, type Soc
 import Button from "@/components/Button";
 import Card from "@/components/Card";
 import AccountMenu from "@/components/AccountMenu";
+import { PlatformAdminMenu, PlatformAdminProvider } from "@/components/PlatformAdmin";
 import DemoToolbar from "@/components/DemoToolbar";
 import SocialProviderIcon from "@/components/SocialProviderIcon";
 import { useLocale } from "@/lib/i18n";
@@ -353,19 +354,22 @@ export default function AuthBoundary({ children, signedOut }: {
       {linkError && <p role="alert">{linkError}</p>}
       {actionError && <p role="alert">{actionError}</p>}
       {session && client ? (
-        <>
-          {accountSlot && createPortal(
-            <AccountMenu key={session.user.id}
-              displayName={typeof session.user.user_metadata.display_name === "string" ? session.user.user_metadata.display_name.trim() : ""}
-              email={session.user.email || session.user.id} signingOut={signingOut} onSignOut={signOut} />,
-            accountSlot,
-          )}
-          {signingOut ? <p role="status">{t("Signing out…")}</p> : (
-            <AuthContext.Provider value={{ client, session, demo }}>
+        <AuthContext.Provider value={{ client, session, demo }}>
+          <PlatformAdminProvider key={`${session.user.id}:${session.access_token}`}>
+            {accountSlot && createPortal(
+              <>
+                <PlatformAdminMenu />
+                <AccountMenu key={session.user.id}
+                  displayName={typeof session.user.user_metadata.display_name === "string" ? session.user.user_metadata.display_name.trim() : ""}
+                  email={session.user.email || session.user.id} signingOut={signingOut} onSignOut={signOut} />
+              </>,
+              accountSlot,
+            )}
+            {signingOut ? <p role="status">{t("Signing out…")}</p> : (
               <div key={`${session.user.id}:${session.access_token}`} className="space-y-6">{children}</div>
-            </AuthContext.Provider>
-          )}
-        </>
+            )}
+          </PlatformAdminProvider>
+        </AuthContext.Provider>
       ) : (
         <>
         {!appMode && signedOut}

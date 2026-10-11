@@ -24,6 +24,14 @@ list target media, delete another account, or read platform-wide identities and
 activity. Shared groups survive erasure; platform admins can recover groups left
 without an admin. See [account management](database.md#account-management).
 
+Platform administration has its own header menu, visible only after
+`is_platform_admin()` succeeds. Its group and user lists live separately at
+`/platform/groups` and `/platform/users`, not on the personal groups dashboard.
+Both views deny access before mounting or requesting their lists when the check
+fails, including direct navigation. Group administrators do not gain platform
+access. The existing platform RPCs enforce authorization in PostgreSQL; the
+browser menu and route gates do not replace those checks.
+
 Migration `03_competition_setup.sql` grants authenticated group members read
 access to their competitions and categories. Competition creation and draft
 updates are restricted to group admins through a security-definer RPC; direct
