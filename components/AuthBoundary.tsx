@@ -3,6 +3,7 @@
 import { createPortal } from "react-dom";
 import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
+import { usePathname } from "next/navigation";
 import { getEnabledSocialProviders, getSupabase, passwordSignInEnabled, type SocialProvider } from "@/lib/supabase";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
@@ -15,6 +16,7 @@ import { removeDevicePush } from "@/lib/push-client";
 // Supabase Auth refuses a new sign-in email to the same address for 60 seconds
 // (GOTRUE_SMTP_MAX_FREQUENCY), and each new link invalidates the previous one.
 const LINK_COOLDOWN_SECONDS = 60;
+const activityRecordedAt = new Map<string, number>();
 
 function isRunningAsApp() {
   return window.matchMedia("(display-mode: standalone)").matches ||
@@ -45,6 +47,7 @@ export default function AuthBoundary({ children, signedOut }: {
   signedOut?: ReactNode;
 }) {
   const { t } = useLocale();
+  const pathname = usePathname();
   const appMode = useSyncExternalStore(subscribeToAppMode, isRunningAsApp, getServerAppMode);
   const [client, setClient] = useState<SupabaseClient>();
   const [session, setSession] = useState<Session | null>(null);
@@ -73,6 +76,30 @@ export default function AuthBoundary({ children, signedOut }: {
   useEffect(() => {
     translate.current = t;
   }, [t]);
+
+  useEffect(() => {
+    if (!client || !session) return;
+    const userId = session.user.id;
+    const record = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - (activityRecordedAt.get(userId) ?? 0) < 60_000) return;
+      activityRecordedAt.set(userId, now);
+      // Activity is informational and must never interrupt authentication.
+      void (async () => {
+        try { await client.rpc("record_my_activity"); } catch {}
+      })();
+    };
+    record();
+    const timer = window.setInterval(record, 60_000);
+    document.addEventListener("visibilitychange", record);
+    window.addEventListener("pageshow", record);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", record);
+      window.removeEventListener("pageshow", record);
+    };
+  }, [client, session, pathname]);
 
   useEffect(() => {
     if (cooldown <= 0) return;

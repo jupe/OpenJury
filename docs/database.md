@@ -196,7 +196,8 @@ Migration `12_roles_and_invites.sql` adds the [roles](architecture.md#roles):
   an invitation for a pending address is allowed so its email can be resent.
 - Group admins list members with `get_group_members()`, change roles with
   `set_group_member_role()`, and remove members with `remove_group_member()`.
-  A group always keeps at least one admin.
+  Membership-management RPCs keep at least one admin; account deletion is an
+  exception so a sole administrator can still erase their account.
 - `competition_participants` records each member's `participant` or `audience`
   role, set through `join_competition()`. `save_submission` requires
   participant; `save_ballot` and `get_blind_voting_entries` require audience.
@@ -205,6 +206,37 @@ Migration `12_roles_and_invites.sql` adds the [roles](architecture.md#roles):
 
 None of these tables are directly writable; members read only their own
 competition role rows.
+
+## Account management
+
+Migration `35_account_management.sql` adds a platform-admin-only
+`get_platform_users(p_offset default 0)` projection, returning 100 accounts per
+page with email, metadata name, creation time, last activity and group names/roles.
+Last activity is the later of Auth's last sign-in time and a best-effort
+`record_my_activity()` heartbeat from a visible signed-in application. It is not
+an audit log; accounts without either timestamp show no recorded activity.
+The activity table has RLS and no direct client access.
+
+`DELETE /api/account` validates the bearer session and accepts a target `userId`.
+Only that user or a configured platform administrator can prepare or delete the
+account. `prepare_account_deletion` marks deletion as pending and blocks further
+submission uploads, then returns only the target's owned or entry-linked media.
+The server removes files through Supabase's Storage API using the server-only
+`SUPABASE_SERVICE_ROLE_KEY`; database deletion refuses to proceed while any
+target media remains. Failed cleanup can be retried, but uploads stay blocked.
+
+`delete_account` removes Auth data, entries (including published result snapshots),
+votes, disqualification records made by or about the account, memberships,
+competition roles, invitations sent by or addressed to the account, queued email,
+push subscriptions/deliveries, activity and the platform-admin email entry.
+Shared groups and competitions remain, with a null group creator where needed.
+A group may lose its sole admin; a platform admin can recover it via the existing
+`platform_admin_join_group` action. Other entrants' previously published scores
+remain snapshots rather than being automatically republished after votes are erased.
+External delivered emails, backups and third-party sign-in accounts are outside
+this live-service deletion operation. Deployment configuration can re-add an
+admin email on a later deploy; remove it from `PLATFORM_ADMIN_EMAILS` for permanent
+revocation. Demo account deletion is disabled because demo personas are fixtures.
 
 ## Admin competition attendees
 

@@ -14,6 +14,16 @@ are revoked; users cannot join arbitrary groups or promote themselves. Migration
 cascades through group-owned data, but groups with disqualification audit records
 cannot be removed so those records remain intact.
 
+Account erasure (migration 35) is an explicit exception to audit retention:
+owners and platform administrators may remove records made by or about that
+account. The bearer-authenticated `/api/account` endpoint authorizes through
+caller-scoped RPCs before using server-only credentials to remove submission
+files via Storage. Uploads are blocked once deletion is prepared, and final
+database erasure fails while private files remain. Unauthorized callers cannot
+list target media, delete another account, or read platform-wide identities and
+activity. Shared groups survive erasure; platform admins can recover groups left
+without an admin. See [account management](database.md#account-management).
+
 Migration `03_competition_setup.sql` grants authenticated group members read
 access to their competitions and categories. Competition creation and draft
 updates are restricted to group admins through a security-definer RPC; direct

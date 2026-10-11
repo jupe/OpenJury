@@ -7,6 +7,7 @@ import Card from "@/components/Card";
 import IconButton from "@/components/IconButton";
 import PushNotifications from "@/components/PushNotifications";
 import Button from "@/components/Button";
+import DeleteAccountDialog, { demoDeletionMessage } from "@/components/DeleteAccountDialog";
 import { failureMessage } from "@/lib/errors";
 import { useLocale } from "@/lib/i18n";
 import { getEnabledSocialProviders, type SocialProvider } from "@/lib/supabase";
@@ -24,6 +25,7 @@ export function ProfileSettings() {
   const [saved, setSaved] = useState(false);
   const [linking, setLinking] = useState(false);
   const [linkError, setLinkError] = useState("");
+  const [deleting, setDeleting] = useState(false);
   const providers = demo ? [] : getEnabledSocialProviders();
 
   async function linkProvider(provider: SocialProvider) {
@@ -115,6 +117,12 @@ export function ProfileSettings() {
         </div>
       </Card>
       <PushNotifications />
+      <Card title={t("Delete your account")} action={<IconButton icon="remove" tone="danger" aria-label={t("Delete your account")} onClick={() => setDeleting(true)} />}>
+        <p>{t("Permanently delete your account and its personal data.")}</p>
+        {demo && <p>{t(demoDeletionMessage)}</p>}
+      </Card>
+      {deleting && <DeleteAccountDialog account={{ id: session.user.id, email: session.user.email, display_name: savedName }}
+        onCancel={() => setDeleting(false)} />}
       {providers.length > 0 && (
         <Card title={t("Linked sign-in services")}>
           <p>{t("Link another service while signed in to keep your groups, entries, and votes in this account, even if its email is different.")}</p>
