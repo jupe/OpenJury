@@ -1073,6 +1073,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
   const [competitionRoles, setCompetitionRoles] = useState<Record<string, CompetitionRoleName>>({});
   const [reviewResults, setReviewResults] = useState<AdminReviewResult[] | null>(null);
   const [reviewCategories, setReviewCategories] = useState<AdminCategoryResult[]>([]);
+  const [competitionCategories, setCompetitionCategories] = useState<Category[]>([]);
   const [competitionStatus, setCompetitionStatus] = useState("");
   const [publishAt, setPublishAt] = useState("");
   const [reasons, setReasons] = useState<Record<string, string>>({});
@@ -1103,6 +1104,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
     setAttendees([]);
     setParticipationProgress(null);
     setReviewResults(null);
+    setCompetitionCategories([]);
     setCompetitionStatus("");
     setCompetition(null);
     setAttempt((value) => value + 1);
@@ -1112,7 +1114,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
     let active = true;
     void (async () => {
       try {
-        const [submissionResult, competitionResult, attendeeResult, participationResult, roleResult, notificationResult, pushResult] = await Promise.all([
+        const [submissionResult, competitionResult, attendeeResult, participationResult, roleResult, notificationResult, pushResult, categoryResult] = await Promise.all([
           client.rpc("get_admin_submissions", { p_competition_id: competitionId }),
           client.from("competitions")
             .select("id,group_id,name,description,rules,max_submission_images,submission_type,allow_participant_voting,status,submission_deadline,voting_deadline,results_publish_at,groups(name)")
@@ -1122,6 +1124,8 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
           client.rpc("get_competition_participants", { p_competition_id: competitionId }),
           client.rpc("get_my_pending_competition_start_emails", { p_competition_id: competitionId }),
           client.rpc("get_my_pending_competition_push", { p_competition_id: competitionId }),
+          client.from("categories").select("id,name,max_score")
+            .eq("competition_id", competitionId).order("name"),
         ]);
         if (!active) return;
         if (submissionResult.error?.code === "42501") {
@@ -1146,6 +1150,10 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
           setError(localizedFailure("Unable to load competition participation progress: {error}", participationResult.error));
           return;
         }
+        if (categoryResult.error) {
+          setError(localizedFailure("Unable to load scoring categories: {error}", categoryResult.error));
+          return;
+        }
         setGroupId(competitionResult.data.group_id);
         setAttendees((attendeeResult.data || []) as CompetitionAttendee[]);
         setParticipationProgress(((participationResult.data || []) as ParticipationProgress[])[0] ?? {
@@ -1159,6 +1167,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
         setCompetitionRoles(Object.fromEntries(((roleResult.data || []) as Array<{ user_id: string; role: CompetitionRoleName }>)
           .map((row) => [row.user_id, row.role])));
         setCompetition(competitionResult.data);
+        setCompetitionCategories((categoryResult.data || []) as Category[]);
         setPublishAt(localDateTime(competitionResult.data.results_publish_at));
         setEntries((submissionResult.data || []) as AdminEntry[]);
         setCompetitionStatus(competitionResult.data.status);
@@ -1572,7 +1581,7 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
               </form>
             ) : (
               <>
-                <CompetitionDetails competition={competition} />
+                <CompetitionDetails competition={competition} categories={competitionCategories} />
                 {!competition.description && !competition.rules && (
                   <p className="text-sm">{t("Description and rules have not been added yet.")}</p>
                 )}
