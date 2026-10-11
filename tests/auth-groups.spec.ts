@@ -1637,6 +1637,9 @@ test("admins edit competition details after opening; members read plain text det
   const saves: Array<Record<string, unknown>> = [];
   let failSave = true;
   await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({ json: [competition] }));
+  await page.route(`${supabaseURL}/rest/v1/categories**`, (route) => route.fulfill({
+    json: [{ id: "category-1", name: "Creativity", max_score: 4 }],
+  }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) => route.fulfill({ json: [] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_my_submission`, (route) => route.fulfill({ json: [] }));
   await page.route(`${supabaseURL}/rest/v1/rpc/save_competition_details`, (route) => {
@@ -1693,6 +1696,8 @@ test("admins edit competition details after opening; members read plain text det
   await page.route(`${supabaseURL}/rest/v1/group_members**`, (route) => route.fulfill({ json: [{ role: "member" }] }));
   await page.goto(`/competition/${competitionId}`);
   await expect(page.getByRole("heading", { name: "Description", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Scoring categories", exact: true })).toBeVisible();
+  await expect(page.getByText("Creativity (4 points)")).toBeVisible();
   await expect(page.getByText("Share your best bakes. Everyone is welcome.")).toBeVisible();
   await expect(page.getByText("<b>No identifying marks.</b> One entry per person.")).toBeVisible();
   await expect(page.locator("main b")).toHaveCount(0);

@@ -87,7 +87,7 @@ function Deadlines({ competition }: { competition: Competition }) {
   );
 }
 
-function CompetitionDetails({ competition }: { competition: Competition }) {
+function CompetitionDetails({ competition, categories }: { competition: Competition; categories: Category[] }) {
   const { t } = useLocale();
   return (
     <>
@@ -101,6 +101,18 @@ function CompetitionDetails({ competition }: { competition: Competition }) {
         <section>
           <h3 className="font-semibold">{t("Rules")}</h3>
           <p className="whitespace-pre-wrap break-words">{competition.rules}</p>
+        </section>
+      )}
+      {categories.length > 0 && (
+        <section>
+          <h3 className="font-semibold">{t("Scoring categories")}</h3>
+          <ul className="list-inside list-disc">
+            {categories.map((category) => (
+              <li key={category.id}>
+                {category.name} <span className="text-sm text-slate-600">({category.max_score} {t("points")})</span>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
     </>
@@ -410,10 +422,8 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
         isBallotOpen
           ? client.rpc("get_blind_voting_entries", { p_competition_id: competitionId })
           : Promise.resolve({ data: [], error: null }),
-        isBallotOpen
-          ? client.from("categories").select("id,name,max_score")
-            .eq("competition_id", competitionId).order("name")
-          : Promise.resolve({ data: [], error: null }),
+        client.from("categories").select("id,name,max_score")
+          .eq("competition_id", competitionId).order("name"),
         isBallotOpen
           ? client.rpc("get_my_ballot", { p_competition_id: competitionId })
           : Promise.resolve({ data: [], error: null }),
@@ -713,7 +723,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
           </div>
         }
       >
-        {(competition.submission_deadline || competition.voting_deadline || competition.description || competition.rules) && (
+        {(competition.submission_deadline || competition.voting_deadline || competition.description || competition.rules || categories.length > 0) && (
           <>
             {(competition.submission_deadline || competition.voting_deadline) && (
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -721,7 +731,7 @@ export function EntryWorkspace({ competitionId }: { competitionId: string }) {
                 {competition.voting_deadline && <p>{t("Voting closes {date}", { date: formatDateTime(competition.voting_deadline) })}</p>}
               </div>
             )}
-            <CompetitionDetails competition={competition} />
+            <CompetitionDetails competition={competition} categories={categories} />
           </>
         )}
       </Card>
