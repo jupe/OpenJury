@@ -168,7 +168,7 @@ for (const locale of ["en", "fi"] as const) {
       if (request.url().includes("/rpc/get_platform_users")) usersRequested++;
     });
     await page.goto("/dashboard");
-    const trigger = page.getByLabel(menuLabel, { exact: true });
+    const trigger = page.getByTitle(menuLabel, { exact: true });
     await expect(trigger).toBeVisible();
     await expect(page.getByRole("table", { name: /platform admin|alustan ylläpitäjä|palvelun ylläpitäjä/ })).toHaveCount(0);
     expect(groupsRequested).toBe(0);
@@ -198,7 +198,7 @@ for (const locale of ["en", "fi"] as const) {
     expect(groupsRequested).toBe(1);
     expect(usersRequested).toBe(1);
     await trigger.click();
-    await page.getByRole("heading", { name: groupsLabel, exact: true }).click();
+    await page.getByRole("button", { name: locale === "fi" ? "Tili (alex@example.com)" : "Account (alex@example.com)" }).click();
     await expect(menu).not.toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
@@ -223,6 +223,28 @@ test("platform access checks fail closed without requesting either list", async 
       await expect(page.getByRole("table")).toHaveCount(0);
     }
   }
+  expect(listRequests).toBe(0);
+});
+
+test("platform views do not load private data while authorization is pending", async ({ page }) => {
+  await configure(page, true);
+  let release: (() => void) | undefined;
+  let listRequests = 0;
+  await page.route(`${supabaseURL}/rest/v1/rpc/is_platform_admin`, async (route) => {
+    await new Promise<void>((resolve) => { release = resolve; });
+    await route.fulfill({ json: false });
+  });
+  page.on("request", (request) => {
+    if (/\/rpc\/get_platform_(users|groups)/.test(request.url())) listRequests++;
+  });
+  await page.goto("/platform/users");
+  await expect(page.getByRole("status")).toHaveText("Checking access…");
+  await expect(page.getByLabel("Platform administration", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("table")).toHaveCount(0);
+  expect(listRequests).toBe(0);
+  await expect.poll(() => !!release).toBe(true);
+  release!();
+  await expect(page.getByRole("heading", { name: "Access denied" })).toBeVisible();
   expect(listRequests).toBe(0);
 });
 

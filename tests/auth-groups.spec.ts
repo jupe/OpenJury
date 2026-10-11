@@ -3058,7 +3058,7 @@ test("platform admins see every group in a table and can take one over @mobile",
   const groups = page.getByRole("table", { name: "Groups", exact: true });
   await expect(groups.getByRole("columnheader", { name: "Group name" })).toBeVisible();
   await expect(groups.getByRole("link", { name: "Baking club" })).toHaveAttribute("href", `/group/${groupId}`);
-  await page.getByLabel("Platform administration", { exact: true }).click();
+  await page.getByTitle("Platform administration", { exact: true }).click();
   await page.getByRole("navigation", { name: "Platform administration" }).getByRole("link", { name: "Groups", exact: true }).click();
   await expect(page).toHaveURL(/\/platform\/groups$/);
   await expect(page.getByRole("heading", { name: "All groups (platform admin)" })).toBeVisible();
