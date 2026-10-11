@@ -3122,7 +3122,8 @@ for (const locale of ["en", "fi"] as const) {
       ? ["Luonnos: 2", "Osallistuminen avoinna: 1", "Äänestys: 1", "Tarkistettavana: 1", "Tulokset julkaistu: 1"]
       : ["Draft: 2", "Open for entries: 1", "Voting: 1", "In review: 1", "Results published: 1"]);
     const empty = table.getByRole("row").filter({ hasText: "Empty club" });
-    await expect(empty).toContainText(locale === "fi" ? "Nimeä ei annettu" : "Name not provided");
+    await expect(empty).toContainText(locale === "fi" ? "Luonut: unnamed@example.invalid" : "Created by: unnamed@example.invalid");
+    await expect(empty).not.toContainText(locale === "fi" ? "Nimeä ei annettu" : "Name not provided");
     await expect(empty).toContainText(locale === "fi" ? "0 kilpailua" : "0 competitions");
     await expect(empty.getByRole("listitem")).toHaveCount(0);
     await page.setViewportSize({ width: 320, height: 568 });
