@@ -105,9 +105,10 @@ empty security-definer search path and authenticated-only execution. It checks
 and only this competition's historical creators/voters, and excludes audit-only
 departed admins. It returns names, current/former roles, and submission/voting
 participation flags, never scores or ballot contents. Trimmed metadata names
-fall back to email only in this admin projection, then to `Participant`, never
-to UUIDs. The published-results RPC appends metadata-only `creator_name` labels
-with a `Participant` fallback; no email fallback is exposed to members.
+fall back to email in this admin projection, then to `Participant`, never to
+UUIDs. Published-results RPCs use the same name priority and fall back to a
+trimmed email before `Participant`, so group members can identify creators
+without profile names.
 Migration `30_admin_participation_progress.sql` adds an authenticated,
 admin-authorized projection of joined/submitted and complete-ballot totals only.
 It does not return individual ballot completion, voter identities, entries, or
