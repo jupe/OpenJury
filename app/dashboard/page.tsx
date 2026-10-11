@@ -1,8 +1,7 @@
 import AuthBoundary from "@/components/AuthBoundary";
 import { GroupList } from "@/components/Groups";
-import { PlatformGroups, ResumePendingInvite } from "@/components/Membership";
+import { ResumePendingInvite } from "@/components/Membership";
 import { LocalizedText } from "@/lib/i18n";
-import PlatformUsers from "@/components/PlatformUsers";
 
 export default function DashboardPage() {
   return (
@@ -11,8 +10,6 @@ export default function DashboardPage() {
       <AuthBoundary>
         <ResumePendingInvite />
         <GroupList />
-        <PlatformGroups />
-        <PlatformUsers />
       </AuthBoundary>
     </>
   );

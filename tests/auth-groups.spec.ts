@@ -3054,10 +3054,14 @@ test("platform admins see every group in a table and can take one over @mobile",
   });
 
   await page.goto("/dashboard");
-  await expect(page.getByRole("heading", { name: "All groups (platform admin)" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "All groups (platform admin)" })).toHaveCount(0);
   const groups = page.getByRole("table", { name: "Groups", exact: true });
   await expect(groups.getByRole("columnheader", { name: "Group name" })).toBeVisible();
   await expect(groups.getByRole("link", { name: "Baking club" })).toHaveAttribute("href", `/group/${groupId}`);
+  await page.getByLabel("Platform administration", { exact: true }).click();
+  await page.getByRole("navigation", { name: "Platform administration" }).getByRole("link", { name: "Groups", exact: true }).click();
+  await expect(page).toHaveURL(/\/platform\/groups$/);
+  await expect(page.getByRole("heading", { name: "All groups (platform admin)" })).toBeVisible();
   const adminGroups = page.getByRole("table", { name: "All groups (platform admin)" });
   await expect(adminGroups.getByRole("columnheader", { name: "Group name" })).toBeVisible();
   await expect(adminGroups.getByRole("columnheader", { name: "Actions" })).toHaveCount(1);
@@ -3082,7 +3086,7 @@ test("platform admins see every group in a table and can take one over @mobile",
   page.once("dialog", (dialog) => void dialog.dismiss());
   await adminGroups.getByRole("button", { name: "Manage Chess club as admin" }).click();
   expect(joined).toBeUndefined();
-  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page).toHaveURL(/\/platform\/groups$/);
   page.once("dialog", (dialog) => void dialog.accept());
   await page.getByRole("button", { name: "Manage Chess club as admin" }).click();
   await expect(page).toHaveURL(new RegExp(`/group/${otherGroup}$`));
@@ -3107,7 +3111,7 @@ for (const locale of ["en", "fi"] as const) {
         created_at: "2026-01-02T03:04:00Z", competition_count: 0, competition_status_counts: {},
       },
     ] }));
-    await page.goto("/dashboard");
+    await page.goto("/platform/groups");
     const table = page.getByRole("table", { name: locale === "fi" ? "Kaikki ryhmät (palvelun ylläpitäjä)" : "All groups (platform admin)" });
     const summary = table.getByRole("row").filter({ hasText: "Summary club" });
     await expect(summary).toContainText(locale === "fi" ? "Luonut: Alex Creator" : "Created by: Alex Creator");
@@ -3149,8 +3153,11 @@ test("group tables fit narrow screens with long names @mobile", async ({ page })
   for (const viewport of [{ width: 320, height: 568 }, { width: 640, height: 360 }]) {
     await page.setViewportSize(viewport);
     await page.goto("/dashboard");
-    await expect(page.getByRole("table")).toHaveCount(2);
+    await expect(page.getByRole("table")).toHaveCount(1);
     await expect(page.getByRole("table", { name: "Groups", exact: true }).getByText("4 competitions", { exact: true })).toBeVisible();
+    await expectPhoneLayout(page);
+    await page.goto("/platform/groups");
+    await expect(page.getByRole("table", { name: "All groups (platform admin)" }).getByRole("row")).toHaveCount(3);
     await expectPhoneLayout(page);
   }
 });
@@ -3159,7 +3166,7 @@ test("platform group empty and error states do not render an empty table", async
   await configure(page, true);
   await page.route(`${supabaseURL}/rest/v1/rpc/is_platform_admin`, (route) => route.fulfill({ json: true }));
   await page.route(`${supabaseURL}/rest/v1/rpc/get_platform_groups`, (route) => route.fulfill({ json: [] }));
-  await page.goto("/dashboard");
+  await page.goto("/platform/groups");
   await expect(page.getByText("No groups exist yet.")).toBeVisible();
   await expect(page.getByRole("table", { name: "All groups (platform admin)" })).toHaveCount(0);
   await page.route(`${supabaseURL}/rest/v1/rpc/get_platform_groups`, (route) => route.fulfill({
@@ -3181,5 +3188,8 @@ test("ordinary members do not see platform administration", async ({ page }) => 
   await page.goto("/dashboard");
   await expect(page.getByRole("link", { name: "Baking club" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "All groups (platform admin)" })).toHaveCount(0);
+  await page.goto("/platform/groups");
+  await expect(page.getByRole("heading", { name: "Access denied" })).toBeVisible();
+  await expect(page.getByLabel("Platform administration", { exact: true })).toHaveCount(0);
   expect(listed).toBe(false);
 });
