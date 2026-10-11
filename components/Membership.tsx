@@ -442,13 +442,15 @@ export function PlatformGroups() {
                   <p className="text-sm">{t("{count} members", { count: group.member_count })} · {t("{count} admins", { count: group.admin_count })}{group.my_role === "admin" ? ` · ${t("You are an admin")}` : group.my_role ? ` · ${t("You are a member")}` : ""}</p>
                   {group.created_at && (
                     <dl className="mt-2 space-y-1 text-sm">
-                      <div>
-                        <dt className="inline font-medium">{t("Created by")}: </dt>
-                        <dd className="inline">
-                          {group.creator_name || t("Name not provided")}
-                          {group.creator_email && <span className="block">{group.creator_email}</span>}
-                        </dd>
-                      </div>
+                      {(group.creator_name || group.creator_email) && (
+                        <div>
+                          <dt className="inline font-medium">{t("Created by")}: </dt>
+                          <dd className="inline">
+                            {group.creator_name || group.creator_email}
+                            {group.creator_name && group.creator_email && <span className="block">{group.creator_email}</span>}
+                          </dd>
+                        </div>
+                      )}
                       <div>
                         <dt className="inline font-medium">{t("Created")}: </dt>
                         <dd className="inline"><time dateTime={group.created_at}>{formatDateTime(group.created_at)}</time></dd>
