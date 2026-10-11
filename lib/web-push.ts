@@ -125,15 +125,17 @@ export async function boundedBody(request: Request): Promise<unknown> {
   }
 }
 
-export function notification(competitionId: string, eventId: string, phase: string, locale: string) {
+export function notification(competitionId: string, eventId: string, phase: string, locale: string, competitionName?: string) {
   const messages: Record<string, { en: string; fi: string }> = {
     submission: { en: "Submissions are now open.", fi: "Osallistuminen on nyt avoinna." },
     voting: { en: "Voting is now open.", fi: "Äänestys on nyt avoinna." },
     results_published: { en: "Competition results are now available.", fi: "Kilpailun tulokset ovat nyt saatavilla." },
   };
   if (!uuidPattern.test(competitionId) || !uuidPattern.test(eventId) || !messages[phase]) throw new Error("Invalid notification");
+  const name = Array.from((competitionName || "").replace(/\s+/g, " ").trim());
+  const shortName = name.length > 80 ? `${name.slice(0, 79).join("")}…` : name.join("");
   return {
-    title: "OpenJury", body: messages[phase][locale === "fi" ? "fi" : "en"],
+    title: "OpenJury", body: `${shortName ? `${shortName}: ` : ""}${messages[phase][locale === "fi" ? "fi" : "en"]}`,
     url: `/competition/${competitionId}`, tag: `openjury-${competitionId}-${eventId}`,
   };
 }
@@ -150,7 +152,7 @@ export async function drainCompetitionPush(
     if (claim.error) return false;
     const row = claim.data?.[0] as {
       id: string; claim_token: string; event_id: string; phase: string;
-      locale: string; subscription: PushSubscription;
+      locale: string; subscription: PushSubscription; competition_name?: string;
     } | undefined;
     if (!row) break;
     if (!validSubscription(row.subscription)) {
@@ -166,7 +168,7 @@ export async function drainCompetitionPush(
     if (active.data === true) {
       try {
         await pushSender.sendNotification(row.subscription,
-          JSON.stringify(notification(competitionId, row.event_id, row.phase, row.locale)), {
+          JSON.stringify(notification(competitionId, row.event_id, row.phase, row.locale, row.competition_name)), {
             vapidDetails, TTL: 3600, urgency: "normal", timeout: Math.min(5_000, budget.deadline - Date.now() - 1_000),
           });
         outcome = "sent";
