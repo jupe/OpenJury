@@ -49,6 +49,8 @@ test("profile deletion requires confirmation and cancel makes no request @mobile
   await expect(dialog).toContainText("alex@example.com");
   await expect(dialog).toContainText("entries, media, votes, memberships, and invites");
   await expect(dialog).toContainText("platform admin can take over");
+  await expect(dialog).toContainText("further submission uploads are blocked, even if cleanup fails");
+  await expect(dialog).toContainText("retry to complete it");
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   expect(deletions).toBe(0);

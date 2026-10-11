@@ -61,6 +61,7 @@ const finnish: Record<string, string> = {
   "Delete your account": "Poista tilisi",
   "Permanently delete your account and its personal data.": "Poista tilisi ja sen henkilötiedot pysyvästi.",
   "Delete account permanently?": "Poistetaanko tili pysyvästi?",
+  "Once deletion starts, further submission uploads are blocked, even if cleanup fails. If deletion fails, retry to complete it.": "Kun poistaminen alkaa, uusien ehdotustiedostojen lataaminen estetään, vaikka tietojen poistaminen epäonnistuisi. Jos poistaminen epäonnistuu, yritä uudelleen suorittaaksesi sen loppuun.",
   "This cannot be undone. The account and its entries, media, votes, memberships, and invites will be permanently removed.": "Tätä ei voi perua. Tili ja sen ehdotukset, mediatiedostot, äänet, jäsenyydet ja kutsut poistetaan pysyvästi.",
   "Shared groups and competitions are retained. A group may be left without an admin; a platform admin can take over its management.": "Yhteiset ryhmät ja kilpailut säilyvät. Ryhmä voi jäädä ilman ylläpitäjää; alustan ylläpitäjä voi ottaa sen hallintaansa.",
   "Account deletion is unavailable in the demo because there is no backend storage to delete.": "Tilin poistaminen ei ole käytettävissä esittelyssä, koska poistettavaa taustapalvelun tallennustilaa ei ole.",

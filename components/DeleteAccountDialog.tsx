@@ -73,6 +73,7 @@ export default function DeleteAccountDialog({ account, onCancel, onDeleted }: {
         <div id={descriptionId} className="space-y-2">
           <p>{t("This cannot be undone. The account and its entries, media, votes, memberships, and invites will be permanently removed.")}</p>
           <p>{t("Shared groups and competitions are retained. A group may be left without an admin; a platform admin can take over its management.")}</p>
+          <p>{t("Once deletion starts, further submission uploads are blocked, even if cleanup fails. If deletion fails, retry to complete it.")}</p>
         </div>
         {demo && <p role="status">{t(demoDeletionMessage)}</p>}
         {error && <p role="alert">{error}</p>}
