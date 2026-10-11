@@ -20,7 +20,7 @@ test("web push database ownership, lifecycle, leases, backoff and revocation", a
     await db.exec(`set role ${role}`);
   };
   const save = (url = endpoint) => db.query("select public.save_my_push_subscription($1,$2,$3,'fi')", [url, keys.publicKey, auth]);
-  const claim = async () => (await db.query<{ id: string; claim_token: string; event_id: string; phase: string; subscription: unknown }>(
+  const claim = async () => (await db.query<{ id: string; claim_token: string; event_id: string; phase: string; subscription: unknown; competition_name: string }>(
     "select * from public.claim_competition_push($1)", [competition])).rows[0];
   try {
     await db.exec(await readFile("lib/demo/supabaseShim.sql", "utf8"));
@@ -67,6 +67,7 @@ test("web push database ownership, lifecycle, leases, backoff and revocation", a
     expect((await db.query("select * from public.pending_competition_push_dispatch()")).rows).toEqual([{ competition_id: competition }]);
     const first = await claim();
     expect(first.phase).toBe("submission");
+    expect(first.competition_name).toBe("Private name");
     expect(first.subscription).toEqual({ endpoint, keys: { p256dh: keys.publicKey, auth } });
     expect(await claim()).toBeUndefined();
     expect((await db.query("select public.finish_competition_push($1,$2,'sent') ok", [first.id, outsider])).rows[0]).toEqual({ ok: false });
@@ -94,6 +95,7 @@ test("web push database ownership, lifecycle, leases, backoff and revocation", a
     await actor(admin, "service_role");
     const third = await claim();
     expect(third.event_id).toBe(second.event_id);
+    expect(third.competition_name).toBe("Private name");
     await actor(member);
     const refreshedAuth = Buffer.alloc(16, 2).toString("base64url");
     await db.query("select public.save_my_push_subscription($1,$2,$3,'fi')", [endpoint, keys.publicKey, refreshedAuth]);
@@ -127,6 +129,7 @@ test("web push database ownership, lifecycle, leases, backoff and revocation", a
     await actor(admin, "service_role");
     const voting = await claim();
     expect(voting.phase).toBe("voting");
+    expect(voting.competition_name).toBe("Private name");
     await db.exec("reset role");
     await db.exec("update public.competition_push_outbox set claimed_until = now() - interval '1 second' where finished_at is null");
     await actor(admin, "service_role");
@@ -139,6 +142,7 @@ test("web push database ownership, lifecycle, leases, backoff and revocation", a
     await actor(admin, "service_role");
     const published = await claim();
     expect(published.phase).toBe("results_published");
+    expect(published.competition_name).toBe("Private name");
     await db.query("select public.finish_competition_push($1,$2,'expired')", [published.id, published.claim_token]);
     expect((await db.query("select public.competition_push_sent($1) ok", [competition])).rows[0]).toEqual({ ok: true });
     await db.exec("reset role");

@@ -293,8 +293,13 @@ Every status change retires unfinished notifications from previous phase
 occurrences, including active leases; claims recheck the current phase before
 delivery. Withdrawing results or closing voting therefore cancels pending
 announcements, rather than delivering stale availability messages.
-Names, entries, and other private details never enter notification payloads.
-Payloads contain `{title:"OpenJury",body:<generic localized phase message>,
+Payloads include the competition name followed by a short localized phase message,
+for example `Summer Photo Contest: Submissions are now open.` Names are kept as
+entered, with whitespace normalized and long names shortened to 80 characters.
+The name is read by the service-only claim RPC; membership is still checked before
+delivery. Competition names may therefore appear on subscribed devices' lock screens;
+entries, participant identities, and other private details are never included.
+Payloads contain `{title:"OpenJury",body:<competition name and localized phase message>,
 url:"/competition/<uuid>",tag:<stable event tag>}`. Unsubscriptions cascade away
 queued work; membership is checked both at claim and immediately before sending.
 A revocation racing with a provider request cannot recall an accepted push.
