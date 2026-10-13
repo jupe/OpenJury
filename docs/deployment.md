@@ -271,12 +271,37 @@ API contracts (all responses have `Cache-Control: no-store`):
 - Bodyless bearer-authenticated `POST /api/competitions/<uuid>/push`: current
   group admins only. Returns `{notificationsSent:boolean}` after authorization.
   `true` means no eligible queue items remain, not proof of device display.
+- Bodyless bearer-authenticated `POST /api/competitions/<uuid>/remind`: current
+  group admins only, after applying `34_competition_reminders.sql`. Queues a
+  state-aware web push reminder and attempts delivery using the same outbox.
+  Returns `{queued:true,phase,recipient_count,next_allowed_at,notificationsSent}`.
+  HTTP 429 means the persistent reminder limit was reached; 409 means the phase
+  is unavailable, its deadline has passed, or there are no eligible subscribers.
+  HTTP 503 means delivery is not configured and nothing is queued.
 - Bodyless `POST /api/push/dispatch`, authenticated with the server-only
   `WEB_PUSH_DISPATCH_SECRET` as bearer token: runs due remote phase transitions
   and scheduled publications, then drains eligible queues across up to ten
   competitions using a shared 50-item/25-second budget. Returns
   `{notificationsSent:boolean}`; invalid secrets return 401 and absent/invalid
   configuration returns 503. Never pass this secret through a browser.
+
+Admins use **Notify members** in competition management. During submissions,
+reminders target group members who have not joined and participants without an
+entry; joined audience members are excluded. During voting, only eligible joined
+voters with incomplete scores are reminded (own entries and disqualified entries
+do not count). Published-results reminders target group members. Drafts, review,
+and expired submission/voting deadlines do not allow reminders. Only members who
+opted into web push receive them; these reminders never send email. Recipient
+eligibility is checked again before delivery. The administrator sending a
+reminder is excluded from its recipients.
+
+Limits are enforced atomically in the database across administrators and phase
+changes: one reminder per competition per hour, three per rolling 24 hours, and
+15 minutes between reminders across the group. No-recipient attempts do not
+consume limits; queued reminders do, even if delivery needs retrying. **Retry push
+notifications** drains existing work without queuing another reminder. The
+scheduled dispatcher also retries it. The UI shows the eligible subscriber count
+and next allowed time; counts refer to members, not their number of devices.
 
 Subscription failures use 400 for invalid JSON/endpoint/keys/locale, 401 for
 missing or invalid sessions, 403 for denied access, 409 for an endpoint owned by

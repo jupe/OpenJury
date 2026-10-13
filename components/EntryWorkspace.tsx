@@ -11,6 +11,7 @@ import Card from "@/components/Card";
 import Podium, { type PodiumPlace } from "@/components/Podium";
 import IconButton, { Icon, IconLink } from "@/components/IconButton";
 import ImageLightbox from "@/components/ImageLightbox";
+import CompetitionReminders from "@/components/CompetitionReminders";
 import Toast, { type ToastMessage } from "@/components/Toast";
 import { StatusBadge, nextTransition, previousTransition } from "@/components/CompetitionStatus";
 import { CompetitionRole, type CompetitionRoleName } from "@/components/Membership";
@@ -1525,6 +1526,12 @@ function AdminSubmissionsView({ competitionId }: { competitionId: string }) {
               <IconButton icon={sendingPush ? "pending" : "retry"} aria-label={t("Retry push notifications")} disabled={sendingPush || transitioning || publishing} onClick={() => void sendPushNotifications()} />
             </div>
           )}
+          <CompetitionReminders
+            competitionId={competitionId}
+            phase={competitionStatus}
+            busy={transitioning || publishing || sendingPush}
+            onPending={setPushPending}
+          />
           {step && (
             <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
               <p className="text-sm font-medium">{t(step.action)}</p>

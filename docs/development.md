@@ -154,7 +154,8 @@ In the Supabase dashboard SQL Editor, run
 `supabase/migrations/31_platform_group_summary.sql`, and
 `supabase/migrations/31_web_push.sql`, and
 `supabase/migrations/32_android_web_push.sql`, and
-`supabase/migrations/33_published_creator_email_fallback.sql`, once each, in
+`supabase/migrations/33_published_creator_email_fallback.sql`, and
+`supabase/migrations/34_competition_reminders.sql`, once each, in
 that order.
 Self-hosted deployments apply them automatically and record each one.
 They expect Supabase's `auth.users` table and API roles and are not intended
@@ -195,6 +196,9 @@ iPhone/iPad Home Screen (iOS/iPadOS 16.4+). Ordinary iOS browser tabs cannot sub
 The service worker only displays notifications; it never caches authenticated
 pages, API responses, or private media. The demo cannot subscribe or send pushes.
 Android Chrome supports the same opt-in from both installed apps and browser tabs.
+Migration 34 adds admin-triggered, state-aware web push reminders with persistent
+competition/group cooldowns. These reminders never send email; see the
+[web push configuration and limits](deployment.md#optional-ios-and-android-web-push).
 The welcome page has English/Finnish step-by-step Home Screen installation guides
 for both platforms; installed Android apps also use the existing sign-in code flow.
 Migration 22 fixes photo upload authorization during Storage's preflight check,

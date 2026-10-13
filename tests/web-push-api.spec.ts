@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { GET, POST as subscribe, DELETE } from "../app/api/push/subscriptions/route";
 import { POST as drain } from "../app/api/competitions/[competitionId]/push/route";
+import { POST as remind } from "../app/api/competitions/[competitionId]/remind/route";
 import { POST as dispatch } from "../app/api/push/dispatch/route";
 import { notification, pushSender, validEndpoint, validSubscription } from "../lib/web-push";
 
@@ -35,6 +36,8 @@ let clockOffset: number;
 let originalNow: typeof Date.now;
 let scheduled: boolean;
 let dispatcherListCalls: number;
+let reminder: boolean;
+let nextAllowedAt: string;
 
 test.beforeEach(() => {
   previous = Object.fromEntries(Object.keys(env).map((name) => [name, process.env[name]]));
@@ -43,6 +46,7 @@ test.beforeEach(() => {
   active = true; claimed = false; complete = true; ack = true; claimError = false; deliveries = 0;
   extraClaims = 0; clockOffset = 0; originalNow = Date.now;
   scheduled = false; dispatcherListCalls = 0;
+  reminder = false; nextAllowedAt = new Date(Date.now() + 3600_000).toISOString();
   originalSend = pushSender.sendNotification;
   pushSender.sendNotification = async (sub, body, options) => {
     deliveries++;
@@ -66,6 +70,12 @@ test.beforeEach(() => {
       return rpcError ? Response.json({ code: rpcError, message: "Private detail" }, { status: 400 })
         : new Response(null, { status: 204 });
     }
+    if (rpc === "queue_competition_reminder") {
+      expect(call.headers.get("apikey")).toBe(env.SUPABASE_ANON_KEY);
+      expect(call.headers.get("authorization")).toBe(["Bearer", "session"].join(" "));
+      return rpcError ? Response.json({ code: rpcError, message: "Private detail" }, { status: 400 })
+        : Response.json([{ phase: "voting", recipient_count: 2, next_allowed_at: nextAllowedAt }]);
+    }
     if (["process_remote_competition_deadlines", "process_scheduled_competition_publications"].includes(rpc!)) {
       scheduled = true;
       expect(call.headers.get("apikey")).toBe(env.SUPABASE_SERVICE_ROLE_KEY);
@@ -76,7 +86,8 @@ test.beforeEach(() => {
       return Response.json(dispatcherListCalls === 1 ? [{ competition_id: competitionId }] : []);
     }
     if (rpc === "all_competition_push_sent") return Response.json(complete);
-    expect(scheduled || calls.some((item) => item.path.endsWith("/authorize_competition_push"))).toBe(true);
+    expect(scheduled || calls.some((item) => item.path.endsWith("/authorize_competition_push")
+      || item.path.endsWith("/queue_competition_reminder"))).toBe(true);
     expect(call.headers.get("apikey")).toBe(env.SUPABASE_SERVICE_ROLE_KEY);
     if (rpc === "claim_competition_push") {
       if (claimError) return Response.json({ message: "Private failure" }, { status: 500 });
@@ -84,7 +95,7 @@ test.beforeEach(() => {
       if (claimed) extraClaims--;
       claimed = true;
       return Response.json([{ id, claim_token: id, event_id: id, phase: "voting", locale: "fi", subscription,
-        competition_name: "Summer Photo Contest" }]);
+        competition_name: "Summer Photo Contest", kind: reminder ? "reminder" : "phase" }]);
     }
     if (rpc === "competition_push_claim_active") return Response.json(active);
     if (rpc === "finish_competition_push") {
@@ -116,6 +127,67 @@ function request(body?: unknown, token = "session") {
 function send(token = "session", target = competitionId) {
   return drain(request(undefined, token), { params: Promise.resolve({ competitionId: target }) });
 }
+
+function sendReminder(token = "session", target = competitionId) {
+  reminder = true;
+  return remind(request(undefined, token), { params: Promise.resolve({ competitionId: target }) });
+}
+
+test("admin reminders queue under caller authorization before service delivery, without email", async () => {
+  const response = await sendReminder();
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(await response.json()).toEqual({ queued: true, notificationsSent: true,
+    phase: "voting", recipient_count: 2, next_allowed_at: nextAllowedAt });
+  expect(calls.find((call) => call.path.endsWith("/queue_competition_reminder"))?.body).toEqual({
+    p_competition_id: competitionId,
+  });
+  expect(deliveries).toBe(1);
+  expect(payload.body).toBe("Summer Photo Contest: Muistutus: viimeistele kilpailuehdotusten pisteytys.");
+  expect(calls.some((call) => /email|start/.test(call.path))).toBe(false);
+});
+
+test("reminder auth, configuration, permissions and cooldown reject without delivery", async () => {
+  expect((await sendReminder("")).status).toBe(401);
+  expect((await sendReminder("session", "bad-id")).status).toBe(400);
+  expect(calls).toEqual([]);
+  authStatus = 401;
+  expect((await sendReminder()).status).toBe(401);
+  authStatus = 200;
+  for (const [code, status] of [["42501", 403], ["54000", 429], ["22023", 409], ["XX000", 502]] as const) {
+    rpcError = code;
+    const response = await sendReminder();
+    expect(response.status).toBe(status);
+    expect(JSON.stringify(await response.json())).not.toContain("Private detail");
+  }
+  expect(deliveries).toBe(0);
+  expect(calls.every((call) => call.headers.get("apikey") === env.SUPABASE_ANON_KEY)).toBe(true);
+  delete process.env.WEB_PUSH_PRIVATE_KEY;
+  const count = calls.length;
+  expect((await sendReminder()).status).toBe(503);
+  expect(calls).toHaveLength(count);
+});
+
+test("queued reminders retain cooldown when delivery fails and use the existing retry outbox", async () => {
+  providerStatus = 503;
+  const response = await sendReminder();
+  expect(await response.json()).toEqual({ queued: true, notificationsSent: false,
+    phase: "voting", recipient_count: 2, next_allowed_at: nextAllowedAt });
+  expect(calls.filter((call) => call.path.endsWith("/queue_competition_reminder"))).toHaveLength(1);
+  expect(calls.find((call) => call.path.endsWith("/finish_competition_push"))?.body.p_outcome).toBe("retry");
+});
+
+test("state-specific reminders localize submission, voting and results messages", () => {
+  for (const phase of ["submission", "voting", "results_published"]) {
+    const en = notification(competitionId, id, phase, "en", "Contest", "reminder");
+    const fi = notification(competitionId, id, phase, "fi", "Contest", "reminder");
+    expect(en.body).toMatch(/^Contest: Reminder:/);
+    expect(fi.body).toMatch(/^Contest: Muistutus:/);
+    expect(en.url).toBe(`/competition/${competitionId}`);
+    expect(fi.tag).toBe(en.tag);
+    expect(en.body).not.toBe(notification(competitionId, id, phase, "en", "Contest").body);
+  }
+});
 
 test("public key response is no-store and never exposes private configuration", async () => {
   const response = GET();

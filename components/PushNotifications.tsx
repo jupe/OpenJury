@@ -116,7 +116,7 @@ export default function PushNotifications() {
     install: "On iOS 16.4 or later, use Share → Add to Home Screen, then open OpenJury from your Home Screen to enable notifications.",
     unsupported: "Notifications require HTTPS and a supported browser: Chrome on Android, or a Home Screen app on iOS 16.4 or later.",
     unconfigured: "Push notifications are not configured or could not be loaded.",
-    ready: enabled ? "Notifications are enabled on this device." : "Receive notifications when submissions open, voting opens, or results are published.",
+    ready: enabled ? "Notifications are enabled on this device." : "Receive competition phase notifications and administrator reminders.",
   };
   return (
     <Card title={t("Notifications")}>

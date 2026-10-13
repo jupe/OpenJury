@@ -125,12 +125,17 @@ export async function boundedBody(request: Request): Promise<unknown> {
   }
 }
 
-export function notification(competitionId: string, eventId: string, phase: string, locale: string, competitionName?: string) {
+export function notification(competitionId: string, eventId: string, phase: string, locale: string, competitionName?: string, kind = "phase") {
   const messages: Record<string, { en: string; fi: string }> = {
     submission: { en: "Submissions are now open.", fi: "Osallistuminen on nyt avoinna." },
     voting: { en: "Voting is now open.", fi: "Äänestys on nyt avoinna." },
     results_published: { en: "Competition results are now available.", fi: "Kilpailun tulokset ovat nyt saatavilla." },
   };
+  if (kind === "reminder") {
+    messages.submission = { en: "Reminder: join the competition and submit your entry.", fi: "Muistutus: liity kilpailuun ja lähetä ehdotuksesi." };
+    messages.voting = { en: "Reminder: finish scoring the competition entries.", fi: "Muistutus: viimeistele kilpailuehdotusten pisteytys." };
+    messages.results_published = { en: "Reminder: view the published competition results.", fi: "Muistutus: katso kilpailun julkaistut tulokset." };
+  }
   if (!uuidPattern.test(competitionId) || !uuidPattern.test(eventId) || !messages[phase]) throw new Error("Invalid notification");
   const name = Array.from((competitionName || "").replace(/\s+/g, " ").trim());
   const shortName = name.length > 80 ? `${name.slice(0, 79).join("")}…` : name.join("");
@@ -152,7 +157,7 @@ export async function drainCompetitionPush(
     if (claim.error) return false;
     const row = claim.data?.[0] as {
       id: string; claim_token: string; event_id: string; phase: string;
-      locale: string; subscription: PushSubscription; competition_name?: string;
+      locale: string; subscription: PushSubscription; competition_name?: string; kind?: string;
     } | undefined;
     if (!row) break;
     if (!validSubscription(row.subscription)) {
@@ -168,7 +173,7 @@ export async function drainCompetitionPush(
     if (active.data === true) {
       try {
         await pushSender.sendNotification(row.subscription,
-          JSON.stringify(notification(competitionId, row.event_id, row.phase, row.locale, row.competition_name)), {
+          JSON.stringify(notification(competitionId, row.event_id, row.phase, row.locale, row.competition_name, row.kind)), {
             vapidDetails, TTL: 3600, urgency: "normal", timeout: Math.min(5_000, budget.deadline - Date.now() - 1_000),
           });
         outcome = "sent";

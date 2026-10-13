@@ -2545,6 +2545,85 @@ test("attendee authorization errors do not expose private admin data", async ({ 
   await expect(page.getByRole("heading", { name: "Competition attendees" })).toHaveCount(0);
 });
 
+test("admin web push reminders adapt to phase and respect cooldowns @mobile", async ({ page }) => {
+  await configure(page, true);
+  let phase = "submission";
+  let recipients = 2;
+  let nextAllowedAt: string | null = null;
+  let requests = 0;
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{ id: secondId, group_id: groupId, name: "Autumn bake-off", status: phase,
+      submission_deadline: null, voting_deadline: null }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_competition_reminder_status`, (route) => route.fulfill({
+    json: [{ phase, recipient_count: recipients, next_allowed_at: nextAllowedAt }],
+  }));
+  await page.route("**/api/competitions/*/remind", (route) => {
+    requests++;
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().headers().authorization).toBe(["Bearer", session().access_token].join(" "));
+    nextAllowedAt = new Date(Date.now() + 3600_000).toISOString();
+    return route.fulfill({ json: { queued: true, notificationsSent: true, phase,
+      recipient_count: recipients, next_allowed_at: nextAllowedAt } });
+  });
+  page.on("dialog", (dialog) => void dialog.accept());
+  await page.goto(`/competition/${secondId}/admin`);
+  const reminder = page.getByRole("region", { name: "Competition reminders" });
+  await expect(reminder.getByText(/who have not joined/)).toBeVisible();
+  await expect(reminder.getByText(/No emails are sent/)).toBeVisible();
+  const button = reminder.getByRole("button", { name: "Notify members", exact: true });
+  await expect(button).toBeEnabled();
+  await button.click();
+  await expect(reminder.getByText("Reminder notifications sent.", { exact: true })).toBeVisible();
+  await expect(button).toBeDisabled();
+  await expect(reminder.getByText(/Next reminder available/)).toBeVisible();
+  expect(requests).toBe(1);
+  await expectPhoneLayout(page);
+  await page.screenshot({ path: "/tmp/openjury-competition-reminders.png", fullPage: true });
+
+  phase = "voting"; nextAllowedAt = null;
+  await page.reload();
+  await expect(reminder.getByText(/who have not scored every available entry/)).toBeVisible();
+  await expect(button).toBeEnabled();
+  recipients = 0;
+  await page.reload();
+  await expect(reminder.getByText("0 member(s) can receive this reminder.", { exact: true })).toBeVisible();
+  await expect(button).toBeDisabled();
+  phase = "results_published";
+  await page.reload();
+  await expect(reminder.getByText("Notify group members that the published results are available.", { exact: true })).toBeVisible();
+  phase = "draft";
+  await page.reload();
+  await expect(reminder).toHaveCount(0);
+});
+
+test("reminder rate-limit responses are localized and never offer an immediate resend", async ({ page }) => {
+  await configure(page, true);
+  await page.addInitScript(() => localStorage.setItem("openjury:locale", "fi"));
+  let limited = false;
+  await page.route(`${supabaseURL}/rest/v1/competitions**`, (route) => route.fulfill({
+    json: [{ id: secondId, group_id: groupId, name: "Autumn bake-off", status: "submission" }],
+  }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_admin_submissions`, (route) => route.fulfill({ json: [] }));
+  await page.route(`${supabaseURL}/rest/v1/rpc/get_competition_reminder_status`, (route) => route.fulfill({
+    json: [{ phase: "submission", recipient_count: 1,
+      next_allowed_at: limited ? new Date(Date.now() + 3600_000).toISOString() : null }],
+  }));
+  await page.route("**/api/competitions/*/remind", (route) => {
+    limited = true;
+    return route.fulfill({ status: 429, json: { error: "Reminder limit reached. Please wait before sending another reminder." } });
+  });
+  page.on("dialog", (dialog) => void dialog.accept());
+  await page.goto(`/competition/${secondId}/admin`);
+  const reminder = page.getByRole("region", { name: "Kilpailumuistutukset" });
+  const button = reminder.getByRole("button", { name: "Ilmoita jäsenille", exact: true });
+  await expect(button).toBeEnabled();
+  await button.click();
+  await expect(reminder.getByRole("alert")).toContainText("Muistutusten raja saavutettu.");
+  await expect(button).toBeDisabled();
+});
+
 test("group lobby shows competition status and offers admins a manage button", async ({ page }) => {
   const competitionId = "33333333-3333-4333-8333-333333333333";
   await configure(page, true);
