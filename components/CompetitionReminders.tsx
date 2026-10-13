@@ -23,6 +23,7 @@ export default function CompetitionReminders({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
   const demo = session.access_token.startsWith("demo-");
 
   useEffect(() => {
@@ -31,7 +32,10 @@ export default function CompetitionReminders({
     async function load() {
       try {
         const result = await client.rpc("get_competition_reminder_status", { p_competition_id: competitionId });
-        if (active) setStatus(result.error ? null : result.data?.[0] ?? null);
+        if (active) {
+          setStatus(result.error ? null : result.data?.[0] ?? null);
+          setNow(Date.now());
+        }
       } catch {
         if (active) setStatus(null);
       }
@@ -42,7 +46,7 @@ export default function CompetitionReminders({
   }, [client, competitionId, phase, demo, attempt]);
 
   if (!descriptions[phase]) return null;
-  const limited = !!status?.next_allowed_at && new Date(status.next_allowed_at).getTime() > Date.now();
+  const limited = !!status?.next_allowed_at && new Date(status.next_allowed_at).getTime() > now;
   const disabled = demo || busy || sending || !status?.phase || !status.recipient_count || limited;
 
   async function send() {
@@ -68,6 +72,7 @@ export default function CompetitionReminders({
         return;
       }
       setStatus({ phase: result.phase, recipient_count: result.recipient_count, next_allowed_at: result.next_allowed_at });
+      setNow(Date.now());
       setMessage(result.notificationsSent === true ? "Reminder notifications sent." : "Reminders queued. Some push notifications are pending. Retry delivery.");
       onPending(result.notificationsSent !== true);
     } catch {
@@ -86,7 +91,7 @@ export default function CompetitionReminders({
       <p className="text-sm text-slate-600">{t("Web push only, to members who enabled notifications. No emails are sent.")}</p>
       <p className="text-sm text-slate-600">{t("At most one reminder per hour and three per 24 hours per competition; 15 minutes between reminders in this group.")}</p>
       {demo ? <p>{t("Reminders are unavailable in the demo.")}</p>
-        : !status ? <p role="status">{t("Reminder availability could not be loaded. Refresh to try again.")}</p>
+        : !status ? <p>{t("Reminder availability could not be loaded. Refresh to try again.")}</p>
           : !status.phase ? <p>{t("Reminders are unavailable after the deadline.")}</p>
             : <p>{t("{count} member(s) can receive this reminder.", { count: status.recipient_count })}</p>}
       {limited && <p role="status">{t("Next reminder available {date}.", { date: formatDateTime(status!.next_allowed_at!) })}</p>}
