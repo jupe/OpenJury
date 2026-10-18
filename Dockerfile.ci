@@ -9,7 +9,7 @@ RUN npm install --global "$(node -p 'require("./package.json").packageManager')"
 
 FROM node:${NODE_VERSION}-bookworm AS tool-node
 
-FROM ubuntu:24.04 AS tools
+FROM ubuntu:25.10 AS tools
 COPY --from=tool-node /usr/local/ /usr/local/
 LABEL org.opencontainers.image.source="https://github.com/jupe/OpenJury"
 ENV CI=true \
