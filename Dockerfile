@@ -1,5 +1,5 @@
 ARG DEPENDENCIES_IMAGE=dependencies
-FROM node:26.10.0-alpine AS node
+FROM node:26.12.1-alpine AS node
 
 FROM node AS dependencies
 WORKDIR /app
